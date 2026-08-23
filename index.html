@@ -52,7 +52,8 @@
         <option value="new_unknown">Ny mätare - oklar</option>
         <option value="seasonal">Säsong / återkommande</option>
         <option value="repaired">Lagad / verifierad</option>
-        <option value="noise">Pump / störning</option>
+        <option value="noise">Pump / fjärrvärme / störning</option>
+        <option value="customer_side">Kundsida efter mätare</option>
         <option value="normal">Normal</option>
       </select>
       <select id="sort">
@@ -92,6 +93,7 @@
           <li>Återkommande årsmönster dämpar varning.</li>
           <li>Ny nivå som stannar höjer risk.</li>
           <li>Facit du klickar in sparas lokalt och påverkar nästa analys.</li>
+          <li>Fjärrvärme, större undercentraler och kundsidelarm vägs separat.</li>
         </ul>
         <h2>Facitcase</h2>
         <div id="labels" class="labels"></div>
@@ -107,7 +109,9 @@
       </div>
       <button id="closeDetail" class="secondary">Stäng</button>
     </div>
-    <canvas id="detailChart" height="110"></canvas>
+    <div class="chart-box">
+      <canvas id="detailChart"></canvas>
+    </div>
     <div id="detailText" class="detail-text"></div>
   </dialog>
 
