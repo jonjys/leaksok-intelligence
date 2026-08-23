@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Läcksök Intelligence</title>
+  <link rel="stylesheet" href="./src/styles.css">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Kamstrup flowIQ 2200 / Leak Detector</p>
+      <h1>Läcksök Intelligence</h1>
+      <p class="lede">Släpp in valfritt antal original-Excel. Appen räknar P, bygger historik per mätare och prioriterar efter kurvbeteende, inte bara högsta värde.</p>
+    </div>
+    <div class="actions">
+      <button id="exportJson" class="secondary">Export facit</button>
+      <button id="resetAll" class="danger">Rensa</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="dropzone" id="dropzone">
+      <input id="fileInput" type="file" multiple accept=".xlsx,.xls,.csv" hidden>
+      <div>
+        <strong>Ladda Excel från Leak Detector</strong>
+        <span>Välj dagens fil, en vecka, 17 filer, gamla månader eller flera år. Headern hittas automatiskt även när Kamstrup-rader ligger överst.</span>
+      </div>
+      <button id="pickFiles">Välj filer</button>
+      <p id="importStatus" class="import-status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="summary" id="summary">
+      <div><b>0</b><span>filer</span></div>
+      <div><b>0</b><span>mätare</span></div>
+      <div><b>0</b><span>åk ut</span></div>
+      <div><b>0</b><span>trolig läcka</span></div>
+      <div><b>0</b><span>säsong/känd</span></div>
+      <div><b>0</b><span>kort historik</span></div>
+    </section>
+
+    <section class="controls">
+      <input id="search" type="search" placeholder="Sök adress, serienummer, område">
+      <select id="filter">
+        <option value="all">Alla listor</option>
+        <option value="dispatch">Åk ut</option>
+        <option value="leak_likely">Trolig läcka</option>
+        <option value="watch">Bevaka</option>
+        <option value="new_high">Ny mätare - hög</option>
+        <option value="new_unknown">Ny mätare - oklar</option>
+        <option value="seasonal">Säsong / återkommande</option>
+        <option value="repaired">Lagad / verifierad</option>
+        <option value="noise">Pump / störning</option>
+        <option value="normal">Normal</option>
+      </select>
+      <select id="sort">
+        <option value="risk">Risk högst först</option>
+        <option value="p">P% högst först</option>
+        <option value="lastJump">Senaste hopp högst först</option>
+        <option value="current">Senaste E högst först</option>
+        <option value="max">Max G högst först</option>
+        <option value="confidence">Säkerhet högst först</option>
+      </select>
+    </section>
+
+    <section class="workspace">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Beslut</th>
+              <th>Adress</th>
+              <th>E/F/P</th>
+              <th>Trend</th>
+              <th>Historik</th>
+              <th>Varför</th>
+              <th>Facit</th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr><td colspan="7" class="empty">Ladda Excel-filer för analys.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <aside class="panel">
+        <h2>Motor</h2>
+        <ul>
+          <li>Dagligt lägsta brusvärde används som kurvpunkt.</li>
+          <li>Absolutvärde räcker inte. Kurvbeteende väger tyngst.</li>
+          <li>Återkommande årsmönster dämpar varning.</li>
+          <li>Ny nivå som stannar höjer risk.</li>
+          <li>Facit du klickar in sparas lokalt och påverkar nästa analys.</li>
+        </ul>
+        <h2>Facitcase</h2>
+        <div id="labels" class="labels"></div>
+      </aside>
+    </section>
+  </main>
+
+  <dialog id="detailDialog">
+    <div class="dialog-head">
+      <div>
+        <h2 id="detailTitle">Mätare</h2>
+        <p id="detailMeta"></p>
+      </div>
+      <button id="closeDetail" class="secondary">Stäng</button>
+    </div>
+    <canvas id="detailChart" height="110"></canvas>
+    <div id="detailText" class="detail-text"></div>
+  </dialog>
+
+  <script src="./src/intelligence.js"></script>
+  <script src="./src/app.js"></script>
+</body>
+</html>
