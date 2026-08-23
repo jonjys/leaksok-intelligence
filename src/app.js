@@ -299,11 +299,11 @@ function scoreMeter(meter) {
   const firstChange = first.current ? (last.current / first.current) - 1 : 0;
   const lastJump = prev && prev.current ? (last.current / prev.current) - 1 : 0;
   const maxSeen = Math.max(...points.map((p) => p.max || p.current));
-  const profile = patternProfile(points);
-  const shortHistory = profile.coverage.days < 30 || points.length < 3;
   const label = state.labels[meter.id];
-  const lowRelativeRise = LeakIntelligence.detectLowRelativeRise(points);
   const infrastructure = infrastructureProfile(meter);
+  const profile = patternProfile(points, infrastructure);
+  const shortHistory = profile.coverage.days < 30 || points.length < 3;
+  const lowRelativeRise = LeakIntelligence.detectLowRelativeRise(points);
   const freshAnomaly = Boolean(
     profile.newLevel
     || lowRelativeRise?.persistent
@@ -323,7 +323,8 @@ function scoreMeter(meter) {
     reasons.push(infrastructure.customerSide ? "LEAK i Excel: troligen kundsida efter mätaren" : "Infokod LEAK");
   }
   if (/dry|torr/i.test(meter.info)) {
-    risk -= 10; reasons.push("DRY/torr i Excel - kontrollera driftstatus innan läcksök");
+    risk -= infrastructure.summerWaterMeter ? 22 : 10;
+    reasons.push(infrastructure.summerWaterMeter ? "DRY/torr: trolig avstängd sommarvattenmätare" : "DRY/torr i Excel - kontrollera driftstatus innan läcksök");
   }
 
   if (last.current >= 80) { risk += 34; reasons.push(`Mycket högt senaste E=${round(last.current)}`); }
@@ -361,6 +362,10 @@ function scoreMeter(meter) {
     risk -= penalty;
     reasons.push("Höghus/större undercentral - kräver annan kontroll på plats");
   }
+  if (infrastructure.summerWaterMeter && !freshAnomaly) {
+    risk -= 18;
+    reasons.push("Sommarvatten/off-season - ska inte läckprioriteras utan ny stark nivå");
+  }
 
   if (shortHistory) {
     risk -= 10;
@@ -382,7 +387,7 @@ function scoreMeter(meter) {
   if ((label?.type === "repaired" && !freshAnomaly) || profile.repairedDrop) category = "repaired";
   else if ((label?.type === "seasonal" && !freshAnomaly) || (profile.repeatedPattern && !freshAnomaly)) category = "seasonal";
   else if (infrastructure.customerSide && !/burst|rörbrott/i.test(meter.info)) category = "customer_side";
-  else if ((label?.type === "pump" && !freshAnomaly) || ((profile.fluctuating || infrastructure.districtHeating || infrastructure.largeSubstation) && !freshAnomaly)) category = "noise";
+  else if ((label?.type === "pump" && !freshAnomaly) || ((profile.fluctuating || infrastructure.districtHeating || infrastructure.largeSubstation || infrastructure.summerWaterMeter) && !freshAnomaly)) category = "noise";
   else if (shortHistory && last.current >= 40) category = "new_high";
   else if (shortHistory) category = "new_unknown";
   else if (lowRelativeRise && last.current < 15 && !profile.slowRise && !/burst|rörbrott|leak|läcka/i.test(meter.info)) category = "watch";
@@ -406,10 +411,11 @@ function infrastructureProfile(meter) {
     && ["BALDERS VÄG", "LOKES VÄG", "ODENS VÄG", "TORS VÄG", "THORS VÄG"].some((name) => text.includes(name))
   );
   const customerSide = /\bLEAK\b|LÄCKA EFTER|KUNDSIDA|EFTER MÄTAREN/i.test(meter.info || "");
-  return { districtHeating, largeSubstation, customerSide };
+  const summerWaterMeter = /SOMMARVATTEN|SOMMAR\s*VATTEN|\bDRY\b|TORR/i.test(meter.info || "");
+  return { districtHeating, largeSubstation, customerSide, summerWaterMeter };
 }
 
-function patternProfile(points) {
+function patternProfile(points, infrastructure = {}) {
   const values = points.map((p) => p.current);
   const mean = avg(values);
   const cv = mean ? stdev(values) / mean : 0;
@@ -429,7 +435,8 @@ function patternProfile(points) {
 
   const warm = avgMonths(months, [4, 5, 6, 7, 8]);
   const cold = avgMonths(months, [9, 10, 11, 0, 1, 2, 3]);
-  const summerWater = avgMonths(months, [3, 4, 5, 6, 7]) > avgMonths(months, [8, 9, 10, 11, 0, 1, 2]) * 1.45;
+  const summerWaterPattern = avgMonths(months, [3, 4, 5, 6, 7]) > avgMonths(months, [8, 9, 10, 11, 0, 1, 2]) * 1.45;
+  const summerWater = Boolean(infrastructure.summerWaterMeter && summerWaterPattern);
   const heating = cold > warm * 1.45 && cold > 12;
   const annualRepeat = LeakIntelligence.detectAnnualRepeat(points);
   const repeatedPattern = Boolean(annualRepeat && (heating || summerWater) && Math.max(...values) < 80);
@@ -442,6 +449,7 @@ function patternProfile(points) {
     cv,
     heating,
     summerWater,
+    summerWaterPattern,
     annualRepeat,
     repeatedPattern,
     fluctuating,
@@ -615,6 +623,7 @@ function tagLine(row) {
   if (row.infrastructure?.districtHeating) tags.push("fjärrvärme");
   if (row.infrastructure?.largeSubstation) tags.push("undercentral/höghus");
   if (row.infrastructure?.customerSide) tags.push("kundsida");
+  if (row.infrastructure?.summerWaterMeter) tags.push("sommarvatten");
   return tags.length ? `<div class="tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : "";
 }
 
@@ -655,7 +664,7 @@ window.openDetail = function openDetail(id) {
   els.detailText.innerHTML = `
     <p><b>Motivering:</b> ${meter.reasons.map(escapeHtml).join(" · ")}</p>
     <p><b>Mönster:</b> värme=${meter.profile.heating ? "ja" : "nej"}, sommarvatten=${meter.profile.summerWater ? "ja" : "nej"}, årsupprepning=${meter.profile.annualRepeat ? `${meter.profile.annualRepeat.months} jämförda månader` : "nej"}, fladdrig=${meter.profile.fluctuating ? "ja" : "nej"}, ny nivå=${meter.profile.newLevel ? "ja" : "nej"}.</p>
-    <p><b>Miljö:</b> fjärrvärme=${meter.infrastructure.districtHeating ? "ja" : "nej"}, undercentral/höghus=${meter.infrastructure.largeSubstation ? "ja" : "nej"}, kundsida=${meter.infrastructure.customerSide ? "ja" : "nej"}.</p>
+    <p><b>Miljö:</b> fjärrvärme=${meter.infrastructure.districtHeating ? "ja" : "nej"}, undercentral/höghus=${meter.infrastructure.largeSubstation ? "ja" : "nej"}, kundsida=${meter.infrastructure.customerSide ? "ja" : "nej"}, sommarvatten=${meter.infrastructure.summerWaterMeter ? "ja" : "nej"}.</p>
   `;
   const ctx = document.getElementById("detailChart");
   if (state.chart) state.chart.destroy();
