@@ -49,6 +49,7 @@ const categoryText = {
   seasonal: "SÄSONG / KÄND",
   repaired: "LAGAD",
   noise: "PUMP / STÖRNING",
+  customer_side: "KUNDSIDA",
   normal: "NORMAL",
 };
 
@@ -302,6 +303,7 @@ function scoreMeter(meter) {
   const shortHistory = profile.coverage.days < 30 || points.length < 3;
   const label = state.labels[meter.id];
   const lowRelativeRise = LeakIntelligence.detectLowRelativeRise(points);
+  const infrastructure = infrastructureProfile(meter);
   const freshAnomaly = Boolean(
     profile.newLevel
     || lowRelativeRise?.persistent
@@ -317,7 +319,11 @@ function scoreMeter(meter) {
     risk += 70; reasons.push("Infokod/rörbrott");
   }
   if (/leak|läcka/i.test(meter.info)) {
-    risk += 40; reasons.push("Infokod LEAK");
+    risk += infrastructure.customerSide ? 24 : 40;
+    reasons.push(infrastructure.customerSide ? "LEAK i Excel: troligen kundsida efter mätaren" : "Infokod LEAK");
+  }
+  if (/dry|torr/i.test(meter.info)) {
+    risk -= 10; reasons.push("DRY/torr i Excel - kontrollera driftstatus innan läcksök");
   }
 
   if (last.current >= 80) { risk += 34; reasons.push(`Mycket högt senaste E=${round(last.current)}`); }
@@ -345,6 +351,17 @@ function scoreMeter(meter) {
   if (profile.fluctuating) { risk -= 12; reasons.push("Fladdrig/pump-lik kurva"); }
   if (profile.repairedDrop) { risk -= 40; reasons.push("Har fallit tillbaka efter hög nivå"); }
 
+  if (infrastructure.districtHeating) {
+    const penalty = freshAnomaly ? 6 : 18;
+    risk -= penalty;
+    reasons.push("Fjärrvärmeområde/känd störkälla - kräver starkare kurvbevis");
+  }
+  if (infrastructure.largeSubstation) {
+    const penalty = freshAnomaly ? 4 : 14;
+    risk -= penalty;
+    reasons.push("Höghus/större undercentral - kräver annan kontroll på plats");
+  }
+
   if (shortHistory) {
     risk -= 10;
     reasons.push(`Kort historik: ${profile.coverage.days} observerade dagar`);
@@ -364,7 +381,8 @@ function scoreMeter(meter) {
   risk = clamp(Math.round(risk), 0, 100);
   if ((label?.type === "repaired" && !freshAnomaly) || profile.repairedDrop) category = "repaired";
   else if ((label?.type === "seasonal" && !freshAnomaly) || (profile.repeatedPattern && !freshAnomaly)) category = "seasonal";
-  else if ((label?.type === "pump" && !freshAnomaly) || (profile.fluctuating && !freshAnomaly)) category = "noise";
+  else if (infrastructure.customerSide && !/burst|rörbrott/i.test(meter.info)) category = "customer_side";
+  else if ((label?.type === "pump" && !freshAnomaly) || ((profile.fluctuating || infrastructure.districtHeating || infrastructure.largeSubstation) && !freshAnomaly)) category = "noise";
   else if (shortHistory && last.current >= 40) category = "new_high";
   else if (shortHistory) category = "new_unknown";
   else if (lowRelativeRise && last.current < 15 && !profile.slowRise && !/burst|rörbrott|leak|läcka/i.test(meter.info)) category = "watch";
@@ -374,7 +392,21 @@ function scoreMeter(meter) {
   else category = "normal";
 
   const confidence = confidenceFor(points, profile);
-  return { ...meter, last, prev, first, pDeviation, firstChange, lastJump, lowRelativeRise, maxSeen, profile, risk, reasons, category, confidence, label };
+  return { ...meter, last, prev, first, pDeviation, firstChange, lastJump, lowRelativeRise, maxSeen, profile, infrastructure, risk, reasons, category, confidence, label };
+}
+
+function infrastructureProfile(meter) {
+  const text = `${meter.address || ""} ${meter.area || ""} ${meter.info || ""}`.toUpperCase();
+  const districtHeating = [
+    "ADLER SALVIUS VÄG",
+    "BLOCKVÄGEN",
+  ].some((name) => text.includes(name));
+  const largeSubstation = (
+    text.includes("NORSBORG")
+    && ["BALDERS VÄG", "LOKES VÄG", "ODENS VÄG", "TORS VÄG", "THORS VÄG"].some((name) => text.includes(name))
+  );
+  const customerSide = /\bLEAK\b|LÄCKA EFTER|KUNDSIDA|EFTER MÄTAREN/i.test(meter.info || "");
+  return { districtHeating, largeSubstation, customerSide };
 }
 
 function patternProfile(points) {
@@ -548,33 +580,42 @@ function renderRows(rows) {
   }
   els.rows.innerHTML = rows.map((r) => `
     <tr>
-      <td>
+      <td data-label="Beslut">
         <span class="pill ${r.category}">${categoryText[r.category]}</span>
         <div class="score">${r.risk}</div>
         <div class="small">säkerhet: ${r.confidence}</div>
       </td>
-      <td>
+      <td data-label="Adress">
         <b>${escapeHtml(r.address || "-")}</b>
         <div class="small">${escapeHtml(r.serial || r.id)} · ${escapeHtml(r.area || "ÖVRIGT")}</div>
+        ${tagLine(r)}
       </td>
-      <td>
+      <td data-label="E/F/P">
         <b>E ${round(r.last.current)}</b> · F ${round(r.last.average)} · G ${round(r.maxSeen)}
         <div class="small">P ${(r.pDeviation * 100).toFixed(0)}%</div>
       </td>
-      <td>
+      <td data-label="Trend">
         <b>${signedPct(r.lastJump)}</b> senast
         <div class="small">${signedPct(r.firstChange)} från första filen</div>
       </td>
-      <td>
+      <td data-label="Historik">
         <svg class="spark" viewBox="0 0 160 42" onclick="openDetail('${escapeAttr(r.id)}')">${sparkPath(r.points)}</svg>
         <div class="small">${r.points.length} punkter · ${r.profile.coverage.days} dagar · ${r.profile.coverage.months} månader · ${r.profile.coverage.seasons} säsonger</div>
       </td>
-      <td>
+      <td data-label="Varför">
         <ul class="reasons">${r.reasons.slice(0, 5).map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
       </td>
-      <td><div class="feedback">${Object.entries(labelTypes).map(([type, text]) => `<button class="secondary" onclick="labelMeter('${escapeAttr(r.id)}','${type}')">${text}</button>`).join("")}</div></td>
+      <td data-label="Facit"><div class="feedback">${Object.entries(labelTypes).map(([type, text]) => `<button class="secondary" onclick="labelMeter('${escapeAttr(r.id)}','${type}')">${text}</button>`).join("")}</div></td>
     </tr>
   `).join("");
+}
+
+function tagLine(row) {
+  const tags = [];
+  if (row.infrastructure?.districtHeating) tags.push("fjärrvärme");
+  if (row.infrastructure?.largeSubstation) tags.push("undercentral/höghus");
+  if (row.infrastructure?.customerSide) tags.push("kundsida");
+  return tags.length ? `<div class="tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : "";
 }
 
 function sparkPath(points) {
@@ -614,6 +655,7 @@ window.openDetail = function openDetail(id) {
   els.detailText.innerHTML = `
     <p><b>Motivering:</b> ${meter.reasons.map(escapeHtml).join(" · ")}</p>
     <p><b>Mönster:</b> värme=${meter.profile.heating ? "ja" : "nej"}, sommarvatten=${meter.profile.summerWater ? "ja" : "nej"}, årsupprepning=${meter.profile.annualRepeat ? `${meter.profile.annualRepeat.months} jämförda månader` : "nej"}, fladdrig=${meter.profile.fluctuating ? "ja" : "nej"}, ny nivå=${meter.profile.newLevel ? "ja" : "nej"}.</p>
+    <p><b>Miljö:</b> fjärrvärme=${meter.infrastructure.districtHeating ? "ja" : "nej"}, undercentral/höghus=${meter.infrastructure.largeSubstation ? "ja" : "nej"}, kundsida=${meter.infrastructure.customerSide ? "ja" : "nej"}.</p>
   `;
   const ctx = document.getElementById("detailChart");
   if (state.chart) state.chart.destroy();
@@ -627,7 +669,40 @@ window.openDetail = function openDetail(id) {
         { label: "Max G", data: meter.points.map((p) => p.max), borderColor: "#ff8a3d", borderDash: [2, 4], tension: .2 },
       ],
     },
-    options: { responsive: true, scales: { y: { beginAtZero: true } } },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: "index" },
+      plugins: {
+        legend: {
+          position: "top",
+          labels: { color: "#d7e0ec", boxWidth: 18, usePointStyle: true },
+        },
+        tooltip: {
+          callbacks: {
+            afterBody(items) {
+              const point = meter.points[items[0].dataIndex];
+              return point?.info ? `Info: ${point.info}` : "";
+            },
+          },
+        },
+      },
+      elements: {
+        line: { borderWidth: 3 },
+        point: { radius: 3, hoverRadius: 6 },
+      },
+      scales: {
+        x: {
+          ticks: { color: "#9da8b6", maxRotation: 35, minRotation: 0 },
+          grid: { color: "rgba(157,168,182,.08)" },
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { color: "#9da8b6" },
+          grid: { color: "rgba(157,168,182,.12)" },
+        },
+      },
+    },
   });
   els.detailDialog.showModal();
 };
