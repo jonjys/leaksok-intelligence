@@ -94,4 +94,16 @@ const districtHeating = context.__engine.scoreMeter(meter(
 assert.equal(districtHeating.infrastructure.districtHeating, true);
 assert.ok(districtHeating.reasons.some((reason) => reason.includes("Fjärrvärmeområde")));
 
+const lignell = context.__engine.scoreMeter(meter(
+  "54366419", "LIGNELLSVÄGEN 29 TUMBA 14743", [51, 47, 107], [91, 86, 84], [252, 252, 252], ""
+));
+assert.equal(lignell.profile.summerWater, false);
+assert.equal(lignell.infrastructure.summerWaterMeter, false);
+
+const drySummerWater = context.__engine.scoreMeter(meter(
+  "99900002", "SOMMARVÄGEN 1 TUMBA 14743", [12, 10, 0], [10, 10, 10], [18, 18, 18], "Dry"
+));
+assert.equal(drySummerWater.infrastructure.summerWaterMeter, true);
+assert.equal(drySummerWater.category, "noise");
+
 console.log("app engine tests: ok");
