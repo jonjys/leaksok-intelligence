@@ -82,4 +82,16 @@ const alhagsvagen = context.__engine.scoreMeter(meter(
 assert.equal(alhagsvagen.category, "repaired");
 assert.ok(!alhagsvagen.reasons.some((reason) => reason.includes("Infokod LEAK")));
 
+const customerSide = context.__engine.scoreMeter(meter(
+  "99900001", "TESTVÄGEN 1 TUMBA 14730", [7, 8, 9], [7, 8, 9], [12, 13, 14], "Leak"
+));
+assert.equal(customerSide.category, "customer_side");
+assert.ok(customerSide.reasons.some((reason) => reason.includes("kundsida")));
+
+const districtHeating = context.__engine.scoreMeter(meter(
+  "23571872", "ADLER SALVIUS VÄG 17 TULLINGE 14654", [50, 52, 54], [18, 18, 17], [170, 170, 170], ""
+));
+assert.equal(districtHeating.infrastructure.districtHeating, true);
+assert.ok(districtHeating.reasons.some((reason) => reason.includes("Fjärrvärmeområde")));
+
 console.log("app engine tests: ok");
