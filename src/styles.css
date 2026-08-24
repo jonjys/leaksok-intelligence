@@ -22,7 +22,7 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
-button, input, select { font: inherit; min-height: 44px; }
+button, input, select, textarea { font: inherit; min-height: 44px; }
 button {
   border: 1px solid transparent;
   background: var(--green);
@@ -101,6 +101,15 @@ input, select {
   border-radius: 8px;
   padding: 11px 12px;
 }
+textarea {
+  width: 100%;
+  resize: vertical;
+  background: #10151c;
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
 
 .workspace {
   display: grid;
@@ -133,6 +142,7 @@ tr:hover td { background: rgba(255,255,255,.025); }
 .watch { background: #3d320f; color: #fff0a8; }
 .new_high { background: #391d42; color: #ead3ff; }
 .new_unknown { background: #25313c; color: #cfe3f7; }
+.learning { background: #25313c; color: #cfe3f7; }
 .seasonal { background: #172f22; color: #bff3d0; }
 .repaired { background: #0f3520; color: #bdf4ca; }
 .noise { background: #25292f; color: #d0d7de; }
@@ -169,6 +179,21 @@ tr:hover td { background: rgba(255,255,255,.025); }
 }
 .feedback { display: flex; gap: 5px; flex-wrap: wrap; }
 .feedback button { padding: 6px 8px; font-size: 12px; }
+.address-line { display: flex; align-items: flex-start; gap: 7px; }
+.address-line b { flex: 1; }
+.copy-address { min-height: 30px; padding: 4px 7px; font-size: 11px; white-space: nowrap; }
+.info-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--blue);
+  border-radius: 50%;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 900;
+}
 
 .panel {
   background: var(--panel);
@@ -204,6 +229,17 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
   min-height: 260px;
 }
 .detail-text { margin-top: 12px; color: #d7e0ec; }
+.detail-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.detail-actions button { min-height: 38px; padding: 7px 10px; font-size: 12px; }
+.form-dialog { width: min(520px, calc(100vw - 28px)); }
+.form-dialog form { display: grid; gap: 14px; }
+.form-dialog label { display: grid; gap: 6px; color: #d7e0ec; font-weight: 700; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-grid fieldset { grid-column: 1 / -1; display: flex; gap: 18px; border: 1px solid var(--line); border-radius: 8px; }
+.form-grid fieldset label { display: flex; align-items: center; gap: 7px; }
+.form-grid input[type="radio"] { width: auto; min-height: auto; }
+.profile-dialog h2 { margin: 0; }
+.profile-dialog .small { margin: -6px 0 0; }
 
 @media (max-width: 900px) {
   .topbar, .dropzone { flex-direction: column; align-items: stretch; }
@@ -216,50 +252,56 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
 @media (max-width: 640px) {
   body { padding-bottom: env(safe-area-inset-bottom); }
   .topbar {
-    gap: 14px;
-    padding-top: 18px;
+    gap: 10px;
+    padding: 14px 12px;
   }
   .eyebrow {
     font-size: 11px;
     line-height: 1.35;
   }
-  h1 { font-size: 34px; }
+  h1 { font-size: 27px; }
   .lede {
-    font-size: 17px;
-    line-height: 1.35;
+    font-size: 14px;
+    line-height: 1.3;
+    margin-top: 5px;
   }
   .actions {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
     width: 100%;
   }
   .dropzone {
-    padding: 16px;
-    gap: 14px;
+    padding: 12px;
+    gap: 9px;
   }
   .dropzone strong {
-    font-size: 19px;
+    font-size: 16px;
     line-height: 1.2;
   }
   .dropzone span {
-    font-size: 16px;
-    line-height: 1.35;
+    font-size: 13px;
+    line-height: 1.3;
   }
+  main { padding: 10px 8px; }
   .summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+    display: flex;
+    overflow-x: auto;
+    gap: 6px;
+    margin: 9px 0;
+    scrollbar-width: none;
   }
+  .summary::-webkit-scrollbar { display: none; }
   .summary div {
-    padding: 12px;
-    min-width: 0;
+    padding: 9px 10px;
+    min-width: 104px;
   }
   .summary b {
-    font-size: 32px;
+    font-size: 24px;
     line-height: 1;
   }
   .summary span {
     display: block;
-    margin-top: 6px;
+    margin-top: 3px;
     line-height: 1.15;
   }
   .controls {
@@ -290,7 +332,7 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--panel2);
-    margin-bottom: 10px;
+    margin-bottom: 7px;
     overflow: hidden;
   }
   td {
@@ -298,7 +340,7 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
     grid-template-columns: 86px minmax(0, 1fr);
     gap: 10px;
     border-bottom: 1px solid rgba(39,48,58,.72);
-    padding: 12px;
+    padding: 9px 10px;
     min-width: 0;
   }
   td:last-child { border-bottom: 0; }
@@ -326,26 +368,43 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
     line-height: 1.15;
   }
   .score {
-    font-size: 30px;
+    font-size: 22px;
     line-height: 1;
     margin-top: 6px;
   }
   .spark {
     width: 100%;
-    max-width: 240px;
-    height: 54px;
+    max-width: none;
+    height: 48px;
   }
   .reasons {
     padding-left: 16px;
     margin-top: 0;
   }
   .feedback button {
-    flex: 1 1 130px;
-    font-size: 12px;
+    flex: 1 1 calc(50% - 5px);
+    font-size: 11px;
+    min-height: 38px;
+    padding: 6px;
   }
-  .panel {
-    padding: 14px;
+  .panel { display: none; }
+  .decision-cell {
+    display: flex;
+    grid-template-columns: none;
+    align-items: center;
+    gap: 8px;
   }
+  .decision-cell::before,
+  .address-cell::before { display: none; }
+  .decision-cell .score { margin: 0 0 0 auto; }
+  .decision-cell .small { white-space: nowrap; }
+  .trend-cell { display: none; }
+  .reason-cell .reasons li:nth-child(n+3) { display: none; }
+  .reason-cell .reasons { font-size: 13px; line-height: 1.25; }
+  .address-line { align-items: center; }
+  .address-line b { font-size: 16px; }
+  .copy-address { min-height: 34px; }
+  .metrics-cell, .history-cell { grid-template-columns: 66px minmax(0, 1fr); }
   dialog {
     width: calc(100vw - 18px);
     max-height: calc(100dvh - 18px);
@@ -363,11 +422,13 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
     padding-inline: 12px;
   }
   .chart-box {
-    height: 270px;
-    min-height: 240px;
+    height: 285px;
+    min-height: 250px;
   }
   .detail-text {
-    font-size: 16px;
-    line-height: 1.35;
+    font-size: 14px;
+    line-height: 1.3;
   }
+  .form-grid { grid-template-columns: 1fr; }
+  .form-grid fieldset { grid-column: auto; }
 }
