@@ -5,6 +5,10 @@ const knownCases = {
     serial: "53843859",
     note: "Bekräftad läcka cirka 50-55 m från servisventilen vid nr 58. Lagad 2026-08-23 cirka 12:30; avläsning 17 kl. 13:01.",
     at: "2026-08-23T12:30:00+02:00",
+    confirmedDate: "2026-08-23",
+    repairedDate: "2026-08-23",
+    distanceMeters: 55,
+    lineType: "SV",
     source: "inbyggt facit",
   },
   "23571762": {
@@ -38,27 +42,37 @@ const state = {
   meters: [],
   labels: loadLabels(),
   chart: null,
+  profileId: null,
+  profileName: null,
 };
 
 const categoryText = {
-  dispatch: "ÅK UT",
-  leak_likely: "TROLIG LÄCKA",
+  dispatch: "TROLIG LÄCKA - ÅK UT",
+  leak_likely: "TROLIG LÄCKA - ÅK UT",
   watch: "BEVAKA",
-  new_high: "NY MÄTARE - HÖG",
-  new_unknown: "NY MÄTARE - OKLAR",
+  learning: "UNDER INLÄRNING",
+  new_high: "UNDER INLÄRNING",
+  new_unknown: "UNDER INLÄRNING",
   seasonal: "SÄSONG / KÄND",
   repaired: "LAGAD",
   noise: "PUMP / STÖRNING",
-  customer_side: "KUNDSIDA",
   normal: "NORMAL",
 };
 
 const labelTypes = {
-  leak: "Bekräftad läcka",
+  leak: "Konstaterad läcka",
   repaired: "Lagad",
   seasonal: "Säsong/känd",
-  pump: "Pump/störning",
-  false_alarm: "Falsklarm",
+  known_noise: "Störning/falsklarm",
+  pump: "Störning/falsklarm",
+  false_alarm: "Störning/falsklarm",
+};
+
+const feedbackButtons = {
+  leak: "Konstaterad läcka",
+  repaired: "Lagad",
+  seasonal: "Säsong/känd",
+  known_noise: "Störning/falsklarm",
 };
 
 const els = {
@@ -79,6 +93,28 @@ const els = {
   detailMeta: document.getElementById("detailMeta"),
   detailText: document.getElementById("detailText"),
   closeDetail: document.getElementById("closeDetail"),
+  profileButton: document.getElementById("profileButton"),
+  profileDialog: document.getElementById("profileDialog"),
+  profileForm: document.getElementById("profileForm"),
+  profileTitle: document.getElementById("profileTitle"),
+  profileHelp: document.getElementById("profileHelp"),
+  profileName: document.getElementById("profileName"),
+  profileCode: document.getElementById("profileCode"),
+  profileStatus: document.getElementById("profileStatus"),
+  feedbackDialog: document.getElementById("feedbackDialog"),
+  feedbackForm: document.getElementById("feedbackForm"),
+  feedbackTitle: document.getElementById("feedbackTitle"),
+  feedbackAddress: document.getElementById("feedbackAddress"),
+  feedbackMeterId: document.getElementById("feedbackMeterId"),
+  feedbackType: document.getElementById("feedbackType"),
+  confirmedDateField: document.getElementById("confirmedDateField"),
+  feedbackDateLabel: document.getElementById("feedbackDateLabel"),
+  confirmedDate: document.getElementById("confirmedDate"),
+  repairFields: document.getElementById("repairFields"),
+  repairedDate: document.getElementById("repairedDate"),
+  distanceMeters: document.getElementById("distanceMeters"),
+  feedbackNote: document.getElementById("feedbackNote"),
+  cancelFeedback: document.getElementById("cancelFeedback"),
 };
 
 els.pickFiles.addEventListener("click", () => els.fileInput.click());
@@ -89,6 +125,10 @@ els.sort.addEventListener("change", render);
 els.closeDetail.addEventListener("click", () => els.detailDialog.close());
 els.resetAll.addEventListener("click", resetAll);
 els.exportJson.addEventListener("click", exportLabels);
+els.profileButton.addEventListener("click", lockProfile);
+els.profileForm.addEventListener("submit", unlockProfile);
+els.feedbackForm.addEventListener("submit", saveFeedback);
+els.cancelFeedback.addEventListener("click", () => els.feedbackDialog.close());
 
 ["dragenter", "dragover"].forEach((name) => {
   els.dropzone.addEventListener(name, (event) => {
@@ -115,6 +155,129 @@ function loadLabels() {
 
 function saveLabels() {
   localStorage.setItem("leaksok-intelligence-labels", JSON.stringify(state.labels));
+  persistState();
+}
+
+function profileConfig() {
+  try {
+    return JSON.parse(localStorage.getItem("leaksok-intelligence-profile") || "null");
+  } catch {
+    return null;
+  }
+}
+
+async function bootstrap() {
+  if (!window.indexedDB || !window.LeakStorage) {
+    render();
+    return;
+  }
+  const config = profileConfig();
+  els.profileTitle.textContent = config ? "Öppna Läcksök" : "Skapa lokal profil";
+  els.profileHelp.textContent = config
+    ? "Ange din kod. Historik och facit ligger kvar på denna enhet."
+    : "Välj namn och minst fyra tecken som kod. Detta låser appen på denna enhet.";
+  els.profileName.value = config?.name || "";
+  els.profileName.readOnly = Boolean(config);
+  els.profileDialog.addEventListener("cancel", (event) => event.preventDefault());
+  els.profileDialog.showModal();
+}
+
+async function unlockProfile(event) {
+  event.preventDefault();
+  const name = els.profileName.value.trim();
+  const code = els.profileCode.value;
+  const config = profileConfig();
+  if (!name || code.length < 4) {
+    els.profileStatus.textContent = "Skriv namn och en kod med minst fyra tecken.";
+    return;
+  }
+
+  const salt = config?.salt || randomSalt();
+  const hash = await hashCode(`${name.toLowerCase()}|${code}|${salt}`);
+  if (config && (config.name.toLowerCase() !== name.toLowerCase() || config.hash !== hash)) {
+    els.profileStatus.textContent = "Fel kod.";
+    return;
+  }
+
+  const nextConfig = config || { name, salt, hash, profileId: profileKey(name) };
+  localStorage.setItem("leaksok-intelligence-profile", JSON.stringify(nextConfig));
+  state.profileId = nextConfig.profileId;
+  state.profileName = nextConfig.name;
+  els.profileButton.textContent = `${state.profileName} · Lås`;
+  els.profileCode.value = "";
+  els.profileStatus.textContent = "";
+
+  try {
+    const snapshot = await window.LeakStorage.load(state.profileId);
+    if (snapshot) {
+      state.files = hydrateFiles(snapshot.files || []);
+      state.labels = { ...knownCases, ...(snapshot.labels || {}) };
+    }
+  } catch (error) {
+    els.importStatus.textContent = `Lokal historik kunde inte öppnas: ${error.message}`;
+  }
+  els.profileDialog.close();
+  analyze();
+  persistState();
+}
+
+function lockProfile() {
+  if (!window.indexedDB || !window.LeakStorage) return;
+  const config = profileConfig();
+  els.profileName.value = config?.name || "";
+  els.profileName.readOnly = Boolean(config);
+  els.profileCode.value = "";
+  els.profileStatus.textContent = "";
+  els.profileDialog.showModal();
+}
+
+async function persistState() {
+  if (!state.profileId || !window.LeakStorage) return;
+  try {
+    await window.LeakStorage.save(state.profileId, {
+      files: state.files,
+      labels: state.labels,
+      savedAt: new Date(),
+    });
+  } catch (error) {
+    els.importStatus.textContent = `Kunde inte spara lokalt: ${error.message}`;
+  }
+}
+
+function hydrateFiles(files) {
+  return files.map((file) => ({
+    ...file,
+    exportDate: new Date(file.exportDate),
+    rows: (file.rows || []).map((row) => ({
+      ...row,
+      exportDate: new Date(row.exportDate),
+      readAt: new Date(row.readAt),
+    })),
+  })).filter((file) => !Number.isNaN(file.exportDate.getTime()));
+}
+
+async function hashCode(value) {
+  if (window.crypto?.subtle) {
+    const bytes = new TextEncoder().encode(value);
+    const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  return String(hash);
+}
+
+function randomSalt() {
+  if (window.crypto?.getRandomValues) {
+    const bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  return `${Date.now()}-${Math.random()}`;
+}
+
+function profileKey(name) {
+  return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "lokal";
 }
 
 async function handleFiles(files) {
@@ -144,6 +307,7 @@ async function handleFiles(files) {
   }
   state.files.sort((a, b) => a.exportDate - b.exportDate);
   analyze();
+  await persistState();
   const meterRows = state.files.reduce((sum, file) => sum + file.rows.length, 0);
   els.importStatus.textContent = `${imported} filer inlästa, ${meterRows.toLocaleString("sv-SE")} mätarrader.${errors.length ? ` Kunde inte läsa ${errors.length}: ${errors.join(" | ")}` : ""}`;
   els.fileInput.value = "";
@@ -204,7 +368,7 @@ async function parseWorkbook(file) {
 }
 
 function findHeaderIndex(rows) {
-  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+  for (let i = 0; i < Math.min(rows.length, 60); i++) {
     const cells = (rows[i] || []).map((value) => String(value || "").toLowerCase());
     const hasAddress = cells.some((cell) => cell.includes("adress") || cell.includes("address"));
     const hasValue = cells.some((cell) => cell.includes("senaste värde") || cell.includes("brus") || cell.includes("value"));
@@ -273,10 +437,12 @@ function analyze() {
     }
   }
 
-  state.meters = [...byId.values()].map((meter) => {
+  const meters = [...byId.values()].map((meter) => {
     meter.points = dedupePoints(meter.points);
-    return scoreMeter(meter);
+    return meter;
   });
+  const sharedContexts = detectSharedSignals(meters);
+  state.meters = meters.map((meter) => scoreMeter(meter, sharedContexts.get(meter.id)));
   render();
 }
 
@@ -289,7 +455,7 @@ function dedupePoints(points) {
   return [...byKey.values()].sort((a, b) => a.date - b.date);
 }
 
-function scoreMeter(meter) {
+function scoreMeter(meter, networkContext = null) {
   const points = meter.points;
   const values = points.map((p) => p.current);
   const last = points[points.length - 1];
@@ -366,6 +532,10 @@ function scoreMeter(meter) {
     risk -= 18;
     reasons.push("Sommarvatten/off-season - ska inte läckprioriteras utan ny stark nivå");
   }
+  if (networkContext?.sharedSignal) {
+    if (freshAnomaly) risk += 6;
+    reasons.push(`Samma kurvrörelse på ${networkContext.meterCount} mätare vid ${networkContext.place} - möjlig gemensam servis före mätarna`);
+  }
 
   if (shortHistory) {
     risk -= 10;
@@ -378,26 +548,78 @@ function scoreMeter(meter) {
   if (label) {
     reasons.unshift(`Facit: ${labelTypes[label.type] || label.type}`);
     if (label.type === "leak") risk += 24;
-    if (label.type === "repaired") risk += freshAnomaly ? -5 : -45;
-    if (label.type === "seasonal" || label.type === "pump" || label.type === "false_alarm") risk -= freshAnomaly ? 8 : 35;
+    if (label.type === "repaired") risk += freshAnomaly ? -20 : -45;
+    if (["seasonal", "known_noise", "pump", "false_alarm"].includes(label.type)) risk -= freshAnomaly ? 8 : 35;
     if (freshAnomaly && label.type !== "leak") reasons.push("Ny ihållande avvikelse trots tidigare facit");
   }
 
   risk = clamp(Math.round(risk), 0, 100);
-  if ((label?.type === "repaired" && !freshAnomaly) || profile.repairedDrop) category = "repaired";
+  const repairAge = label?.repairedDate
+    ? Math.floor((last.date - new Date(`${label.repairedDate}T23:59:59`)) / (24 * 60 * 60 * 1000))
+    : 0;
+  if (label?.type === "leak") category = "dispatch";
+  else if ((label?.type === "repaired" && (!freshAnomaly || repairAge < 7)) || profile.repairedDrop) category = "repaired";
   else if ((label?.type === "seasonal" && !freshAnomaly) || (profile.repeatedPattern && !freshAnomaly)) category = "seasonal";
-  else if (infrastructure.customerSide && !/burst|rörbrott/i.test(meter.info)) category = "customer_side";
-  else if ((label?.type === "pump" && !freshAnomaly) || ((profile.fluctuating || infrastructure.districtHeating || infrastructure.largeSubstation || infrastructure.summerWaterMeter) && !freshAnomaly)) category = "noise";
-  else if (shortHistory && last.current >= 40) category = "new_high";
-  else if (shortHistory) category = "new_unknown";
+  else if ((["known_noise", "pump", "false_alarm"].includes(label?.type) && !freshAnomaly) || ((profile.fluctuating || infrastructure.districtHeating || infrastructure.largeSubstation || infrastructure.summerWaterMeter) && !freshAnomaly)) category = "noise";
+  else if (shortHistory && risk >= 58 && !infrastructure.customerSide) category = "dispatch";
+  else if (shortHistory) category = "learning";
   else if (lowRelativeRise && last.current < 15 && !profile.slowRise && !/burst|rörbrott|leak|läcka/i.test(meter.info)) category = "watch";
-  else if (risk >= 78) category = "dispatch";
-  else if (risk >= 58) category = "leak_likely";
+  else if (risk >= 58 && !infrastructure.customerSide) category = "dispatch";
+  else if (infrastructure.customerSide && risk >= 38) category = "watch";
+  else if (networkContext?.sharedSignal && freshAnomaly) category = "watch";
   else if (risk >= 38 || lowRelativeRise) category = "watch";
   else category = "normal";
 
   const confidence = confidenceFor(points, profile);
-  return { ...meter, last, prev, first, pDeviation, firstChange, lastJump, lowRelativeRise, maxSeen, profile, infrastructure, risk, reasons, category, confidence, label };
+  return { ...meter, last, prev, first, pDeviation, firstChange, lastJump, lowRelativeRise, maxSeen, profile, infrastructure, networkContext, risk, reasons, category, confidence, label };
+}
+
+function detectSharedSignals(meters) {
+  const groups = new Map();
+  const result = new Map();
+  for (const meter of meters) {
+    const key = addressClusterKey(meter.address);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(meter);
+  }
+  for (const [place, group] of groups) {
+    if (group.length < 2) continue;
+    for (const meter of group) {
+      const matching = group.filter((peer) => peer.id !== meter.id && curveCorrelation(meter.points, peer.points) >= 0.65);
+      if (!matching.length) continue;
+      result.set(meter.id, {
+        sharedSignal: true,
+        meterCount: matching.length + 1,
+        place,
+      });
+    }
+  }
+  return result;
+}
+
+function addressClusterKey(address) {
+  const cleaned = cleanText(address).toUpperCase().replace(/\b\d{5}\b/g, "").replace(/\s+/g, " ").trim();
+  const match = cleaned.match(/^(.+?\b\d+)\b/);
+  return match?.[1] || null;
+}
+
+function curveCorrelation(firstPoints, secondPoints) {
+  const secondByDate = new Map(secondPoints.map((point) => [point.date.toISOString().slice(0, 10), point.current]));
+  const pairs = firstPoints
+    .map((point) => [point.current, secondByDate.get(point.date.toISOString().slice(0, 10))])
+    .filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
+  if (pairs.length < 5) return 0;
+  const first = pairs.map((pair) => pair[0]);
+  const second = pairs.map((pair) => pair[1]);
+  const firstMean = avg(first);
+  const secondMean = avg(second);
+  const numerator = first.reduce((sum, value, index) => sum + (value - firstMean) * (second[index] - secondMean), 0);
+  const denominator = Math.sqrt(
+    first.reduce((sum, value) => sum + (value - firstMean) ** 2, 0)
+    * second.reduce((sum, value) => sum + (value - secondMean) ** 2, 0)
+  );
+  return denominator ? numerator / denominator : 0;
 }
 
 function infrastructureProfile(meter) {
@@ -528,7 +750,10 @@ function render() {
   const filter = els.filter.value;
   const sort = els.sort.value;
   let rows = [...state.meters];
-  if (filter !== "all") rows = rows.filter((r) => r.category === filter);
+  if (filter !== "all") rows = rows.filter((r) => {
+    if (filter === "learning") return ["learning", "new_high", "new_unknown"].includes(r.category);
+    return r.category === filter;
+  });
   if (q) {
     rows = rows.filter((r) => `${r.address} ${r.serial} ${r.area}`.toLowerCase().includes(q));
   }
@@ -552,17 +777,17 @@ function renderSummary() {
     files: state.files.length,
     meters: state.meters.length,
     dispatch: state.meters.filter((m) => m.category === "dispatch").length,
-    likely: state.meters.filter((m) => m.category === "leak_likely").length,
+    watch: state.meters.filter((m) => m.category === "watch").length,
     seasonal: state.meters.filter((m) => ["seasonal", "noise", "repaired"].includes(m.category)).length,
-    short: state.meters.filter((m) => ["new_high", "new_unknown"].includes(m.category)).length,
+    short: state.meters.filter((m) => ["learning", "new_high", "new_unknown"].includes(m.category)).length,
   };
   els.summary.innerHTML = `
     <div><b>${counts.files}</b><span>filer</span></div>
     <div><b>${counts.meters}</b><span>mätare</span></div>
     <div><b>${counts.dispatch}</b><span>åk ut</span></div>
-    <div><b>${counts.likely}</b><span>trolig läcka</span></div>
+    <div><b>${counts.watch}</b><span>bevaka</span></div>
     <div><b>${counts.seasonal}</b><span>säsong/känd</span></div>
-    <div><b>${counts.short}</b><span>kort historik</span></div>
+    <div><b>${counts.short}</b><span>under inlärning</span></div>
   `;
 }
 
@@ -576,7 +801,7 @@ function renderLabels() {
     <div class="label-item">
       <b>${labelTypes[label.type] || label.type}</b>
       <div class="small">${escapeHtml(label.address || id)}</div>
-      <div class="small">${escapeHtml(label.note || "")}</div>
+      <div class="small">${escapeHtml(labelSummary(label))}</div>
     </div>
   `).join("");
 }
@@ -588,32 +813,32 @@ function renderRows(rows) {
   }
   els.rows.innerHTML = rows.map((r) => `
     <tr>
-      <td data-label="Beslut">
+      <td data-label="Beslut" class="decision-cell">
         <span class="pill ${r.category}">${categoryText[r.category]}</span>
         <div class="score">${r.risk}</div>
         <div class="small">säkerhet: ${r.confidence}</div>
       </td>
-      <td data-label="Adress">
-        <b>${escapeHtml(r.address || "-")}</b>
+      <td data-label="Adress" class="address-cell">
+        <div class="address-line"><b>${escapeHtml(r.address || "-")}</b>${customerSideMark(r)}<button class="copy-address secondary" title="Kopiera adress" onclick="copyAddress('${escapeAttr(r.id)}', event)">Kopiera</button></div>
         <div class="small">${escapeHtml(r.serial || r.id)} · ${escapeHtml(r.area || "ÖVRIGT")}</div>
         ${tagLine(r)}
       </td>
-      <td data-label="E/F/P">
+      <td data-label="E/F/P" class="metrics-cell">
         <b>E ${round(r.last.current)}</b> · F ${round(r.last.average)} · G ${round(r.maxSeen)}
-        <div class="small">P ${(r.pDeviation * 100).toFixed(0)}%</div>
+        <div class="small">P ${(r.pDeviation * 100).toFixed(0)}% · ${signedPct(r.lastJump)} senast</div>
       </td>
-      <td data-label="Trend">
+      <td data-label="Trend" class="trend-cell">
         <b>${signedPct(r.lastJump)}</b> senast
         <div class="small">${signedPct(r.firstChange)} från första filen</div>
       </td>
-      <td data-label="Historik">
+      <td data-label="Historik" class="history-cell">
         <svg class="spark" viewBox="0 0 160 42" onclick="openDetail('${escapeAttr(r.id)}')">${sparkPath(r.points)}</svg>
         <div class="small">${r.points.length} punkter · ${r.profile.coverage.days} dagar · ${r.profile.coverage.months} månader · ${r.profile.coverage.seasons} säsonger</div>
       </td>
-      <td data-label="Varför">
+      <td data-label="Varför" class="reason-cell">
         <ul class="reasons">${r.reasons.slice(0, 5).map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
       </td>
-      <td data-label="Facit"><div class="feedback">${Object.entries(labelTypes).map(([type, text]) => `<button class="secondary" onclick="labelMeter('${escapeAttr(r.id)}','${type}')">${text}</button>`).join("")}</div></td>
+      <td data-label="Facit" class="feedback-cell"><div class="feedback">${feedbackActions(r.id)}</div></td>
     </tr>
   `).join("");
 }
@@ -622,9 +847,21 @@ function tagLine(row) {
   const tags = [];
   if (row.infrastructure?.districtHeating) tags.push("fjärrvärme");
   if (row.infrastructure?.largeSubstation) tags.push("undercentral/höghus");
-  if (row.infrastructure?.customerSide) tags.push("kundsida");
   if (row.infrastructure?.summerWaterMeter) tags.push("sommarvatten");
+  if (row.networkContext?.sharedSignal) tags.push(`gemensam signal ${row.networkContext.meterCount} mätare`);
   return tags.length ? `<div class="tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : "";
+}
+
+function customerSideMark(row) {
+  return row.infrastructure?.customerSide
+    ? `<span class="info-mark" title="Leak i Excel: läckage efter mätaren, på kundens sida" aria-label="Läckage efter mätaren">i</span>`
+    : "";
+}
+
+function feedbackActions(id) {
+  return Object.entries(feedbackButtons)
+    .map(([type, text]) => `<button class="secondary" onclick="labelMeter('${escapeAttr(id)}','${type}')">${text}</button>`)
+    .join("");
 }
 
 function sparkPath(points) {
@@ -644,17 +881,55 @@ function sparkPath(points) {
 
 window.labelMeter = function labelMeter(id, type) {
   const meter = state.meters.find((m) => m.id === id);
-  const note = prompt("Kort notering, datum, avstånd, vad hittades?", state.labels[id]?.note || "");
-  state.labels[id] = {
-    type,
-    address: meter?.address,
-    serial: meter?.serial,
-    note: note || "",
-    at: new Date().toISOString(),
-  };
-  saveLabels();
-  analyze();
+  if (!meter) return;
+  const existing = state.labels[id] || {};
+  const today = localDate(new Date());
+  els.feedbackMeterId.value = id;
+  els.feedbackType.value = type;
+  els.feedbackTitle.textContent = feedbackButtons[type] || "Facit";
+  els.feedbackAddress.textContent = meter.address || id;
+  els.confirmedDateField.hidden = type === "repaired";
+  els.repairFields.hidden = type !== "repaired";
+  els.feedbackDateLabel.textContent = type === "leak" ? "Datum konstaterad" : "Datum noterat";
+  els.confirmedDate.value = existing.confirmedDate || existing.notedDate || today;
+  els.repairedDate.value = existing.repairedDate || today;
+  els.distanceMeters.value = existing.distanceMeters ?? "";
+  els.feedbackNote.value = existing.note || "";
+  document.querySelectorAll('input[name="lineType"]').forEach((input) => {
+    input.checked = input.value === existing.lineType;
+  });
+  els.feedbackDialog.showModal();
 };
+
+function saveFeedback(event) {
+  event.preventDefault();
+  const id = els.feedbackMeterId.value;
+  const type = els.feedbackType.value;
+  const meter = state.meters.find((item) => item.id === id);
+  const existing = state.labels[id] || {};
+  const lineType = document.querySelector('input[name="lineType"]:checked')?.value || "";
+  const next = {
+    ...existing,
+    type,
+    address: meter?.address || existing.address,
+    serial: meter?.serial || existing.serial,
+    note: els.feedbackNote.value.trim(),
+    at: new Date().toISOString(),
+    source: "fältfacit",
+  };
+  if (type === "leak") next.confirmedDate = els.confirmedDate.value || localDate(new Date());
+  else if (type === "repaired") {
+    next.repairedDate = els.repairedDate.value || localDate(new Date());
+    next.distanceMeters = parseNumber(els.distanceMeters.value);
+    next.lineType = lineType;
+  } else {
+    next.notedDate = els.confirmedDate.value || localDate(new Date());
+  }
+  state.labels[id] = next;
+  saveLabels();
+  els.feedbackDialog.close();
+  analyze();
+}
 
 window.openDetail = function openDetail(id) {
   const meter = state.meters.find((m) => m.id === id);
@@ -662,9 +937,14 @@ window.openDetail = function openDetail(id) {
   els.detailTitle.textContent = meter.address || meter.id;
   els.detailMeta.textContent = `${meter.serial || meter.id} · ${meter.area || "ÖVRIGT"} · risk ${meter.risk} · ${categoryText[meter.category]}`;
   els.detailText.innerHTML = `
+    <div class="detail-actions">
+      <button class="secondary" onclick="copyAddress('${escapeAttr(meter.id)}', event)">Kopiera adress</button>
+      ${feedbackActions(meter.id)}
+    </div>
     <p><b>Motivering:</b> ${meter.reasons.map(escapeHtml).join(" · ")}</p>
-    <p><b>Mönster:</b> värme=${meter.profile.heating ? "ja" : "nej"}, sommarvatten=${meter.profile.summerWater ? "ja" : "nej"}, årsupprepning=${meter.profile.annualRepeat ? `${meter.profile.annualRepeat.months} jämförda månader` : "nej"}, fladdrig=${meter.profile.fluctuating ? "ja" : "nej"}, ny nivå=${meter.profile.newLevel ? "ja" : "nej"}.</p>
-    <p><b>Miljö:</b> fjärrvärme=${meter.infrastructure.districtHeating ? "ja" : "nej"}, undercentral/höghus=${meter.infrastructure.largeSubstation ? "ja" : "nej"}, kundsida=${meter.infrastructure.customerSide ? "ja" : "nej"}, sommarvatten=${meter.infrastructure.summerWaterMeter ? "ja" : "nej"}.</p>
+    <p><b>Mönster:</b> värme=${meter.profile.heating ? "ja" : "nej"}, årsupprepning=${meter.profile.annualRepeat ? `${meter.profile.annualRepeat.months} jämförda månader` : "nej"}, fladdrig=${meter.profile.fluctuating ? "ja" : "nej"}, ny nivå=${meter.profile.newLevel ? "ja" : "nej"}.</p>
+    <p><b>Miljö:</b> fjärrvärme=${meter.infrastructure.districtHeating ? "ja" : "nej"}, undercentral/höghus=${meter.infrastructure.largeSubstation ? "ja" : "nej"}, efter mätaren=${meter.infrastructure.customerSide ? "ja" : "nej"}, sommarvattenmätare=${meter.infrastructure.summerWaterMeter ? "ja" : "nej"}${meter.networkContext?.sharedSignal ? `, gemensam signal på ${meter.networkContext.meterCount} mätare` : ""}.</p>
+    ${meter.label ? `<p><b>Facit:</b> ${escapeHtml(labelTypes[meter.label.type] || meter.label.type)} · ${escapeHtml(labelSummary(meter.label))}</p>` : ""}
   `;
   const ctx = document.getElementById("detailChart");
   if (state.chart) state.chart.destroy();
@@ -673,9 +953,10 @@ window.openDetail = function openDetail(id) {
     data: {
       labels: meter.points.map((p) => p.date.toISOString().slice(0, 10)),
       datasets: [
-        { label: "Senaste värde E", data: meter.points.map((p) => p.current), borderColor: "#2dd36f", tension: .25 },
-        { label: "Genomsnitt F", data: meter.points.map((p) => p.average), borderColor: "#4cb3ff", borderDash: [5, 4], tension: .2 },
-        { label: "Max G", data: meter.points.map((p) => p.max), borderColor: "#ff8a3d", borderDash: [2, 4], tension: .2 },
+        { label: "Brus E", data: meter.points.map((p) => p.current), borderColor: "#2dd36f", backgroundColor: "rgba(45,211,111,.12)", fill: true, tension: .18 },
+        { label: "Utjämnad trend", data: rollingAverage(meter.points.map((p) => p.current)), borderColor: "#f7c948", borderWidth: 2, pointRadius: 0, tension: .28 },
+        { label: "Genomsnitt F", data: meter.points.map((p) => p.average), borderColor: "#4cb3ff", borderDash: [5, 4], tension: .2, hidden: true },
+        { label: "Max G", data: meter.points.map((p) => p.max), borderColor: "#ff8a3d", borderDash: [2, 4], tension: .2, hidden: true },
       ],
     },
     options: {
@@ -685,7 +966,7 @@ window.openDetail = function openDetail(id) {
       plugins: {
         legend: {
           position: "top",
-          labels: { color: "#d7e0ec", boxWidth: 18, usePointStyle: true },
+          labels: { color: "#d7e0ec", boxWidth: 14, usePointStyle: true, padding: 12 },
         },
         tooltip: {
           callbacks: {
@@ -698,11 +979,11 @@ window.openDetail = function openDetail(id) {
       },
       elements: {
         line: { borderWidth: 3 },
-        point: { radius: 3, hoverRadius: 6 },
+        point: { radius: meter.points.length > 40 ? 0 : 2.5, hoverRadius: 6 },
       },
       scales: {
         x: {
-          ticks: { color: "#9da8b6", maxRotation: 35, minRotation: 0 },
+          ticks: { color: "#9da8b6", maxRotation: 0, minRotation: 0, maxTicksLimit: window.innerWidth < 640 ? 5 : 10 },
           grid: { color: "rgba(157,168,182,.08)" },
         },
         y: {
@@ -716,12 +997,36 @@ window.openDetail = function openDetail(id) {
   els.detailDialog.showModal();
 };
 
+window.copyAddress = async function copyAddress(id, event) {
+  event?.stopPropagation?.();
+  const meter = state.meters.find((item) => item.id === id);
+  if (!meter) return;
+  const text = addressForCopy(meter.address);
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const input = document.createElement("textarea");
+    input.value = text;
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand("copy");
+    input.remove();
+  }
+  const button = event?.currentTarget;
+  if (button) {
+    const old = button.textContent;
+    button.textContent = "Kopierad";
+    setTimeout(() => { button.textContent = old; }, 1200);
+  }
+};
+
 function resetAll() {
   if (!confirm("Rensa importerade filer och sparade facit i denna webbläsare?")) return;
   state.files = [];
   state.meters = [];
   state.labels = { ...knownCases };
-  saveLabels();
+  localStorage.removeItem("leaksok-intelligence-labels");
+  if (state.profileId && window.LeakStorage) window.LeakStorage.clear(state.profileId).catch(() => {});
   render();
 }
 
@@ -733,6 +1038,39 @@ function exportLabels() {
   a.download = `leaksok-facit-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function labelSummary(label) {
+  const parts = [];
+  if (label.confirmedDate) parts.push(`konstaterad ${label.confirmedDate}`);
+  if (label.repairedDate) parts.push(`lagad ${label.repairedDate}`);
+  if (Number.isFinite(label.distanceMeters)) parts.push(`ca ${label.distanceMeters} m från mätaren`);
+  if (label.lineType) parts.push(label.lineType);
+  if (label.notedDate) parts.push(label.notedDate);
+  if (label.note) parts.push(label.note);
+  return parts.join(" · ");
+}
+
+function addressForCopy(address) {
+  const text = cleanText(address).replace(/\s+/g, " ");
+  const withoutPostcode = text.replace(/\s+\d{5}\s*$/, "");
+  const areas = ["ALBY", "FITTJA", "TULLINGE", "NORSBORG", "TUMBA", "GRÖDINGE", "UTTRAN"];
+  return withoutPostcode.replace(new RegExp(`\\s+(${areas.join("|")})\\s*$`, "i"), "").trim();
+}
+
+function rollingAverage(values) {
+  const size = values.length >= 30 ? 7 : values.length >= 10 ? 5 : 3;
+  return values.map((_, index) => {
+    const from = Math.max(0, index - size + 1);
+    return avg(values.slice(from, index + 1));
+  });
+}
+
+function localDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function cleanText(value) { return String(value ?? "").trim(); }
@@ -775,4 +1113,4 @@ function escapeHtml(value) {
 }
 function escapeAttr(value) { return escapeHtml(value).replace(/`/g, "&#96;"); }
 
-render();
+bootstrap();
