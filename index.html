@@ -16,6 +16,7 @@
       <p class="lede">Släpp in valfritt antal original-Excel. Appen räknar P, bygger historik per mätare och prioriterar efter kurvbeteende, inte bara högsta värde.</p>
     </div>
     <div class="actions">
+      <button id="profileButton" class="secondary" title="Lås appen">Profil</button>
       <button id="exportJson" class="secondary">Export facit</button>
       <button id="resetAll" class="danger">Rensa</button>
     </div>
@@ -36,24 +37,21 @@
       <div><b>0</b><span>filer</span></div>
       <div><b>0</b><span>mätare</span></div>
       <div><b>0</b><span>åk ut</span></div>
-      <div><b>0</b><span>trolig läcka</span></div>
+      <div><b>0</b><span>bevaka</span></div>
       <div><b>0</b><span>säsong/känd</span></div>
-      <div><b>0</b><span>kort historik</span></div>
+      <div><b>0</b><span>under inlärning</span></div>
     </section>
 
     <section class="controls">
       <input id="search" type="search" placeholder="Sök adress, serienummer, område">
       <select id="filter">
         <option value="all">Alla listor</option>
-        <option value="dispatch">Åk ut</option>
-        <option value="leak_likely">Trolig läcka</option>
+        <option value="dispatch">Trolig läcka - åk ut</option>
         <option value="watch">Bevaka</option>
-        <option value="new_high">Ny mätare - hög</option>
-        <option value="new_unknown">Ny mätare - oklar</option>
+        <option value="learning">Under inlärning</option>
         <option value="seasonal">Säsong / återkommande</option>
         <option value="repaired">Lagad / verifierad</option>
         <option value="noise">Pump / fjärrvärme / störning</option>
-        <option value="customer_side">Kundsida efter mätare</option>
         <option value="normal">Normal</option>
       </select>
       <select id="sort">
@@ -92,8 +90,9 @@
           <li>Absolutvärde räcker inte. Kurvbeteende väger tyngst.</li>
           <li>Återkommande årsmönster dämpar varning.</li>
           <li>Ny nivå som stannar höjer risk.</li>
-          <li>Facit du klickar in sparas lokalt och påverkar nästa analys.</li>
+          <li>Facit och tolkade mätvärden sparas på denna enhet och påverkar nästa analys.</li>
           <li>Fjärrvärme, större undercentraler och kundsidelarm vägs separat.</li>
+          <li>Liknande kurvor på flera mätare vid samma hus pekar mot gemensam servis före mätarna.</li>
         </ul>
         <h2>Facitcase</h2>
         <div id="labels" class="labels"></div>
@@ -115,6 +114,57 @@
     <div id="detailText" class="detail-text"></div>
   </dialog>
 
+  <dialog id="feedbackDialog" class="form-dialog">
+    <form id="feedbackForm">
+      <div class="dialog-head">
+        <div>
+          <h2 id="feedbackTitle">Facit</h2>
+          <p id="feedbackAddress"></p>
+        </div>
+        <button type="button" id="cancelFeedback" class="secondary">Stäng</button>
+      </div>
+      <input id="feedbackMeterId" type="hidden">
+      <input id="feedbackType" type="hidden">
+      <label id="confirmedDateField"><span id="feedbackDateLabel">Datum konstaterad</span>
+        <input id="confirmedDate" type="date">
+      </label>
+      <div id="repairFields" class="form-grid" hidden>
+        <label>Datum lagad
+          <input id="repairedDate" type="date">
+        </label>
+        <label>Ca meter från mätaren
+          <input id="distanceMeters" type="number" min="0" step="1" inputmode="numeric" placeholder="t.ex. 55">
+        </label>
+        <fieldset>
+          <legend>Ledning</legend>
+          <label><input type="radio" name="lineType" value="HV"> HV</label>
+          <label><input type="radio" name="lineType" value="SV"> SV</label>
+        </fieldset>
+      </div>
+      <label>Notering
+        <textarea id="feedbackNote" rows="2" placeholder="Valfritt"></textarea>
+      </label>
+      <button type="submit" id="saveFeedback">Spara facit</button>
+    </form>
+  </dialog>
+
+  <dialog id="profileDialog" class="form-dialog profile-dialog">
+    <form id="profileForm">
+      <p class="eyebrow">Din lokala arbetsyta</p>
+      <h2 id="profileTitle">Öppna Läcksök</h2>
+      <p class="small" id="profileHelp">Namn och kod låser historiken på den här enheten.</p>
+      <label>Namn
+        <input id="profileName" autocomplete="username" required>
+      </label>
+      <label>Kod
+        <input id="profileCode" type="password" inputmode="numeric" autocomplete="current-password" minlength="4" required>
+      </label>
+      <p id="profileStatus" class="import-status" role="status"></p>
+      <button type="submit">Öppna</button>
+    </form>
+  </dialog>
+
+  <script src="./src/storage.js"></script>
   <script src="./src/intelligence.js"></script>
   <script src="./src/app.js"></script>
 </body>
