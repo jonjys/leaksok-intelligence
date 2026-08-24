@@ -38,7 +38,7 @@ const context = {
 };
 vm.createContext(context);
 const source = fs.readFileSync(require.resolve("../src/app.js"), "utf8");
-vm.runInContext(`${source}\n;globalThis.__engine = { scoreMeter };`, context);
+vm.runInContext(`${source}\n;globalThis.__engine = { state, scoreMeter, detectSharedSignals, addressForCopy, labelSummary };`, context);
 
 function meter(serial, address, values, averages, maxes, info = "") {
   const start = new Date("2026-07-01T06:00:00");
@@ -85,7 +85,8 @@ assert.ok(!alhagsvagen.reasons.some((reason) => reason.includes("Infokod LEAK"))
 const customerSide = context.__engine.scoreMeter(meter(
   "99900001", "TESTVÄGEN 1 TUMBA 14730", [7, 8, 9], [7, 8, 9], [12, 13, 14], "Leak"
 ));
-assert.equal(customerSide.category, "customer_side");
+assert.equal(customerSide.category, "normal");
+assert.equal(customerSide.infrastructure.customerSide, true);
 assert.ok(customerSide.reasons.some((reason) => reason.includes("kundsida")));
 
 const districtHeating = context.__engine.scoreMeter(meter(
@@ -105,5 +106,54 @@ const drySummerWater = context.__engine.scoreMeter(meter(
 ));
 assert.equal(drySummerWater.infrastructure.summerWaterMeter, true);
 assert.equal(drySummerWater.category, "noise");
+
+const newVeryHigh = {
+  id: "99900003",
+  serial: "99900003",
+  address: "TESTVÄGEN 3 TUMBA 14730",
+  area: "TUMBA",
+  info: "",
+  points: [{
+    date: new Date("2026-08-24T06:00:00"), readAt: new Date("2026-08-24T06:00:00"),
+    current: 800, average: 100, max: 800, info: "", source: "today.xlsx",
+  }],
+};
+assert.equal(context.__engine.scoreMeter(newVeryHigh).category, "dispatch");
+
+context.__engine.state.labels["99900004"] = {
+  type: "repaired",
+  repairedDate: "2026-08-23",
+  address: "TESTVÄGEN 4 TUMBA 14730",
+};
+const justRepaired = context.__engine.scoreMeter(meter(
+  "99900004", "TESTVÄGEN 4 TUMBA 14730", [20, 80, 80], [20, 20, 20], [90, 90, 90], ""
+));
+assert.equal(justRepaired.category, "repaired");
+
+assert.equal(
+  context.__engine.addressForCopy("NORDANVÄGEN 11 D TULLINGE 14640"),
+  "NORDANVÄGEN 11 D"
+);
+
+const sharedDates = [0, 7, 14, 21, 28, 35].map((days) => new Date(new Date("2026-06-01T06:00:00").getTime() + days * 86400000));
+function sharedMeter(id, address, values) {
+  return {
+    id,
+    address,
+    points: values.map((current, index) => ({ date: sharedDates[index], current })),
+  };
+}
+const shared = context.__engine.detectSharedSignals([
+  sharedMeter("a", "NORDANVÄGEN 11 A TULLINGE 14640", [20, 30, 40, 80, 120, 90]),
+  sharedMeter("b", "NORDANVÄGEN 11 B TULLINGE 14640", [18, 28, 38, 75, 110, 85]),
+  sharedMeter("c", "NORDANVÄGEN 11 C TULLINGE 14640", [22, 31, 43, 82, 118, 92]),
+]);
+assert.equal(shared.get("a").meterCount, 3);
+assert.equal(shared.get("a").place, "NORDANVÄGEN 11");
+
+assert.equal(
+  context.__engine.labelSummary({ confirmedDate: "2026-08-20", repairedDate: "2026-08-23", distanceMeters: 55, lineType: "SV" }),
+  "konstaterad 2026-08-20 · lagad 2026-08-23 · ca 55 m från mätaren · SV"
+);
 
 console.log("app engine tests: ok");
