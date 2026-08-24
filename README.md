@@ -18,15 +18,16 @@ Målet är inte en snygg Excel-visare. Målet är en smart läckdomare:
    - hur många dagar och avläsningar den nya nivån har hållit
    - återgång efter lagning
 5. Appen låter fältperson markera facit:
-   - bekräftad läcka
-   - lagad
+   - konstaterad läcka med datum
+   - lagad med datum, avstånd från mätaren och HV/SV
    - säsong/känd
-   - pump/störning
-   - falsklarm
+   - störning/falsklarm
 
-Facit sparas i webbläsarens localStorage och kan exporteras som JSON.
+Facit och tolkade mätvärden sparas i webbläsarens IndexedDB och kan återanvändas utan att originalfilerna laddas upp på nytt. En enkel namn- och kodruta fungerar som enhetslås. Det är lokal lagring på samma webbläsare, inte molnsynk eller en serverbaserad säker inloggning.
 
 Fyra verkliga startfacit följer med motorn: Alhagsvägen 58-60 (bekräftad och lagad), Alice Tegnérs väg 23 (värmepanna/säsong), Broängsvägen 22 (lagad) och Vattravägen 8 (aktivt exempel). Ett gammalt facit blockerar inte en ny varning om mätaren senare får en ny ihållande avvikelse.
+
+Flera starkt korrelerade kurvor på samma husnummer markeras som möjlig gemensam servis före mätarna. `Leak` i Excel visas som ett diskret informationstecken för läckage efter mätaren och blir inte en egen arbetslista. `Dry` används som tecken på avstängd sommarvattenmätare och ska inte automatiskt bli läckprioritet.
 
 ## Kamstrup-principer som motorn följer
 
