@@ -39,7 +39,7 @@
       <div><b>0</b><span>åk ut</span></div>
       <div><b>0</b><span>bevaka</span></div>
       <div><b>0</b><span>konstaterade</span></div>
-      <div><b>0</b><span>lagad/känd</span></div>
+      <div><b>0</b><span>lagad/störning</span></div>
       <div><b>0</b><span>under inlärning</span></div>
     </section>
 
@@ -51,9 +51,9 @@
         <option value="confirmed">Konstaterade läckor</option>
         <option value="watch">Bevaka</option>
         <option value="learning">Under inlärning</option>
-        <option value="seasonal">Säsong / återkommande</option>
+        <option value="seasonal">Störning / annat</option>
         <option value="repaired">Lagad / verifierad</option>
-        <option value="noise">Pump / fjärrvärme / störning</option>
+        <option value="noise">Falsklarm / störning</option>
         <option value="normal">Normal</option>
       </select>
       <select id="sort">
@@ -68,11 +68,11 @@
     <section class="bulk-actions" id="bulkActions" hidden>
       <span id="bulkCount">0 träffar</span>
       <select id="bulkType">
-        <option value="seasonal">Säsong / värmepanna</option>
-        <option value="known_noise">Störning / falsklarm</option>
+        <option value="seasonal">Störning / annat</option>
+        <option value="known_noise">Falsklarm / annat</option>
         <option value="district_heating">Fjärrvärme</option>
-        <option value="large_building">Industri / stor byggnad</option>
-        <option value="pump">Pump / undercentral</option>
+        <option value="large_building">Höghus / stor byggnad</option>
+        <option value="pump">Undercentral / pumpar</option>
       </select>
       <button id="bulkSave" class="secondary">Lägg träffar i vald lista</button>
     </section>
@@ -143,14 +143,19 @@
       </label>
       <fieldset id="confirmedFields">
         <legend>Ledning</legend>
+        <label><input type="radio" name="lineType" value="AV"> AV</label>
         <label><input type="radio" name="lineType" value="SV"> SV</label>
-        <label><input type="radio" name="lineType" value="KV"> KV</label>
         <label><input type="radio" name="lineType" value="vet ej"> Vet ej</label>
       </fieldset>
       <div id="repairFields" class="form-grid" hidden>
         <label>Datum lagad
           <input id="repairedDate" type="date">
         </label>
+        <fieldset id="repairLineFields">
+          <legend>Ledning</legend>
+          <label><input type="radio" name="repairLineType" value="AV"> AV</label>
+          <label><input type="radio" name="repairLineType" value="SV"> SV</label>
+        </fieldset>
         <label>Ca meter från mätaren
           <input id="distanceMeters" type="number" min="0" step="1" inputmode="numeric" placeholder="t.ex. 55">
         </label>
@@ -161,11 +166,11 @@
       <div id="noiseFields" hidden>
         <fieldset>
           <legend>Typ</legend>
-          <label><input type="checkbox" name="noiseTag" value="säsong/värmepanna"> Säsong / värmepanna</label>
-          <label><input type="checkbox" name="noiseTag" value="störning"> Störning</label>
+          <label><input type="checkbox" name="noiseTag" value="värmepanna"> Värmepanna</label>
           <label><input type="checkbox" name="noiseTag" value="fjärrvärme"> Fjärrvärme</label>
-          <label><input type="checkbox" name="noiseTag" value="industri/stor byggnad"> Industri / stor byggnad</label>
-          <label><input type="checkbox" name="noiseTag" value="pump/undercentral"> Pump / undercentral</label>
+          <label><input type="checkbox" name="noiseTag" value="höghus"> Höghus</label>
+          <label><input type="checkbox" name="noiseTag" value="undercentral/pumpar"> Undercentral / pumpar</label>
+          <label><input type="checkbox" name="noiseTag" value="falsklarm/annat"> Falsklarm / annat</label>
         </fieldset>
       </div>
       <label>Notering
