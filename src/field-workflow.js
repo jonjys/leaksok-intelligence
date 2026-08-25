@@ -2,31 +2,54 @@
   const workflowTypes = {
     leak: "Konstaterad läcka",
     repaired: "Lagad",
-    seasonal: "Säsong/känd",
-    known_noise: "Störning/falsklarm",
+    seasonal: "Störning/Annat",
+    known_noise: "Falsklarm/Annat",
     district_heating: "Fjärrvärme",
-    large_building: "Industri/stor byggnad",
-    pump: "Pump/undercentral",
+    large_building: "Höghus/stor byggnad",
+    pump: "Undercentral/pumpar",
+    false_alarm: "Falsklarm/Annat",
+    suspect: "Misstänkt",
   };
   const bulkDefaults = {
-    seasonal: ["säsong/värmepanna"],
-    known_noise: ["störning"],
+    seasonal: ["värmepanna"],
+    known_noise: ["falsklarm/annat"],
     district_heating: ["fjärrvärme"],
-    large_building: ["industri/stor byggnad"],
-    pump: ["pump/undercentral"],
+    large_building: ["höghus"],
+    pump: ["undercentral/pumpar"],
+    false_alarm: ["falsklarm/annat"],
   };
 
-  Object.assign(categoryText, { confirmed: "KONSTATERAD LÄCKA" });
+  Object.assign(categoryText, { confirmed: "KONSTATERAD LÄCKA", seasonal: "STÖRNING / ANNAT", noise: "FALSKLARM / STÖRNING" });
   Object.assign(labelTypes, workflowTypes);
+  Object.keys(feedbackButtons).forEach((key) => { delete feedbackButtons[key]; });
+  Object.assign(feedbackButtons, {
+    leak: "Konstaterad läcka",
+    repaired: "Lagad",
+    known_noise: "Störning/Annat",
+    false_alarm: "Falsklarm/Annat",
+    suspect: "Misstänkt",
+  });
 
   const originalScoreMeter = scoreMeter;
   scoreMeter = function scoreMeterWithFieldLists(meter, networkContext) {
     const result = originalScoreMeter(meter, networkContext);
     const label = state.labels[meter.id];
+    const shortHistory = result.profile?.coverage?.days < 365 || meter.points.length < 5;
     if (label?.type === "leak") result.category = "confirmed";
     if (label?.type === "repaired") result.category = "repaired";
-    if (["known_noise", "district_heating", "large_building", "pump", "false_alarm"].includes(label?.type) && result.category !== "repaired") {
+    if (label?.type === "suspect" && result.category !== "dispatch") result.category = "watch";
+    if (["known_noise", "district_heating", "large_building", "pump", "false_alarm"].includes(label?.type) && !["dispatch", "repaired"].includes(result.category)) {
       result.category = "noise";
+    }
+    if (!label && result.category === "repaired") {
+      if (result.risk >= 58 && !result.infrastructure?.customerSide) result.category = "dispatch";
+      else if (result.risk >= 38 || result.lowRelativeRise) result.category = "watch";
+      else if (result.infrastructure?.customerSide) result.category = "normal";
+      else if (shortHistory) result.category = "learning";
+      else result.category = "normal";
+    }
+    if (!label && shortHistory && result.category === "normal" && !result.infrastructure?.customerSide) {
+      result.category = "learning";
     }
     return result;
   };
@@ -97,7 +120,7 @@
       <div><b>${counts.dispatch}</b><span>åk ut</span></div>
       <div><b>${counts.watch}</b><span>bevaka</span></div>
       <div><b>${counts.confirmed}</b><span>konstaterade</span></div>
-      <div><b>${counts.known}</b><span>lagad/känd</span></div>
+      <div><b>${counts.known}</b><span>lagad/störning</span></div>
       <div><b>${counts.short}</b><span>under inlärning</span></div>
     `;
   };
@@ -127,7 +150,7 @@
     document.getElementById("confirmedDateField").hidden = type === "repaired";
     document.getElementById("confirmedFields").hidden = type !== "leak";
     document.getElementById("repairFields").hidden = type !== "repaired";
-    document.getElementById("noiseFields").hidden = !["seasonal", "known_noise"].includes(type);
+    document.getElementById("noiseFields").hidden = !["seasonal", "known_noise", "district_heating", "large_building", "pump", "false_alarm"].includes(type);
     document.getElementById("feedbackDateLabel").textContent = type === "leak" ? "Datum konstaterad" : "Datum noterat";
     document.getElementById("confirmedDate").value = existing.confirmedDate || existing.notedDate || today;
     document.getElementById("repairedDate").value = existing.repairedDate || today;
@@ -135,6 +158,7 @@
     document.getElementById("distanceUncertain").checked = Boolean(existing.distanceUncertain);
     document.getElementById("feedbackNote").value = existing.note || "";
     document.querySelectorAll('input[name="lineType"]').forEach((input) => { input.checked = input.value === existing.lineType; });
+    document.querySelectorAll('input[name="repairLineType"]').forEach((input) => { input.checked = input.value === existing.lineType; });
     document.querySelectorAll('input[name="noiseTag"]').forEach((input) => {
       input.checked = (existing.noiseTags || []).includes(input.value)
         || (bulkDefaults[type] || []).includes(input.value);
@@ -163,11 +187,14 @@
       next.lineType = document.querySelector('input[name="lineType"]:checked')?.value || "";
     } else if (type === "repaired") {
       next.repairedDate = document.getElementById("repairedDate").value || localDate(new Date());
+      next.lineType = document.querySelector('input[name="repairLineType"]:checked')?.value || "";
       next.distanceMeters = parseNumber(document.getElementById("distanceMeters").value);
       next.distanceUncertain = document.getElementById("distanceUncertain").checked;
     } else {
       next.notedDate = document.getElementById("confirmedDate").value || localDate(new Date());
-      next.noiseTags = [...document.querySelectorAll('input[name="noiseTag"]:checked')].map((input) => input.value);
+      if (["seasonal", "known_noise", "district_heating", "large_building", "pump", "false_alarm"].includes(type)) {
+        next.noiseTags = [...document.querySelectorAll('input[name="noiseTag"]:checked')].map((input) => input.value);
+      }
     }
     state.labels[id] = next;
     saveLabels();
