@@ -38,15 +38,17 @@
       <div><b>0</b><span>mätare</span></div>
       <div><b>0</b><span>åk ut</span></div>
       <div><b>0</b><span>bevaka</span></div>
-      <div><b>0</b><span>säsong/känd</span></div>
+      <div><b>0</b><span>konstaterade</span></div>
+      <div><b>0</b><span>lagad/känd</span></div>
       <div><b>0</b><span>under inlärning</span></div>
     </section>
 
     <section class="controls">
-      <input id="search" type="search" placeholder="Sök adress, serienummer, område">
+      <input id="search" type="search" placeholder="Sök adress, serienummer, område. Klistra in flera adresser med radbrytning eller kommatecken">
       <select id="filter">
         <option value="all">Alla listor</option>
         <option value="dispatch">Trolig läcka - åk ut</option>
+        <option value="confirmed">Konstaterade läckor</option>
         <option value="watch">Bevaka</option>
         <option value="learning">Under inlärning</option>
         <option value="seasonal">Säsong / återkommande</option>
@@ -62,6 +64,17 @@
         <option value="max">Max G högst först</option>
         <option value="confidence">Säkerhet högst först</option>
       </select>
+    </section>
+    <section class="bulk-actions" id="bulkActions" hidden>
+      <span id="bulkCount">0 träffar</span>
+      <select id="bulkType">
+        <option value="seasonal">Säsong / värmepanna</option>
+        <option value="known_noise">Störning / falsklarm</option>
+        <option value="district_heating">Fjärrvärme</option>
+        <option value="large_building">Industri / stor byggnad</option>
+        <option value="pump">Pump / undercentral</option>
+      </select>
+      <button id="bulkSave" class="secondary">Lägg träffar i vald lista</button>
     </section>
 
     <section class="workspace">
@@ -128,6 +141,12 @@
       <label id="confirmedDateField"><span id="feedbackDateLabel">Datum konstaterad</span>
         <input id="confirmedDate" type="date">
       </label>
+      <fieldset id="confirmedFields">
+        <legend>Ledning</legend>
+        <label><input type="radio" name="lineType" value="SV"> SV</label>
+        <label><input type="radio" name="lineType" value="KV"> KV</label>
+        <label><input type="radio" name="lineType" value="vet ej"> Vet ej</label>
+      </fieldset>
       <div id="repairFields" class="form-grid" hidden>
         <label>Datum lagad
           <input id="repairedDate" type="date">
@@ -135,10 +154,18 @@
         <label>Ca meter från mätaren
           <input id="distanceMeters" type="number" min="0" step="1" inputmode="numeric" placeholder="t.ex. 55">
         </label>
+        <label class="check-row">
+          <input id="distanceUncertain" type="checkbox"> Avstånd osäkert
+        </label>
+      </div>
+      <div id="noiseFields" hidden>
         <fieldset>
-          <legend>Ledning</legend>
-          <label><input type="radio" name="lineType" value="HV"> HV</label>
-          <label><input type="radio" name="lineType" value="SV"> SV</label>
+          <legend>Typ</legend>
+          <label><input type="checkbox" name="noiseTag" value="säsong/värmepanna"> Säsong / värmepanna</label>
+          <label><input type="checkbox" name="noiseTag" value="störning"> Störning</label>
+          <label><input type="checkbox" name="noiseTag" value="fjärrvärme"> Fjärrvärme</label>
+          <label><input type="checkbox" name="noiseTag" value="industri/stor byggnad"> Industri / stor byggnad</label>
+          <label><input type="checkbox" name="noiseTag" value="pump/undercentral"> Pump / undercentral</label>
         </fieldset>
       </div>
       <label>Notering
@@ -167,5 +194,6 @@
   <script src="./src/storage.js"></script>
   <script src="./src/intelligence.js"></script>
   <script src="./src/app.js"></script>
+  <script src="./src/field-workflow.js"></script>
 </body>
 </html>
