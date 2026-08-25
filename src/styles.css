@@ -56,7 +56,13 @@ h1 { margin: 0; font-size: 24px; line-height: 1; letter-spacing: 0; }
 .lede { margin: 4px 0 0; color: var(--muted); max-width: 720px; font-size: 13px; line-height: 1.25; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 
-main { padding: 8px max(12px, env(safe-area-inset-left)) 12px max(12px, env(safe-area-inset-right)); }
+main {
+  display: grid;
+  grid-template-columns: 126px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px max(12px, env(safe-area-inset-left)) 12px max(12px, env(safe-area-inset-right));
+}
 .dropzone {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -66,6 +72,8 @@ main { padding: 8px max(12px, env(safe-area-inset-left)) 12px max(12px, env(safe
   border-radius: 8px;
   background: #0f151c;
   padding: 10px 12px;
+  grid-column: 2;
+  grid-row: 1;
 }
 .dropzone.drag { border-color: var(--green); background: #101d17; }
 .dropzone strong { font-size: 14px; }
@@ -74,9 +82,13 @@ main { padding: 8px max(12px, env(safe-area-inset-left)) 12px max(12px, env(safe
 
 .summary {
   display: grid;
-  grid-template-columns: repeat(7, minmax(105px, 1fr));
+  grid-template-columns: 1fr;
   gap: 6px;
-  margin: 8px 0;
+  margin: 0;
+  grid-column: 1;
+  grid-row: 1 / span 4;
+  position: sticky;
+  top: 8px;
 }
 .summary div {
   background: var(--panel);
@@ -92,6 +104,7 @@ main { padding: 8px max(12px, env(safe-area-inset-left)) 12px max(12px, env(safe
   grid-template-columns: 1fr 220px 220px;
   gap: 8px;
   margin-bottom: 8px;
+  grid-column: 2;
 }
 .bulk-actions {
   display: grid;
@@ -103,6 +116,7 @@ main { padding: 8px max(12px, env(safe-area-inset-left)) 12px max(12px, env(safe
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #10151c;
+  grid-column: 2;
 }
 .bulk-actions[hidden] { display: none; }
 .bulk-actions span {
@@ -133,6 +147,7 @@ textarea {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 270px;
   gap: 8px;
+  grid-column: 2;
 }
 .table-wrap {
   overflow: auto;
@@ -270,9 +285,10 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
 .profile-dialog .small { margin: -6px 0 0; }
 
 @media (max-width: 900px) {
+  main { display: block; }
   .topbar { flex-direction: column; align-items: stretch; }
   .dropzone { grid-template-columns: 1fr; }
-  .summary { grid-template-columns: repeat(2, 1fr); }
+  .summary { grid-template-columns: repeat(2, 1fr); position: static; margin: 8px 0; }
   .controls { grid-template-columns: 1fr; }
   .workspace { grid-template-columns: 1fr; }
   .panel { position: static; }
@@ -322,6 +338,7 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
     overflow-x: auto;
     gap: 6px;
     margin: 9px 0;
+    position: static;
     scrollbar-width: none;
   }
   .summary::-webkit-scrollbar { display: none; }
