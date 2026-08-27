@@ -9,6 +9,9 @@
     pump: "Undercentral/pumpar",
     false_alarm: "Falsklarm/Annat",
     suspect: "Misstänkt",
+    ignored: "Ignorera denna",
+    manual_dispatch: "Ska åka ut på",
+    interesting: "Intressant",
   };
   const bulkDefaults = {
     seasonal: ["värmepanna"],
@@ -18,8 +21,9 @@
     pump: ["undercentral/pumpar"],
     false_alarm: ["falsklarm/annat"],
   };
+  const selectedMeters = new Set();
 
-  Object.assign(categoryText, { confirmed: "KONSTATERAD LÄCKA", seasonal: "STÖRNING / ANNAT", noise: "FALSKLARM / STÖRNING" });
+  Object.assign(categoryText, { confirmed: "KONSTATERAD LÄCKA", seasonal: "STÖRNING / ANNAT", noise: "FALSKLARM / STÖRNING", ignored: "IGNORERAD" });
   Object.assign(labelTypes, workflowTypes);
   Object.keys(feedbackButtons).forEach((key) => { delete feedbackButtons[key]; });
   Object.assign(feedbackButtons, {
@@ -28,18 +32,52 @@
     known_noise: "Störning/Annat",
     false_alarm: "Falsklarm/Annat",
     suspect: "Misstänkt",
+    ignored: "Ignorera denna",
+    manual_dispatch: "Ska åka ut på",
+    interesting: "Intressant",
   });
+  document.querySelectorAll('#filter option[value="seasonal"], #filter option[value="normal"]').forEach((option) => option.remove());
 
   const originalScoreMeter = scoreMeter;
   scoreMeter = function scoreMeterWithFieldLists(meter, networkContext) {
     const result = originalScoreMeter(meter, networkContext);
     const label = state.labels[meter.id];
     const shortHistory = result.profile?.coverage?.days < 365 || meter.points.length < 5;
+    const staleReadDays = result.staleReadDays ?? Math.max(0, Math.round(((result.last?.date || new Date()) - (result.last?.readAt || result.last?.date || new Date())) / 86400000));
+    const staleContact = result.staleContact || staleReadDays >= 14;
+    const customerSide = Boolean(result.infrastructure?.customerSide);
     if (label?.type === "leak") result.category = "confirmed";
     if (label?.type === "repaired") result.category = "repaired";
+    if (label?.type === "manual_dispatch") {
+      result.category = "dispatch";
+      result.risk = Math.max(result.risk, 90);
+      result.reasons = ["Manuellt vald: ska åka ut på", ...result.reasons.filter((reason) => !/manuellt vald/i.test(reason))];
+    }
+    if (label?.type === "interesting") {
+      result.category = "watch";
+      result.risk = Math.max(result.risk, 45);
+      result.reasons = ["Manuellt vald: intressant", ...result.reasons.filter((reason) => !/manuellt vald/i.test(reason))];
+    }
+    if (label?.type === "ignored") {
+      result.category = "ignored";
+      result.risk = 0;
+      result.reasons = ["Ignorerad manuellt i fältfacit", ...result.reasons.filter((reason) => !/ignorerad manuellt/i.test(reason))];
+    }
     if (label?.type === "suspect" && result.category !== "dispatch") result.category = "watch";
     if (["known_noise", "district_heating", "large_building", "pump", "false_alarm"].includes(label?.type) && !["dispatch", "repaired"].includes(result.category)) {
       result.category = "noise";
+    }
+    if (!label && customerSide) {
+      result.category = "normal";
+      result.risk = Math.min(result.risk, 24);
+      if (!result.reasons.some((reason) => /kundsida/i.test(reason))) result.reasons.unshift("LEAK i Excel: kundsida efter mätaren");
+    }
+    if (!label && staleContact) {
+      result.category = "normal";
+      result.risk = Math.min(result.risk, 24);
+      if (!result.reasons.some((reason) => /gammal avläsning|dålig kontakt/i.test(reason))) {
+        result.reasons.unshift(`Dålig kontakt/gammal avläsning: ${staleReadDays} dagar sedan senaste mätarläsning`);
+      }
     }
     if (!label && result.category === "repaired") {
       if (result.risk >= 58 && !result.infrastructure?.customerSide) result.category = "dispatch";
@@ -48,7 +86,7 @@
       else if (shortHistory) result.category = "learning";
       else result.category = "normal";
     }
-    if (!label && shortHistory && result.category === "normal" && !result.infrastructure?.customerSide) {
+    if (!label && shortHistory && result.category === "normal" && !customerSide && !staleContact) {
       result.category = "learning";
     }
     return result;
@@ -79,9 +117,10 @@
     const box = document.getElementById("bulkActions");
     const count = document.getElementById("bulkCount");
     if (!box || !count) return;
-    const show = searchTerms.length > 0 && rows.length > 0;
+    const selectedCount = selectedMeters.size;
+    const show = selectedCount > 0 || (searchTerms.length > 0 && rows.length > 0);
     box.hidden = !show;
-    if (show) count.textContent = `${rows.length} träffar`;
+    if (show) count.textContent = selectedCount > 0 ? `${selectedCount} markerade` : `${rows.length} träffar`;
   }
 
   render = function renderFieldWorkflow() {
@@ -127,6 +166,9 @@
 
   labelSummary = function labelSummaryField(label) {
     const parts = [];
+    if (label.type === "ignored") parts.push("ignorerad");
+    if (label.type === "manual_dispatch") parts.push("ska åka ut på");
+    if (label.type === "interesting") parts.push("intressant");
     if (label.confirmedDate) parts.push(`konstaterad ${label.confirmedDate}`);
     if (label.repairedDate) parts.push(`lagad ${label.repairedDate}`);
     if (Number.isFinite(label.distanceMeters)) parts.push(`ca ${label.distanceMeters} m från mätaren`);
@@ -136,6 +178,49 @@
     if (label.notedDate) parts.push(label.notedDate);
     if (label.note) parts.push(label.note);
     return parts.join(" · ");
+  };
+
+  renderRows = function renderRowsFieldWorkflow(rows) {
+    if (!rows.length) {
+      els.rows.innerHTML = `<tr><td colspan="8" class="empty">Ingen mätare matchar filtret.</td></tr>`;
+      return;
+    }
+    els.rows.innerHTML = rows.map((r) => `
+      <tr>
+        <td data-label="Välj" class="select-cell">
+          <label class="row-check">
+            <input type="checkbox" class="row-select" data-id="${escapeAttr(r.id)}" ${selectedMeters.has(r.id) ? "checked" : ""}>
+            <span>Markera</span>
+          </label>
+        </td>
+        <td data-label="Beslut" class="decision-cell">
+          <span class="pill ${r.category}">${categoryText[r.category]}</span>
+          <div class="score">${r.risk}</div>
+          <div class="small">säkerhet: ${r.confidence}</div>
+        </td>
+        <td data-label="Adress" class="address-cell">
+          <div class="address-line"><b>${escapeHtml(r.address || "-")}</b>${customerSideMark(r)}<button class="copy-address secondary" title="Kopiera adress" onclick="copyAddress('${escapeAttr(r.id)}', event)">Kopiera</button></div>
+          <div class="small">${escapeHtml(r.serial || r.id)} · ${escapeHtml(r.area || "ÖVRIGT")}</div>
+          ${tagLine(r)}
+        </td>
+        <td data-label="E/F/P" class="metrics-cell">
+          <b>E ${round(r.last.current)}</b> · F ${round(r.last.average)} · G ${round(r.maxSeen)}
+          <div class="small">P ${(r.pDeviation * 100).toFixed(0)}% · ${signedPct(r.lastJump)} senast</div>
+        </td>
+        <td data-label="Trend" class="trend-cell">
+          <b>${signedPct(r.lastJump)}</b> senast
+          <div class="small">${signedPct(r.firstChange)} från första filen</div>
+        </td>
+        <td data-label="Historik" class="history-cell">
+          <svg class="spark" viewBox="0 0 160 42" onclick="openDetail('${escapeAttr(r.id)}')">${sparkPath(r.points)}</svg>
+          <div class="small">${r.points.length} punkter · ${r.profile.coverage.days} dagar · ${r.profile.coverage.months} månader · ${r.profile.coverage.seasons} säsonger</div>
+        </td>
+        <td data-label="Varför" class="reason-cell">
+          <ul class="reasons">${r.reasons.slice(0, 5).map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
+        </td>
+        <td data-label="Facit" class="feedback-cell"><div class="feedback">${feedbackActions(r.id)}</div></td>
+      </tr>
+    `).join("");
   };
 
   window.labelMeter = function labelMeterField(id, type) {
@@ -203,10 +288,20 @@
   }
 
   document.getElementById("feedbackForm")?.addEventListener("submit", saveFieldFeedback, true);
+  document.getElementById("rows")?.addEventListener("change", (event) => {
+    const input = event.target.closest?.(".row-select");
+    if (!input) return;
+    if (input.checked) selectedMeters.add(input.dataset.id);
+    else selectedMeters.delete(input.dataset.id);
+    render();
+  });
   document.getElementById("bulkSave")?.addEventListener("click", () => {
     const searchTerms = terms(els.search.value);
     const type = document.getElementById("bulkType").value;
-    const rows = state.meters.filter((meter) => matches(meter, searchTerms));
+    const rows = selectedMeters.size > 0
+      ? state.meters.filter((meter) => selectedMeters.has(meter.id))
+      : state.meters.filter((meter) => matches(meter, searchTerms));
+    if (!rows.length) return;
     const now = new Date().toISOString();
     for (const meter of rows) {
       const existing = state.labels[meter.id] || {};
@@ -221,6 +316,7 @@
         source: "fältfacit bulk",
       };
     }
+    selectedMeters.clear();
     saveLabels();
     analyze();
     els.importStatus.textContent = `${rows.length} träffar sparade som ${workflowTypes[type] || type}.`;
