@@ -1,8 +1,8 @@
 (function applyFieldWorkflow() {
   const workflowTypes = {
-    leak: "Konstaterad läcka",
+    leak: "Hittad läcka",
     repaired: "Lagad",
-    seasonal: "Störning/Annat",
+    seasonal: "Säsong",
     known_noise: "Falsklarm/Annat",
     district_heating: "Fjärrvärme",
     large_building: "Höghus/stor byggnad",
@@ -26,7 +26,7 @@
   const selectedMeters = new Set();
 
   Object.assign(categoryText, {
-    confirmed: "KONSTATERAD LÄCKA",
+    confirmed: "HITTAD LÄCKA",
     seasonal: "SÄSONG",
     noise: "FALSKLARM / STÖRNING",
     ignored: "IGNORERAD",
@@ -35,7 +35,7 @@
   Object.assign(labelTypes, workflowTypes);
   Object.keys(feedbackButtons).forEach((key) => { delete feedbackButtons[key]; });
   Object.assign(feedbackButtons, {
-    leak: "Konstaterad läcka",
+    leak: "Hittad läcka",
     repaired: "Lagad",
     manual_dispatch: "Ska åka ut på",
     interesting: "Intressant",
@@ -46,6 +46,18 @@
     false_alarm: "Falsklarm/Annat",
     suspect: "Misstänk",
   });
+  const listLabels = {
+    all: "Alla",
+    dispatch: "Åk ut",
+    watch: "Bevaka",
+    suspect_auto: "Misstänk",
+    seasonal: "Säsong",
+    confirmed: "Hittad läcka",
+    repaired: "Lagad",
+    ignored: "Ignorera",
+    learning: "Under inlärning",
+    noise: "Falsklarm/störning",
+  };
   document.querySelectorAll('#filter option[value="normal"]').forEach((option) => option.remove());
 
   const originalScoreMeter = scoreMeter;
@@ -203,10 +215,34 @@
       <div><b>${counts.dispatch}</b><span>åk ut</span></div>
       <div><b>${counts.watch}</b><span>bevaka</span></div>
       <div><b>${counts.suspect}</b><span>misstänk</span></div>
-      <div><b>${counts.confirmed}</b><span>konstaterade</span></div>
+      <div><b>${counts.confirmed}</b><span>hittade</span></div>
       <div><b>${counts.known}</b><span>lagad/störning</span></div>
     `;
+    renderListTabs(counts);
   };
+
+  function renderListTabs(counts) {
+    const tabs = document.getElementById("listTabs");
+    if (!tabs) return;
+    const active = els.filter.value;
+    const values = {
+      all: state.meters.length,
+      dispatch: counts.dispatch,
+      watch: counts.watch,
+      suspect_auto: counts.suspect,
+      seasonal: state.meters.filter((meter) => meter.category === "seasonal").length,
+      confirmed: counts.confirmed,
+      repaired: state.meters.filter((meter) => meter.category === "repaired").length,
+      ignored: state.meters.filter((meter) => meter.category === "ignored").length,
+      learning: counts.short,
+      noise: state.meters.filter((meter) => meter.category === "noise").length,
+    };
+    tabs.querySelectorAll("button[data-filter]").forEach((button) => {
+      const filter = button.dataset.filter;
+      button.classList.toggle("active", filter === active);
+      button.innerHTML = `${listLabels[filter] || filter} <b>${values[filter] || 0}</b>`;
+    });
+  }
 
   labelSummary = function labelSummaryField(label) {
     const parts = [];
@@ -214,7 +250,8 @@
     if (label.type === "manual_dispatch") parts.push("ska åka ut på");
     if (label.type === "interesting") parts.push("intressant");
     if (label.type === "reset_baseline") parts.push("nollställd");
-    if (label.confirmedDate) parts.push(`konstaterad ${label.confirmedDate}`);
+    if (label.confirmedDate) parts.push(`hittad ${label.confirmedDate}`);
+    if (label.confirmedDateUncertain) parts.push("datum osäkert");
     if (label.repairedDate) parts.push(`lagad ${label.repairedDate}`);
     if (Number.isFinite(label.distanceMeters)) parts.push(`ca ${label.distanceMeters} m från mätaren`);
     if (label.distanceUncertain) parts.push("avstånd osäkert");
@@ -281,8 +318,9 @@
     document.getElementById("confirmedFields").hidden = type !== "leak";
     document.getElementById("repairFields").hidden = type !== "repaired";
     document.getElementById("noiseFields").hidden = !["seasonal", "known_noise", "district_heating", "large_building", "pump", "false_alarm", "reset_baseline"].includes(type);
-    document.getElementById("feedbackDateLabel").textContent = type === "leak" ? "Datum konstaterad" : "Datum noterat";
+    document.getElementById("feedbackDateLabel").textContent = type === "leak" ? "Datum hittad" : "Datum noterat";
     document.getElementById("confirmedDate").value = existing.confirmedDate || existing.notedDate || today;
+    document.getElementById("confirmedDateUncertain").checked = Boolean(existing.confirmedDateUncertain);
     document.getElementById("repairedDate").value = existing.repairedDate || today;
     document.getElementById("distanceMeters").value = existing.distanceMeters ?? "";
     document.getElementById("distanceUncertain").checked = Boolean(existing.distanceUncertain);
@@ -314,7 +352,8 @@
     };
     if (type === "leak") {
       next.confirmedDate = document.getElementById("confirmedDate").value || localDate(new Date());
-      next.lineType = document.querySelector('input[name="lineType"]:checked')?.value || "";
+      next.confirmedDateUncertain = document.getElementById("confirmedDateUncertain").checked;
+      delete next.lineType;
     } else if (type === "repaired") {
       next.repairedDate = document.getElementById("repairedDate").value || localDate(new Date());
       next.lineType = document.querySelector('input[name="repairLineType"]:checked')?.value || "";
@@ -338,6 +377,13 @@
     if (!input) return;
     if (input.checked) selectedMeters.add(input.dataset.id);
     else selectedMeters.delete(input.dataset.id);
+    render();
+  });
+  document.getElementById("listTabs")?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("button[data-filter]");
+    if (!button) return;
+    els.filter.value = button.dataset.filter;
+    selectedMeters.clear();
     render();
   });
   document.getElementById("bulkSave")?.addEventListener("click", () => {
