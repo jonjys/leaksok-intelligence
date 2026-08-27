@@ -56,6 +56,7 @@
     repaired: "Lagad",
     ignored: "Ignorera",
     learning: "Under inlärning",
+    stale_contact: "Utan avläsning",
     noise: "Falsklarm/störning",
   };
   document.querySelectorAll('#filter option[value="normal"]').forEach((option) => option.remove());
@@ -187,6 +188,7 @@
         if (filter === "learning") return ["learning", "new_high", "new_unknown"].includes(row.category);
         if (filter === "confirmed") return row.category === "confirmed";
         if (filter === "suspect_auto") return row.category === "suspect_auto";
+        if (filter === "stale_contact") return row.staleContact || row.staleReadDays >= 14;
         return row.category === filter;
       });
     }
@@ -234,6 +236,7 @@
       confirmed: counts.confirmed,
       repaired: state.meters.filter((meter) => meter.category === "repaired").length,
       ignored: state.meters.filter((meter) => meter.category === "ignored").length,
+      stale_contact: state.meters.filter((meter) => meter.staleContact || meter.staleReadDays >= 14).length,
       learning: counts.short,
       noise: state.meters.filter((meter) => meter.category === "noise").length,
     };
@@ -303,6 +306,114 @@
         <td data-label="Facit" class="feedback-cell"><div class="feedback">${feedbackActions(r.id)}</div></td>
       </tr>
     `).join("");
+  };
+
+  feedbackActions = function feedbackActionsFieldWorkflow(id) {
+    const meter = state.meters.find((item) => item.id === id);
+    const active = els.filter.value;
+    const category = meter?.category || active;
+    const sets = {
+      dispatch: ["leak", "interesting", "ignored", "known_noise", "reset_baseline"],
+      confirmed: ["repaired", "ignored"],
+      repaired: ["manual_dispatch", "interesting", "ignored"],
+      watch: ["manual_dispatch", "ignored", "known_noise", "reset_baseline"],
+      suspect_auto: ["manual_dispatch", "interesting", "ignored", "known_noise", "reset_baseline"],
+      seasonal: ["manual_dispatch", "interesting", "ignored", "reset_baseline"],
+      ignored: ["manual_dispatch", "interesting", "reset_baseline"],
+      noise: ["manual_dispatch", "interesting", "ignored", "reset_baseline"],
+      learning: ["manual_dispatch", "interesting", "ignored"],
+      new_high: ["manual_dispatch", "interesting", "ignored"],
+      new_unknown: ["manual_dispatch", "interesting", "ignored"],
+      normal: ["manual_dispatch", "interesting", "ignored"],
+    };
+    const types = active === "all"
+      ? ["leak", "manual_dispatch", "interesting", "ignored"]
+      : (sets[active] || sets[category] || ["manual_dispatch", "interesting", "ignored"]);
+    return types
+      .map((type) => `<button class="secondary" onclick="labelMeter('${escapeAttr(id)}','${type}')">${feedbackButtons[type] || workflowTypes[type] || type}</button>`)
+      .join("");
+  };
+
+  window.openDetail = function openDetailFieldWorkflow(id) {
+    const meter = state.meters.find((m) => m.id === id);
+    if (!meter) return;
+    const firstPoint = meter.points[0];
+    const lastPoint = meter.points[meter.points.length - 1];
+    const firstDate = firstPoint?.date?.toISOString?.().slice(0, 10) || "-";
+    const lastDate = lastPoint?.date?.toISOString?.().slice(0, 10) || "-";
+    const lastReadDate = lastPoint?.readAt?.toISOString?.().slice(0, 10) || lastDate;
+    const staleDays = meter.staleReadDays || 0;
+    els.detailTitle.textContent = meter.address || meter.id;
+    els.detailMeta.textContent = `${meter.serial || meter.id} · ${meter.area || "ÖVRIGT"} · ${firstDate} till ${lastDate} · risk ${meter.risk} · ${categoryText[meter.category]}`;
+    els.detailText.innerHTML = `
+      <div class="detail-actions">
+        <button class="secondary" onclick="copyAddress('${escapeAttr(meter.id)}', event)">Kopiera adress</button>
+        ${feedbackActions(meter.id)}
+      </div>
+      <p><b>Period:</b> första fil ${firstDate} · sista fil ${lastDate} · senaste mätaravläsning ${lastReadDate}${staleDays >= 14 ? ` · tappad/gammal kontakt ${staleDays} dagar` : ""}</p>
+      <p><b>Motivering:</b> ${meter.reasons.map(escapeHtml).join(" · ")}</p>
+      <p><b>Mönster:</b> värme=${meter.profile.heating ? "ja" : "nej"}, årsupprepning=${meter.profile.annualRepeat ? `${meter.profile.annualRepeat.months} jämförda månader` : "nej"}, fladdrig=${meter.profile.fluctuating ? "ja" : "nej"}, ny nivå=${meter.profile.newLevel ? "ja" : "nej"}.</p>
+      <p><b>Miljö:</b> fjärrvärme=${meter.infrastructure.districtHeating ? "ja" : "nej"}, undercentral/höghus=${meter.infrastructure.largeSubstation ? "ja" : "nej"}, efter mätaren=${meter.infrastructure.customerSide ? "ja" : "nej"}, sommarvattenmätare=${meter.infrastructure.summerWaterMeter ? "ja" : "nej"}${meter.networkContext?.sharedSignal ? `, gemensam signal på ${meter.networkContext.meterCount} mätare` : ""}.</p>
+      ${meter.label ? `<p><b>Facit:</b> ${escapeHtml(labelTypes[meter.label.type] || meter.label.type)} · ${escapeHtml(labelSummary(meter.label))}</p>` : ""}
+    `;
+    const ctx = document.getElementById("detailChart");
+    if (state.chart) state.chart.destroy();
+    const labels = meter.points.map((p) => p.date.toISOString().slice(0, 10));
+    const staleMarker = meter.points.map((p, index) => (index === meter.points.length - 1 && staleDays >= 14 ? p.current : null));
+    state.chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          { label: "Brus E", data: meter.points.map((p) => p.current), borderColor: "#0ea5e9", backgroundColor: "rgba(14,165,233,.16)", fill: true, tension: .14 },
+          { label: "Trend", data: rollingAverage(meter.points.map((p) => p.current)), borderColor: "#16a34a", borderWidth: 3, pointRadius: 0, tension: .25 },
+          { label: "Snitt F", data: meter.points.map((p) => p.average), borderColor: "#64748b", borderDash: [5, 4], tension: .2 },
+          { label: "Max G", data: meter.points.map((p) => p.max), borderColor: "#f97316", borderDash: [2, 4], tension: .2, hidden: true },
+          { label: staleDays >= 14 ? `Tappad kontakt ${staleDays} dagar` : "Kontakt OK", data: staleMarker, borderColor: "#dc2626", backgroundColor: "#dc2626", pointRadius: staleDays >= 14 ? 7 : 0, pointHoverRadius: 9, showLine: false },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { intersect: false, mode: "index" },
+        plugins: {
+          legend: { position: "top", labels: { color: "#334155", boxWidth: 14, usePointStyle: true, padding: 10 } },
+          tooltip: {
+            callbacks: {
+              afterBody(items) {
+                const point = meter.points[items[0].dataIndex];
+                const read = point?.readAt?.toISOString?.().slice(0, 10);
+                return [read ? `Avläst: ${read}` : "", point?.info ? `Info: ${point.info}` : ""].filter(Boolean);
+              },
+            },
+          },
+        },
+        elements: { line: { borderWidth: 3 }, point: { radius: meter.points.length > 40 ? 0 : 3, hoverRadius: 6 } },
+        scales: {
+          x: {
+            ticks: {
+              color: "#475569",
+              maxRotation: 0,
+              minRotation: 0,
+              autoSkip: false,
+              callback(value, index) {
+                const last = labels.length - 1;
+                if (index === 0 || index === last) return labels[index];
+                const step = window.innerWidth < 640 ? Math.ceil(labels.length / 3) : Math.ceil(labels.length / 6);
+                return index % step === 0 ? labels[index] : "";
+              },
+            },
+            grid: { color: "rgba(100,116,139,.14)" },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: "#475569" },
+            grid: { color: "rgba(100,116,139,.18)" },
+          },
+        },
+      },
+    });
+    els.detailDialog.showModal();
   };
 
   window.labelMeter = function labelMeterField(id, type) {
