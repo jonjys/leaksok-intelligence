@@ -3,20 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Läcksök Intelligence</title>
+  <title>Läcksök Int</title>
   <link rel="stylesheet" href="./src/styles.css">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <header class="topbar">
-    <div>
-      <p class="eyebrow">Kamstrup flowIQ 2200 / Leak Detector</p>
-      <h1>Läcksök Intelligence</h1>
-      <p class="lede">Släpp in valfritt antal original-Excel. Appen räknar P, bygger historik per mätare och prioriterar efter kurvbeteende, inte bara högsta värde.</p>
+    <div class="brand">
+      <p class="eyebrow">Leak Detection</p>
+      <h1>Läcksök Int</h1>
     </div>
     <div class="actions">
-      <button id="profileButton" class="secondary" title="Lås appen">Profil</button>
+      <button id="profileButton" class="secondary" title="Lås appen">Fredde - lås</button>
+      <button id="pickFiles">Välj filer</button>
       <button id="exportJson" class="secondary">Export facit</button>
       <button id="resetAll" class="danger">Rensa</button>
     </div>
@@ -26,10 +26,9 @@
     <section class="dropzone" id="dropzone">
       <input id="fileInput" type="file" multiple accept=".xlsx,.xls,.csv" hidden>
       <div>
-        <strong>Ladda Excel från Leak Detector</strong>
-        <span>Välj dagens fil, en vecka, 17 filer, gamla månader eller flera år. Headern hittas automatiskt även när Kamstrup-rader ligger överst.</span>
+        <strong>Ladda Excel</strong>
+        <span>Valfri dag, vecka, månad eller flera filer. Headern hittas automatiskt.</span>
       </div>
-      <button id="pickFiles">Välj filer</button>
       <p id="importStatus" class="import-status" role="status" aria-live="polite"></p>
     </section>
 
@@ -80,6 +79,18 @@
         <option value="max">Max G högst först</option>
         <option value="confidence">Säkerhet högst först</option>
       </select>
+      <div class="pager-controls" id="pagerControls">
+        <label>Visa
+          <select id="pageSize">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
+        <button type="button" class="secondary" id="prevPage">Förra</button>
+        <span id="pageInfo">1/1</span>
+        <button type="button" class="secondary" id="nextPage">Nästa</button>
+      </div>
     </section>
     <section class="bulk-actions" id="bulkActions" hidden>
       <span id="bulkCount">0 träffar</span>
