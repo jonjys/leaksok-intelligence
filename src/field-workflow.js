@@ -24,6 +24,7 @@
     reset_baseline: ["nollställd/följ nya värden"],
   };
   const selectedMeters = new Set();
+  let currentPage = 1;
 
   Object.assign(categoryText, {
     confirmed: "HITTAD LÄCKA",
@@ -178,6 +179,22 @@
     if (show) count.textContent = selectedCount > 0 ? `${selectedCount} markerade` : `${rows.length} träffar`;
   }
 
+  function pageSize() {
+    return Number(document.getElementById("pageSize")?.value || 50);
+  }
+
+  function renderPager(totalRows) {
+    const size = pageSize();
+    const pages = Math.max(1, Math.ceil(totalRows / size));
+    currentPage = Math.min(Math.max(1, currentPage), pages);
+    const info = document.getElementById("pageInfo");
+    const prev = document.getElementById("prevPage");
+    const next = document.getElementById("nextPage");
+    if (info) info.textContent = `${currentPage}/${pages}`;
+    if (prev) prev.disabled = currentPage <= 1;
+    if (next) next.disabled = currentPage >= pages;
+  }
+
   render = function renderFieldWorkflow() {
     const searchTerms = terms(els.search.value);
     const filter = els.filter.value;
@@ -194,10 +211,13 @@
     }
     if (searchTerms.length) rows = rows.filter((row) => matches(row, searchTerms));
     rows.sort((a, b) => sortValue(b, sort) - sortValue(a, sort));
+    renderPager(rows.length);
+    const size = pageSize();
+    const visibleRows = rows.slice((currentPage - 1) * size, currentPage * size);
     renderSummary();
     renderLabels();
     renderBulk(rows, searchTerms);
-    renderRows(rows);
+    renderRows(visibleRows);
   };
 
   renderSummary = function renderFieldSummary() {
@@ -329,9 +349,12 @@
     const types = active === "all"
       ? ["leak", "manual_dispatch", "interesting", "ignored"]
       : (sets[active] || sets[category] || ["manual_dispatch", "interesting", "ignored"]);
-    return types
-      .map((type) => `<button class="secondary" onclick="labelMeter('${escapeAttr(id)}','${type}')">${feedbackButtons[type] || workflowTypes[type] || type}</button>`)
-      .join("");
+    return `
+      <select class="row-action" onchange="if(this.value){labelMeter('${escapeAttr(id)}',this.value);this.value=''}">
+        <option value="">Flytta till...</option>
+        ${types.map((type) => `<option value="${escapeAttr(type)}">${feedbackButtons[type] || workflowTypes[type] || type}</option>`).join("")}
+      </select>
+    `;
   };
 
   window.openDetail = function openDetailFieldWorkflow(id) {
@@ -495,6 +518,21 @@
     if (!button) return;
     els.filter.value = button.dataset.filter;
     selectedMeters.clear();
+    currentPage = 1;
+    render();
+  });
+  els.search?.addEventListener("input", () => { currentPage = 1; }, true);
+  els.sort?.addEventListener("change", () => { currentPage = 1; }, true);
+  document.getElementById("pageSize")?.addEventListener("change", () => {
+    currentPage = 1;
+    render();
+  });
+  document.getElementById("prevPage")?.addEventListener("click", () => {
+    currentPage -= 1;
+    render();
+  });
+  document.getElementById("nextPage")?.addEventListener("click", () => {
+    currentPage += 1;
     render();
   });
   document.getElementById("bulkSave")?.addEventListener("click", () => {
