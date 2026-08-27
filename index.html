@@ -11,9 +11,9 @@
 <body>
   <header class="topbar">
     <div>
-      <p class="eyebrow">Kamstrup Leak Detector</p>
+      <p class="eyebrow">Kamstrup flowIQ 2200 / Leak Detector</p>
       <h1>Läcksök Intelligence</h1>
-      <p class="lede">Ladda Excel. Se vad som ska åtgärdas.</p>
+      <p class="lede">Släpp in valfritt antal original-Excel. Appen räknar P, bygger historik per mätare och prioriterar efter kurvbeteende, inte bara högsta värde.</p>
     </div>
     <div class="actions">
       <button id="profileButton" class="secondary" title="Lås appen">Profil</button>
@@ -26,8 +26,8 @@
     <section class="dropzone" id="dropzone">
       <input id="fileInput" type="file" multiple accept=".xlsx,.xls,.csv" hidden>
       <div>
-        <strong>Ladda dagens Excel</strong>
-        <span>En eller flera filer.</span>
+        <strong>Ladda Excel från Leak Detector</strong>
+        <span>Välj dagens fil, en vecka, 17 filer, gamla månader eller flera år. Headern hittas automatiskt även när Kamstrup-rader ligger överst.</span>
       </div>
       <button id="pickFiles">Välj filer</button>
       <p id="importStatus" class="import-status" role="status" aria-live="polite"></p>
@@ -43,16 +43,15 @@
       <div><b>0</b><span>under inlärning</span></div>
     </section>
 
-    <nav class="list-tabs" id="listTabs" aria-label="Arbetslistor"></nav>
-
     <section class="controls">
-      <input id="search" type="search" placeholder="Sök adress eller mätare">
-      <select id="filter" class="filter-fallback" aria-label="Arbetslista">
+      <input id="search" type="search" placeholder="Sök adress, serienummer, område. Klistra in flera adresser med radbrytning eller kommatecken">
+      <select id="filter">
         <option value="all">Alla listor</option>
         <option value="dispatch">Trolig läcka - åk ut</option>
         <option value="confirmed">Konstaterade läckor</option>
         <option value="watch">Bevaka</option>
-        <option value="seasonal">Säsong / värmepanna</option>
+        <option value="suspect_auto">Misstänk</option>
+        <option value="seasonal">Säsong</option>
         <option value="learning">Under inlärning</option>
         <option value="repaired">Lagad / verifierad</option>
         <option value="noise">Falsklarm / störning</option>
@@ -67,15 +66,21 @@
         <option value="confidence">Säkerhet högst först</option>
       </select>
     </section>
-    <section class="multi-actions" id="multiActions" hidden>
-      <b id="multiCount">0 markerade</b>
-      <select id="multiMove" aria-label="Flytta markerade mätare">
-        <option value="">Flytta valda till…</option>
-        <option value="manual_dispatch">Åk ut</option>
-        <option value="interesting">Bevaka</option>
-        <option value="ignored">Ignorera</option>
+    <section class="bulk-actions" id="bulkActions" hidden>
+      <span id="bulkCount">0 träffar</span>
+      <select id="bulkType">
+        <option value="manual_dispatch">Ska åka ut på</option>
+        <option value="interesting">Intressant</option>
+        <option value="ignored">Ignorera denna</option>
+        <option value="known_noise">Falskt larm - tillfällig störning/topp</option>
+        <option value="reset_baseline">Falsklarm - nollställ</option>
+        <option value="seasonal">Säsong</option>
+        <option value="suspect">Misstänk</option>
+        <option value="district_heating">Fjärrvärme</option>
+        <option value="large_building">Höghus / stor byggnad</option>
+        <option value="pump">Undercentral / pumpar</option>
       </select>
-      <button type="button" id="clearSelection" class="secondary">Avmarkera</button>
+      <button id="bulkSave" class="secondary">Flytta markerade / träffar</button>
     </section>
 
     <section class="workspace">
@@ -83,7 +88,7 @@
         <table>
           <thead>
             <tr>
-              <th>Markera</th>
+              <th>Välj</th>
               <th>Beslut</th>
               <th>Adress</th>
               <th>E/F/P</th>
@@ -143,48 +148,41 @@
       <label id="confirmedDateField"><span id="feedbackDateLabel">Datum konstaterad</span>
         <input id="confirmedDate" type="date">
       </label>
-      <label id="confirmedDateUncertainField" class="check-row">
-        <input id="confirmedDateUncertain" type="checkbox"> Datum osäkert
-      </label>
-      <label id="confirmedFields">Ledning
-        <select id="confirmedLineType">
-          <option value="AV">AV</option>
-          <option value="SV">SV</option>
-          <option value="Osäkert">Osäkert – läckan ej lokaliserad</option>
-        </select>
-      </label>
+      <fieldset id="confirmedFields">
+        <legend>Ledning</legend>
+        <label><input type="radio" name="lineType" value="AV"> AV</label>
+        <label><input type="radio" name="lineType" value="SV"> SV</label>
+        <label><input type="radio" name="lineType" value="vet ej"> Vet ej</label>
+      </fieldset>
       <div id="repairFields" class="form-grid" hidden>
         <label>Datum lagad
           <input id="repairedDate" type="date">
         </label>
-        <label>Ledning
-          <select id="repairLineType">
-            <option value="AV">AV</option>
-            <option value="SV">SV</option>
-          </select>
+        <fieldset id="repairLineFields">
+          <legend>Ledning</legend>
+          <label><input type="radio" name="repairLineType" value="AV"> AV</label>
+          <label><input type="radio" name="repairLineType" value="SV"> SV</label>
+        </fieldset>
+        <label>Ca meter från mätaren
+          <input id="distanceMeters" type="number" min="0" step="1" inputmode="numeric" placeholder="t.ex. 55">
         </label>
-        <label>Material
-          <select id="repairMaterial">
-            <option value="Gjutjärn">Gjutjärn</option>
-            <option value="Segjärn">Segjärn</option>
-            <option value="Stål">Stål</option>
-            <option value="PEM">PEM</option>
-            <option value="Osäkert">Osäkert</option>
-          </select>
-        </label>
-        <label>Dimension
-          <select id="repairDimension">
-            <option value="50">50</option>
-            <option value="100">100</option>
-            <option value="150">150</option>
-            <option value="200">200</option>
-            <option value="250">250</option>
-            <option value="300">300</option>
-            <option value="Osäkert">Osäkert</option>
-          </select>
+        <label class="check-row">
+          <input id="distanceUncertain" type="checkbox"> Avstånd osäkert
         </label>
       </div>
-      <textarea id="feedbackNote" hidden></textarea>
+      <div id="noiseFields" hidden>
+        <fieldset>
+          <legend>Typ</legend>
+          <label><input type="checkbox" name="noiseTag" value="värmepanna"> Värmepanna</label>
+          <label><input type="checkbox" name="noiseTag" value="fjärrvärme"> Fjärrvärme</label>
+          <label><input type="checkbox" name="noiseTag" value="höghus"> Höghus</label>
+          <label><input type="checkbox" name="noiseTag" value="undercentral/pumpar"> Undercentral / pumpar</label>
+          <label><input type="checkbox" name="noiseTag" value="falsklarm/annat"> Falsklarm / annat</label>
+        </fieldset>
+      </div>
+      <label>Notering
+        <textarea id="feedbackNote" rows="2" placeholder="Valfritt"></textarea>
+      </label>
       <button type="submit" id="saveFeedback">Spara facit</button>
     </form>
   </dialog>
