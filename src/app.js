@@ -514,7 +514,12 @@ function scoreMeter(meter, networkContext = null) {
 
   if (profile.newLevel) { risk += 26; reasons.push(`Ny nivå från ${profile.newLevel.date}`); }
   if (profile.slowRise) { risk += 14; reasons.push("Långsam stigande kurva"); }
-  if (profile.repeatedPattern) { risk -= 25; reasons.push("Återkommande årsmönster"); }
+  if (profile.repeatedPattern) {
+    risk -= profile.heatingSeason?.cycles >= 2 ? 34 : 25;
+    reasons.push(profile.heatingSeason
+      ? `Värmepannemönster: upp höst, ner vår (${profile.heatingSeason.cycles} årscykler)`
+      : "Återkommande årsmönster");
+  }
   if (profile.fluctuating) { risk -= 12; reasons.push("Fladdrig/pump-lik kurva"); }
   if (profile.repairedDrop) { risk -= 40; reasons.push("Har fallit tillbaka efter hög nivå"); }
 
@@ -638,11 +643,15 @@ function infrastructureProfile(meter) {
 }
 
 function patternProfile(points, infrastructure = {}) {
-  const values = points.map((p) => p.current);
+  const observed = readingTimeline(points).points;
+  const signalPoints = observed.length
+    ? observed.map((point) => ({ ...point, date: point.readingDate }))
+    : points;
+  const values = signalPoints.map((p) => p.current);
   const mean = avg(values);
   const cv = mean ? stdev(values) / mean : 0;
   const months = new Map();
-  for (const p of points) {
+  for (const p of signalPoints) {
     const month = p.date.getMonth();
     if (!months.has(month)) months.set(month, []);
     months.get(month).push(p.current);
@@ -659,17 +668,23 @@ function patternProfile(points, infrastructure = {}) {
   const cold = avgMonths(months, [9, 10, 11, 0, 1, 2, 3]);
   const summerWaterPattern = avgMonths(months, [3, 4, 5, 6, 7]) > avgMonths(months, [8, 9, 10, 11, 0, 1, 2]) * 1.45;
   const summerWater = Boolean(infrastructure.summerWaterMeter && summerWaterPattern);
-  const heating = cold > warm * 1.45 && cold > 12;
-  const annualRepeat = LeakIntelligence.detectAnnualRepeat(points);
-  const repeatedPattern = Boolean(annualRepeat && (heating || summerWater) && Math.max(...values) < 80);
-  const fluctuating = points.length >= 5 && cv > 0.55 && !isLastPartElevated(values);
-  const newLevel = detectNewLevel(points);
+  const heatingSeason = LeakIntelligence.detectHeatingSeason(signalPoints);
+  const heating = Boolean(heatingSeason || (cold > warm * 1.45 && cold > 12));
+  const annualRepeat = LeakIntelligence.detectAnnualRepeat(signalPoints);
+  const repeatedHeating = Boolean(heatingSeason?.cycles >= 2);
+  const repeatedPattern = Boolean(
+    repeatedHeating
+    || (annualRepeat && (heating || summerWater) && Math.max(...values) < 160)
+  );
+  const fluctuating = signalPoints.length >= 5 && cv > 0.55 && !isLastPartElevated(values);
+  const newLevel = detectNewLevel(signalPoints);
   const repairedDrop = detectRepairedDrop(values);
   const slowRise = detectSlowRise(values);
   return {
     mean,
     cv,
     heating,
+    heatingSeason,
     summerWater,
     summerWaterPattern,
     annualRepeat,
@@ -679,11 +694,11 @@ function patternProfile(points, infrastructure = {}) {
     repairedDrop,
     slowRise,
     coverage: {
-      points: points.length,
+      points: signalPoints.length,
       seasons,
       months: activeMonths.length,
-      years: new Set(points.map((point) => point.date.getFullYear())).size,
-      days: Math.max(0, Math.round((points[points.length - 1].date - points[0].date) / (24 * 60 * 60 * 1000))),
+      years: new Set(signalPoints.map((point) => point.date.getFullYear())).size,
+      days: Math.max(0, Math.round((signalPoints[signalPoints.length - 1].date - signalPoints[0].date) / (24 * 60 * 60 * 1000))),
     },
   };
 }
@@ -864,19 +879,59 @@ function feedbackActions(id) {
     .join("");
 }
 
+function readingTimeline(points) {
+  if (!points.length) {
+    return { points: [], endDate: null, lastReadingDate: "-", gapDays: 0, hasGap: false };
+  }
+  const validDate = (value) => value instanceof Date && !Number.isNaN(value.getTime());
+  const exportDates = points.map((point) => point.date).filter(validDate);
+  const endDate = exportDates.length ? new Date(Math.max(...exportDates.map((date) => date.getTime()))) : new Date();
+  const byReadingDate = new Map();
+  for (const point of points) {
+    const readingDate = validDate(point.readAt) && point.readAt <= endDate ? point.readAt : point.date;
+    if (!validDate(readingDate)) continue;
+    const key = readingDate.toISOString().slice(0, 10);
+    byReadingDate.set(key, { ...point, readingDate });
+  }
+  const observed = [...byReadingDate.values()].sort((a, b) => a.readingDate - b.readingDate);
+  const last = observed[observed.length - 1];
+  const gapDays = last ? Math.max(0, Math.floor((endDate - last.readingDate) / 86400000)) : 0;
+  return {
+    points: observed,
+    endDate,
+    lastReadingDate: last ? last.readingDate.toISOString().slice(0, 10) : "-",
+    gapDays,
+    hasGap: gapDays >= 14,
+  };
+}
+
 function sparkPath(points) {
-  if (points.length < 2) return "";
-  const values = points.map((p) => p.current);
+  const timeline = readingTimeline(points);
+  if (!timeline.points.length) return "";
+  const values = timeline.points.map((point) => point.current);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
-  const xy = values.map((v, i) => {
-    const x = 4 + (i / (values.length - 1)) * 152;
+  const startTime = timeline.points[0].readingDate.getTime();
+  const endTime = timeline.hasGap
+    ? timeline.endDate.getTime()
+    : timeline.points[timeline.points.length - 1].readingDate.getTime();
+  const duration = Math.max(1, endTime - startTime);
+  const xy = timeline.points.map((point) => {
+    const x = 4 + ((point.readingDate.getTime() - startTime) / duration) * 152;
+    const v = point.current;
     const y = 38 - ((v - min) / range) * 34;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
-  const color = values[values.length - 1] >= values[values.length - 2] ? "#ff8a3d" : "#2dd36f";
-  return `<polyline points="${xy.join(" ")}" fill="none" stroke="${color}" stroke-width="2"/><line x1="0" y1="22" x2="160" y2="22" stroke="#344354" stroke-width="1"/>`;
+  const color = values.length > 1 && values[values.length - 1] >= values[values.length - 2] ? "#ff9d4d" : "#35e07d";
+  const observedLine = xy.length > 1
+    ? `<polyline points="${xy.join(" ")}" fill="none" stroke="${color}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`
+    : `<circle cx="${xy[0].split(",")[0]}" cy="${xy[0].split(",")[1]}" r="3" fill="${color}"/>`;
+  const last = xy[xy.length - 1].split(",");
+  const gapLine = timeline.hasGap
+    ? `<line x1="${last[0]}" y1="${last[1]}" x2="156" y2="${last[1]}" stroke="#748196" stroke-width="2" stroke-dasharray="7 5"/>`
+    : "";
+  return `<line x1="4" y1="38" x2="156" y2="38" stroke="#2a3544" stroke-width="1"/>${observedLine}${gapLine}`;
 }
 
 window.labelMeter = function labelMeter(id, type) {
@@ -934,6 +989,16 @@ function saveFeedback(event) {
 window.openDetail = function openDetail(id) {
   const meter = state.meters.find((m) => m.id === id);
   if (!meter) return;
+  const timeline = readingTimeline(meter.points);
+  const graphPoints = timeline.points;
+  const appendGap = (values) => timeline.hasGap ? [...values, null] : values;
+  const labels = graphPoints.map((point) => point.readingDate.toISOString().slice(0, 10));
+  if (timeline.hasGap) labels.push(timeline.endDate.toISOString().slice(0, 10));
+  const missingData = new Array(labels.length).fill(null);
+  if (timeline.hasGap && graphPoints.length) {
+    missingData[graphPoints.length - 1] = graphPoints[graphPoints.length - 1].current;
+    missingData[graphPoints.length] = graphPoints[graphPoints.length - 1].current;
+  }
   els.detailTitle.textContent = meter.address || meter.id;
   els.detailMeta.textContent = `${meter.serial || meter.id} · ${meter.area || "ÖVRIGT"} · risk ${meter.risk} · ${categoryText[meter.category]}`;
   els.detailText.innerHTML = `
@@ -942,7 +1007,7 @@ window.openDetail = function openDetail(id) {
       ${feedbackActions(meter.id)}
     </div>
     <p><b>Motivering:</b> ${meter.reasons.map(escapeHtml).join(" · ")}</p>
-    <p><b>Mönster:</b> värme=${meter.profile.heating ? "ja" : "nej"}, årsupprepning=${meter.profile.annualRepeat ? `${meter.profile.annualRepeat.months} jämförda månader` : "nej"}, fladdrig=${meter.profile.fluctuating ? "ja" : "nej"}, ny nivå=${meter.profile.newLevel ? "ja" : "nej"}.</p>
+    <p><b>Mönster:</b> värme=${meter.profile.heating ? "ja" : "nej"}${meter.profile.heatingSeason ? ` (${meter.profile.heatingSeason.pattern}, ${meter.profile.heatingSeason.cycles} årscykler)` : ""}, årsupprepning=${meter.profile.annualRepeat ? `${meter.profile.annualRepeat.months} jämförda månader` : "nej"}, fladdrig=${meter.profile.fluctuating ? "ja" : "nej"}, ny nivå=${meter.profile.newLevel ? "ja" : "nej"}.</p>
     <p><b>Miljö:</b> fjärrvärme=${meter.infrastructure.districtHeating ? "ja" : "nej"}, undercentral/höghus=${meter.infrastructure.largeSubstation ? "ja" : "nej"}, efter mätaren=${meter.infrastructure.customerSide ? "ja" : "nej"}, sommarvattenmätare=${meter.infrastructure.summerWaterMeter ? "ja" : "nej"}${meter.networkContext?.sharedSignal ? `, gemensam signal på ${meter.networkContext.meterCount} mätare` : ""}.</p>
     ${meter.label ? `<p><b>Facit:</b> ${escapeHtml(labelTypes[meter.label.type] || meter.label.type)} · ${escapeHtml(labelSummary(meter.label))}</p>` : ""}
   `;
@@ -951,12 +1016,13 @@ window.openDetail = function openDetail(id) {
   state.chart = new Chart(ctx, {
     type: "line",
     data: {
-      labels: meter.points.map((p) => p.date.toISOString().slice(0, 10)),
+      labels,
       datasets: [
-        { label: "Brus E", data: meter.points.map((p) => p.current), borderColor: "#2dd36f", backgroundColor: "rgba(45,211,111,.12)", fill: true, tension: .18 },
-        { label: "Utjämnad trend", data: rollingAverage(meter.points.map((p) => p.current)), borderColor: "#f7c948", borderWidth: 2, pointRadius: 0, tension: .28 },
-        { label: "Genomsnitt F", data: meter.points.map((p) => p.average), borderColor: "#4cb3ff", borderDash: [5, 4], tension: .2, hidden: true },
-        { label: "Max G", data: meter.points.map((p) => p.max), borderColor: "#ff8a3d", borderDash: [2, 4], tension: .2, hidden: true },
+        { label: "Brus E", data: appendGap(graphPoints.map((point) => point.current)), borderColor: "#35e07d", backgroundColor: "rgba(53,224,125,.14)", fill: true, tension: .28, cubicInterpolationMode: "monotone" },
+        { label: "Trend", data: appendGap(rollingAverage(graphPoints.map((point) => point.current))), borderColor: "#ffd166", borderWidth: 2.4, pointRadius: 0, tension: .35 },
+        { label: "Genomsnitt F", data: appendGap(graphPoints.map((point) => point.average)), borderColor: "#5ab8ff", borderDash: [6, 5], tension: .24, hidden: true },
+        { label: "Max G", data: appendGap(graphPoints.map((point) => point.max)), borderColor: "#ff9d4d", borderDash: [3, 5], tension: .24, hidden: true },
+        { label: "Inga avläsningar", data: missingData, borderColor: "#8290a3", borderDash: [10, 7], borderWidth: 2.5, pointRadius: 0, fill: false, tension: 0 },
       ],
     },
     options: {
@@ -968,18 +1034,25 @@ window.openDetail = function openDetail(id) {
           position: "top",
           labels: { color: "#d7e0ec", boxWidth: 14, usePointStyle: true, padding: 12 },
         },
+        subtitle: {
+          display: timeline.hasGap,
+          text: timeline.hasGap ? `Inga avläsningar ${timeline.lastReadingDate} – ${timeline.endDate.toISOString().slice(0, 10)}` : "",
+          color: "#c7d0dc",
+          font: { weight: "700", size: 13 },
+          padding: { bottom: 12 },
+        },
         tooltip: {
           callbacks: {
             afterBody(items) {
-              const point = meter.points[items[0].dataIndex];
+              const point = graphPoints[items[0].dataIndex];
               return point?.info ? `Info: ${point.info}` : "";
             },
           },
         },
       },
       elements: {
-        line: { borderWidth: 3 },
-        point: { radius: meter.points.length > 40 ? 0 : 2.5, hoverRadius: 6 },
+        line: { borderWidth: 3, borderCapStyle: "round", borderJoinStyle: "round" },
+        point: { radius: graphPoints.length > 40 ? 0 : 2.5, hoverRadius: 6, backgroundColor: "#0d1219", borderWidth: 2 },
       },
       scales: {
         x: {

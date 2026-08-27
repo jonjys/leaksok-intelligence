@@ -38,7 +38,7 @@ const context = {
 };
 vm.createContext(context);
 const source = fs.readFileSync(require.resolve("../src/app.js"), "utf8");
-vm.runInContext(`${source}\n;globalThis.__engine = { state, scoreMeter, detectSharedSignals, addressForCopy, labelSummary };`, context);
+vm.runInContext(`${source}\n;globalThis.__engine = { state, scoreMeter, detectSharedSignals, addressForCopy, labelSummary, readingTimeline };`, context);
 
 function meter(serial, address, values, averages, maxes, info = "") {
   const start = new Date("2026-07-01T06:00:00");
@@ -155,5 +155,43 @@ assert.equal(
   context.__engine.labelSummary({ confirmedDate: "2026-08-20", repairedDate: "2026-08-23", distanceMeters: 55, lineType: "SV" }),
   "konstaterad 2026-08-20 · lagad 2026-08-23 · ca 55 m från mätaren · SV"
 );
+
+const staleTimeline = context.__engine.readingTimeline([
+  {
+    date: new Date("2026-08-27T06:00:00"),
+    readAt: new Date("2026-06-15T06:00:00"),
+    current: 12,
+  },
+]);
+assert.equal(staleTimeline.lastReadingDate, "2026-06-15");
+assert.equal(staleTimeline.gapDays, 73);
+assert.equal(staleTimeline.hasGap, true);
+assert.equal(staleTimeline.points.length, 1);
+
+const heatingEntries = [
+  ["2023-05-15", 8], ["2023-06-15", 8], ["2023-09-15", 20], ["2023-10-15", 24], ["2023-12-15", 36],
+  ["2024-01-15", 38], ["2024-02-15", 36], ["2024-04-15", 18], ["2024-05-15", 9], ["2024-06-15", 8], ["2024-07-15", 8],
+  ["2024-09-15", 21], ["2024-10-15", 25], ["2024-12-15", 37],
+  ["2025-01-15", 39], ["2025-02-15", 37], ["2025-04-15", 17], ["2025-05-15", 9], ["2025-06-15", 8],
+];
+const learnedHeating = context.__engine.scoreMeter({
+  id: "heating-cycle",
+  serial: "heating-cycle",
+  address: "VÄRMEVÄGEN 1 TUMBA 14730",
+  area: "TUMBA",
+  info: "",
+  points: heatingEntries.map(([date, current]) => ({
+    date: new Date(`${date}T06:00:00`),
+    readAt: new Date(`${date}T06:00:00`),
+    current,
+    average: 18,
+    max: 39,
+    info: "",
+    source: "history.xlsx",
+  })),
+});
+assert.equal(learnedHeating.profile.heatingSeason.cycles, 2);
+assert.equal(learnedHeating.profile.repeatedPattern, true);
+assert.equal(learnedHeating.category, "seasonal");
 
 console.log("app engine tests: ok");

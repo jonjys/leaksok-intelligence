@@ -56,7 +56,7 @@
     if (!Array.isArray(points) || points.length < 8) return null;
     const monthly = new Map();
     for (const point of points) {
-      const date = new Date(point.date);
+      const date = new Date(point.readAt || point.date);
       const current = Number(point.current);
       if (!Number.isFinite(current) || Number.isNaN(date.getTime())) continue;
       const year = date.getFullYear();
@@ -86,6 +86,53 @@
     return best;
   }
 
+  function detectHeatingSeason(points) {
+    if (!Array.isArray(points) || points.length < 12) return null;
+    const monthly = new Map();
+    for (const point of points) {
+      const date = new Date(point.readAt || point.date);
+      const current = Number(point.current);
+      if (!Number.isFinite(current) || Number.isNaN(date.getTime())) continue;
+      const key = `${date.getFullYear()}-${date.getMonth()}`;
+      if (!monthly.has(key)) monthly.set(key, []);
+      monthly.get(key).push(current);
+    }
+
+    const monthValue = (year, month) => {
+      const values = monthly.get(`${year}-${month}`) || [];
+      return values.length ? median(values) : null;
+    };
+    const period = (pairs, minimumMonths) => {
+      const values = pairs.map(([year, month]) => monthValue(year, month)).filter(Number.isFinite);
+      return values.length >= minimumMonths ? average(values) : null;
+    };
+    const years = [...new Set([...monthly.keys()].map((key) => Number(key.split("-")[0])))].sort();
+    const cycles = [];
+
+    for (const year of years) {
+      const summer = period([[year, 4], [year, 5], [year, 6], [year, 7]], 2);
+      const autumn = period([[year, 8], [year, 9], [year, 10]], 2);
+      const winter = period([[year, 11], [year + 1, 0], [year + 1, 1], [year + 1, 2]], 2);
+      const spring = period([[year + 1, 3], [year + 1, 4], [year + 1, 5]], 2);
+      if (![summer, autumn, winter, spring].every(Number.isFinite)) continue;
+
+      const risesInAutumn = autumn >= summer * 1.3 && autumn - summer >= 4;
+      const staysHighInWinter = winter >= summer * 1.25 && winter >= autumn * 0.72;
+      const fallsInSpring = spring <= winter * 0.76 && winter - spring >= 4;
+      if (risesInAutumn && staysHighInWinter && fallsInSpring) {
+        cycles.push({ year, summer, autumn, winter, spring });
+      }
+    }
+
+    if (!cycles.length) return null;
+    return {
+      cycles: cycles.length,
+      years: cycles.map((cycle) => `${cycle.year}/${cycle.year + 1}`),
+      confidence: cycles.length >= 2 ? "high" : "medium",
+      pattern: "upp september–november, ner april–juni",
+    };
+  }
+
   function average(values) {
     return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
   }
@@ -109,5 +156,5 @@
     return deviationsA.reduce((sum, value, index) => sum + value * deviationsB[index], 0) / denominator;
   }
 
-  return { detectAnnualRepeat, detectLowRelativeRise };
+  return { detectAnnualRepeat, detectHeatingSeason, detectLowRelativeRise };
 }));

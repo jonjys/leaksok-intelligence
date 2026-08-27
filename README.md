@@ -18,10 +18,11 @@ Målet är inte en snygg Excel-visare. Målet är en smart läckdomare:
    - hur många dagar och avläsningar den nya nivån har hållit
    - återgång efter lagning
 5. Appen låter fältperson markera facit:
-   - konstaterad läcka med datum
-   - lagad med datum, avstånd från mätaren och HV/SV
-   - säsong/känd
-   - störning/falsklarm
+   - konstaterad läcka med datum, osäkert datum och AV/SV/osäkert
+   - lagad med datum, AV/SV, material och dimension
+   - flytta mätaren direkt till Åk ut, Bevaka eller Ignorera
+
+Om dagens Excel innehåller en mätare vars senaste riktiga avläsning är gammal avslutas mätkurvan på avläsningsdatumet. Tiden fram till dagens export visas streckad som `Inga avläsningar` och ska inte tolkas som fortsatta mätvärden.
 
 Facit och tolkade mätvärden sparas i webbläsarens IndexedDB och kan återanvändas utan att originalfilerna laddas upp på nytt. En enkel namn- och kodruta fungerar som enhetslås. Det är lokal lagring på samma webbläsare, inte molnsynk eller en serverbaserad säker inloggning.
 
