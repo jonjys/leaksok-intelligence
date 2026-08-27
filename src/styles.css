@@ -125,6 +125,26 @@ main {
   font-weight: 900;
   text-transform: uppercase;
 }
+.select-cell {
+  width: 54px;
+  text-align: center;
+}
+.row-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.row-check input {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
 input, select {
   width: 100%;
   background: #10151c;
@@ -186,6 +206,7 @@ tr:hover td { background: rgba(255,255,255,.025); }
 .repaired { background: #0f3520; color: #bdf4ca; }
 .noise { background: #25292f; color: #d0d7de; }
 .customer_side { background: #102c35; color: #bdefff; }
+.ignored { background: #1b1d22; color: #8f98a6; }
 .normal { background: #1b232b; color: #aeb8c3; }
 
 .score {
@@ -362,6 +383,16 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
   .bulk-actions {
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+  .select-cell {
+    width: 100%;
+    text-align: left;
+    padding-bottom: 4px;
+  }
+  .row-check {
+    justify-content: flex-start;
+    width: 100%;
+    padding: 3px 0;
   }
   input, select {
     font-size: 16px;
