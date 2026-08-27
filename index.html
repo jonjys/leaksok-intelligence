@@ -51,10 +51,9 @@
         <option value="confirmed">Konstaterade läckor</option>
         <option value="watch">Bevaka</option>
         <option value="learning">Under inlärning</option>
-        <option value="seasonal">Störning / annat</option>
         <option value="repaired">Lagad / verifierad</option>
         <option value="noise">Falsklarm / störning</option>
-        <option value="normal">Normal</option>
+        <option value="ignored">Ignorerade</option>
       </select>
       <select id="sort">
         <option value="risk">Risk högst först</option>
@@ -68,13 +67,17 @@
     <section class="bulk-actions" id="bulkActions" hidden>
       <span id="bulkCount">0 träffar</span>
       <select id="bulkType">
+        <option value="manual_dispatch">Ska åka ut på</option>
+        <option value="interesting">Intressant</option>
+        <option value="ignored">Ignorera denna</option>
+        <option value="suspect">Misstänkt</option>
         <option value="seasonal">Störning / annat</option>
         <option value="known_noise">Falsklarm / annat</option>
         <option value="district_heating">Fjärrvärme</option>
         <option value="large_building">Höghus / stor byggnad</option>
         <option value="pump">Undercentral / pumpar</option>
       </select>
-      <button id="bulkSave" class="secondary">Lägg träffar i vald lista</button>
+      <button id="bulkSave" class="secondary">Flytta markerade / träffar</button>
     </section>
 
     <section class="workspace">
@@ -82,6 +85,7 @@
         <table>
           <thead>
             <tr>
+              <th>Välj</th>
               <th>Beslut</th>
               <th>Adress</th>
               <th>E/F/P</th>
@@ -92,7 +96,7 @@
             </tr>
           </thead>
           <tbody id="rows">
-            <tr><td colspan="7" class="empty">Ladda Excel-filer för analys.</td></tr>
+            <tr><td colspan="8" class="empty">Ladda Excel-filer för analys.</td></tr>
           </tbody>
         </table>
       </div>
