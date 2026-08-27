@@ -58,7 +58,7 @@ h1 { margin: 0; font-size: 24px; line-height: 1; letter-spacing: 0; }
 
 main {
   display: grid;
-  grid-template-columns: 126px minmax(0, 1fr);
+  grid-template-columns: 152px minmax(0, 1fr);
   gap: 8px;
   align-items: start;
   padding: 8px max(12px, env(safe-area-inset-left)) 12px max(12px, env(safe-area-inset-right));
@@ -86,7 +86,7 @@ main {
   gap: 6px;
   margin: 0;
   grid-column: 1;
-  grid-row: 1 / span 4;
+  grid-row: 1;
   position: sticky;
   top: 8px;
 }
@@ -98,13 +98,46 @@ main {
 }
 .summary b { display: block; font-size: 21px; line-height: 1; }
 .summary span { color: var(--muted); font-size: 10px; text-transform: uppercase; font-weight: 800; }
+.list-tabs {
+  display: grid;
+  gap: 6px;
+  grid-column: 1;
+  grid-row: 2 / span 4;
+  position: sticky;
+  top: 264px;
+}
+.list-tabs button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 8px;
+  background: #10151c;
+  color: var(--text);
+  border-color: var(--line);
+  text-align: left;
+  font-size: 12px;
+}
+.list-tabs button.active {
+  background: #183222;
+  border-color: #2f8f55;
+  color: #d9ffe6;
+}
+.list-tabs b {
+  color: var(--muted);
+  font-size: 11px;
+}
 
 .controls {
   display: grid;
-  grid-template-columns: 1fr 220px 220px;
+  grid-template-columns: 1fr 220px;
   gap: 8px;
   margin-bottom: 8px;
   grid-column: 2;
+}
+#filter {
+  display: none;
 }
 .bulk-actions {
   display: grid;
@@ -312,6 +345,11 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
   .topbar { flex-direction: column; align-items: stretch; }
   .dropzone { grid-template-columns: 1fr; }
   .summary { grid-template-columns: repeat(2, 1fr); position: static; margin: 8px 0; }
+  .list-tabs {
+    position: static;
+    grid-template-columns: 1fr 1fr;
+    margin: 8px 0;
+  }
   .controls { grid-template-columns: 1fr; }
   .workspace { grid-template-columns: 1fr; }
   .panel { position: static; }
@@ -368,6 +406,15 @@ dialog::backdrop { background: rgba(0,0,0,.72); }
   .summary div {
     padding: 9px 10px;
     min-width: 104px;
+  }
+  .list-tabs {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+  .list-tabs button {
+    min-height: 38px;
+    padding: 8px 10px;
+    font-size: 13px;
   }
   .summary b {
     font-size: 24px;
