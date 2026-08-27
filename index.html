@@ -44,6 +44,7 @@
     </section>
 
     <nav class="list-tabs" id="listTabs" aria-label="Listor">
+      <button type="button" data-filter="all">Alla listor <b>0</b></button>
       <button type="button" data-filter="dispatch">Åk ut <b>0</b></button>
       <button type="button" data-filter="watch">Bevaka <b>0</b></button>
       <button type="button" data-filter="suspect_auto">Misstänk <b>0</b></button>
@@ -51,9 +52,9 @@
       <button type="button" data-filter="confirmed">Hittad läcka <b>0</b></button>
       <button type="button" data-filter="repaired">Lagad <b>0</b></button>
       <button type="button" data-filter="ignored">Ignorera <b>0</b></button>
+      <button type="button" data-filter="stale_contact">Utan avläsning <b>0</b></button>
       <button type="button" data-filter="learning">Under inlärning <b>0</b></button>
       <button type="button" data-filter="noise">Falsklarm/störning <b>0</b></button>
-      <button type="button" data-filter="all">Alla <b>0</b></button>
     </nav>
 
     <section class="controls">
@@ -69,6 +70,7 @@
         <option value="repaired">Lagad / verifierad</option>
         <option value="noise">Falsklarm / störning</option>
         <option value="ignored">Ignorerade</option>
+        <option value="stale_contact">Utan avläsning</option>
       </select>
       <select id="sort">
         <option value="risk">Risk högst först</option>
@@ -116,21 +118,21 @@
           </tbody>
         </table>
       </div>
-      <aside class="panel">
-        <h2>Motor</h2>
-        <ul>
-          <li>Dagligt lägsta brusvärde används som kurvpunkt.</li>
-          <li>Absolutvärde räcker inte. Kurvbeteende väger tyngst.</li>
-          <li>Återkommande årsmönster dämpar varning.</li>
-          <li>Ny nivå som stannar höjer risk.</li>
-          <li>Facit och tolkade mätvärden sparas på denna enhet och påverkar nästa analys.</li>
-          <li>Fjärrvärme, större undercentraler och kundsidelarm vägs separat.</li>
-          <li>Liknande kurvor på flera mätare vid samma hus pekar mot gemensam servis före mätarna.</li>
-        </ul>
-        <h2>Facitcase</h2>
-        <div id="labels" class="labels"></div>
-      </aside>
     </section>
+    <aside class="panel">
+      <h2>Motor</h2>
+      <ul>
+        <li>Dagligt lägsta brusvärde används som kurvpunkt.</li>
+        <li>Absolutvärde räcker inte. Kurvbeteende väger tyngst.</li>
+        <li>Återkommande årsmönster dämpar varning.</li>
+        <li>Ny nivå som stannar höjer risk.</li>
+        <li>Facit och tolkade mätvärden sparas på denna enhet och påverkar nästa analys.</li>
+        <li>Fjärrvärme, större undercentraler och kundsidelarm vägs separat.</li>
+        <li>Tappad kontakt/gammal avläsning visas separat och ska inte styra akut automatiskt.</li>
+      </ul>
+      <h2>Facitcase</h2>
+      <div id="labels" class="labels"></div>
+    </aside>
   </main>
 
   <dialog id="detailDialog">
