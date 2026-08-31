@@ -32,6 +32,17 @@
       <p id="importStatus" class="import-status" role="status" aria-live="polite"></p>
     </section>
 
+    <section class="meter-preview" id="meterPreview" hidden>
+      <div class="preview-head">
+        <div>
+          <b id="previewTitle">Markerad mätare</b>
+          <span id="previewMeta">Välj en rad i listan</span>
+        </div>
+        <button type="button" class="secondary" id="clearSelection">Rensa markering</button>
+      </div>
+      <div class="preview-chart"><canvas id="selectedChart"></canvas></div>
+    </section>
+
     <section class="summary" id="summary">
       <div><b>0</b><span>filer</span></div>
       <div><b>0</b><span>mätare</span></div>
