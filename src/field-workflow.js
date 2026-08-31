@@ -1,6 +1,6 @@
 (function applyFieldWorkflow() {
   const workflowTypes = {
-    leak: "Hittad läcka",
+    leak: "Konstaterad läcka",
     repaired: "Lagad",
     seasonal: "Säsong",
     known_noise: "Falsklarm/Annat",
@@ -9,10 +9,11 @@
     pump: "Undercentral/pumpar",
     false_alarm: "Falsklarm/Annat",
     suspect: "Misstänk",
-    ignored: "Ignorera denna",
-    manual_dispatch: "Ska åka ut på",
-    interesting: "Intressant",
-    reset_baseline: "Falsklarm - nollställ",
+    ignored: "Ignorera",
+    manual_dispatch: "Åk ut",
+    interesting: "Bevaka",
+    reset_baseline: "Nollställ och följ nya värden",
+    customer_contact: "Kontakta FÄ",
   };
   const bulkDefaults = {
     seasonal: ["värmepanna"],
@@ -22,6 +23,7 @@
     pump: ["undercentral/pumpar"],
     false_alarm: ["falsklarm/annat"],
     reset_baseline: ["nollställd/följ nya värden"],
+    customer_contact: ["efter mätare/kontakta FÄ"],
   };
   const selectedMeters = new Set();
   const GEOCODE_CACHE_KEY = "leaksok_geocode_v1";
@@ -44,6 +46,7 @@
 
   Object.assign(categoryText, {
     confirmed: "HITTAD LÄCKA",
+    customer_side: "EFTER MÄTARE",
     seasonal: "SÄSONG",
     noise: "FALSKLARM / STÖRNING",
     ignored: "IGNORERAD",
@@ -57,19 +60,20 @@
     manual_dispatch: "Ska åka ut på",
     interesting: "Intressant",
     ignored: "Ignorera denna",
-    known_noise: "Falskt larm - tillfällig topp",
+    known_noise: "Tillfällig topp",
     reset_baseline: "Falsklarm - nollställ",
     seasonal: "Säsong",
     false_alarm: "Falsklarm/Annat",
     suspect: "Misstänk",
   });
   const listLabels = {
-    all: "Alla",
+    all: "Alla mätare",
     dispatch: "Åk ut",
     watch: "Bevaka",
     suspect_auto: "Misstänk",
     seasonal: "Säsong",
-    confirmed: "Hittad läcka",
+    confirmed: "Aktiva läckor",
+    customer_side: "Efter mätare",
     repaired: "Lagad",
     ignored: "Ignorera",
     learning: "Under inlärning",
@@ -91,12 +95,17 @@
     if (label?.type === "manual_dispatch") {
       result.category = "dispatch";
       result.risk = Math.max(result.risk, 90);
-      result.reasons = ["Manuellt vald: ska åka ut på", ...result.reasons.filter((reason) => !/manuellt vald/i.test(reason))];
+      result.reasons = ["Manuellt vald: åk ut", ...result.reasons.filter((reason) => !/manuellt vald/i.test(reason))];
     }
     if (label?.type === "interesting") {
       result.category = "watch";
       result.risk = Math.max(result.risk, 45);
-      result.reasons = ["Manuellt vald: intressant", ...result.reasons.filter((reason) => !/manuellt vald/i.test(reason))];
+      result.reasons = ["Manuellt vald: bevaka", ...result.reasons.filter((reason) => !/manuellt vald/i.test(reason))];
+    }
+    if (label?.type === "customer_contact") {
+      result.category = "customer_side";
+      result.risk = Math.max(Math.min(result.risk, 58), 35);
+      result.reasons = ["Efter mätare: kontakta FÄ/kund", ...result.reasons.filter((reason) => !/efter mätare|kundsida/i.test(reason))];
     }
     if (label?.type === "reset_baseline") {
       const resetDate = parseLabelDate(label);
@@ -123,9 +132,9 @@
       result.risk = Math.min(result.risk, 24);
     }
     if (!label && customerSide) {
-      result.category = "normal";
-      result.risk = Math.min(result.risk, 24);
-      if (!result.reasons.some((reason) => /kundsida/i.test(reason))) result.reasons.unshift("LEAK i Excel: kundsida efter mätaren");
+      result.category = "customer_side";
+      result.risk = Math.max(Math.min(result.risk, 58), result.risk >= 45 ? 45 : 28);
+      if (!result.reasons.some((reason) => /kundsida|efter mätaren/i.test(reason))) result.reasons.unshift("LEAK i Excel: efter mätare/kundsida");
     }
     if (!label && staleContact) {
       result.category = "normal";
@@ -193,6 +202,8 @@
     const show = selectedCount > 0 || (searchTerms.length > 0 && rows.length > 0);
     box.hidden = !show;
     if (show) count.textContent = selectedCount > 0 ? `${selectedCount} markerade` : `${rows.length} träffar`;
+    const save = document.getElementById("bulkSave");
+    if (save) save.textContent = selectedCount > 0 ? `Flytta ${selectedCount} markerade` : `Flytta ${rows.length} träffar`;
   }
 
   function pageSize() {
@@ -239,23 +250,24 @@
 
   renderSummary = function renderFieldSummary() {
     const counts = {
-      files: state.files.length,
       meters: state.meters.length,
       dispatch: state.meters.filter((meter) => meter.category === "dispatch").length,
       watch: state.meters.filter((meter) => meter.category === "watch").length,
       suspect: state.meters.filter((meter) => meter.category === "suspect_auto").length,
+      customer: state.meters.filter((meter) => meter.category === "customer_side").length,
       confirmed: state.meters.filter((meter) => meter.category === "confirmed").length,
-      known: state.meters.filter((meter) => ["seasonal", "noise", "repaired", "ignored"].includes(meter.category)).length,
+      repaired: state.meters.filter((meter) => meter.category === "repaired").length,
+      seasonal: state.meters.filter((meter) => meter.category === "seasonal").length,
+      noise: state.meters.filter((meter) => meter.category === "noise").length,
+      ignored: state.meters.filter((meter) => meter.category === "ignored").length,
+      stale: state.meters.filter((meter) => meter.staleContact || meter.staleReadDays >= 14).length,
       short: state.meters.filter((meter) => ["learning", "new_high", "new_unknown"].includes(meter.category)).length,
     };
     els.summary.innerHTML = `
-      <div><b>${counts.files}</b><span>filer</span></div>
       <div><b>${counts.meters}</b><span>mätare</span></div>
       <div><b>${counts.dispatch}</b><span>åk ut</span></div>
-      <div><b>${counts.watch}</b><span>bevaka</span></div>
       <div><b>${counts.suspect}</b><span>misstänk</span></div>
-      <div><b>${counts.confirmed}</b><span>hittade</span></div>
-      <div><b>${counts.known}</b><span>lagad/störning</span></div>
+      <div><b>${counts.confirmed}</b><span>aktiva läckor</span></div>
     `;
     renderListTabs(counts);
   };
@@ -265,30 +277,28 @@
     if (!tabs) return;
     const active = els.filter.value;
     const values = {
-      all: state.meters.length,
-      dispatch: counts.dispatch,
-      watch: counts.watch,
-      suspect_auto: counts.suspect,
-      seasonal: state.meters.filter((meter) => meter.category === "seasonal").length,
-      confirmed: counts.confirmed,
-      repaired: state.meters.filter((meter) => meter.category === "repaired").length,
-      ignored: state.meters.filter((meter) => meter.category === "ignored").length,
-      stale_contact: state.meters.filter((meter) => meter.staleContact || meter.staleReadDays >= 14).length,
-      learning: counts.short,
-      noise: state.meters.filter((meter) => meter.category === "noise").length,
+      all: state.meters.length, dispatch: counts.dispatch, watch: counts.watch, suspect_auto: counts.suspect, customer_side: counts.customer,
+      seasonal: counts.seasonal, confirmed: counts.confirmed, repaired: counts.repaired, ignored: counts.ignored, stale_contact: counts.stale, learning: counts.short, noise: counts.noise,
     };
+    const secondary = ["seasonal", "noise", "ignored", "stale_contact", "learning"];
+    const moreCount = secondary.reduce((sum, key) => sum + (values[key] || 0), 0);
     tabs.querySelectorAll("button[data-filter]").forEach((button) => {
       const filter = button.dataset.filter;
       button.classList.toggle("active", filter === active);
       button.innerHTML = `${listLabels[filter] || filter} <b>${values[filter] || 0}</b>`;
     });
+    const more = document.getElementById("moreLists");
+    const moreBadge = document.getElementById("moreListCount");
+    if (moreBadge) moreBadge.textContent = String(moreCount);
+    if (more && secondary.includes(active)) more.open = true;
   }
 
   labelSummary = function labelSummaryField(label) {
     const parts = [];
     if (label.type === "ignored") parts.push("ignorerad");
-    if (label.type === "manual_dispatch") parts.push("ska åka ut på");
-    if (label.type === "interesting") parts.push("intressant");
+    if (label.type === "manual_dispatch") parts.push("åk ut");
+    if (label.type === "interesting") parts.push("bevaka");
+    if (label.type === "customer_contact") parts.push("kontakta FÄ");
     if (label.type === "reset_baseline") parts.push("nollställd");
     if (label.confirmedDate) parts.push(`hittad ${label.confirmedDate}`);
     if (label.confirmedDateUncertain) parts.push("datum osäkert");
@@ -350,24 +360,27 @@
     const active = els.filter.value;
     const category = meter?.category || active;
     const sets = {
-      dispatch: ["leak", "interesting", "ignored", "known_noise", "reset_baseline"],
-      confirmed: ["repaired", "ignored"],
+      dispatch: ["leak", "suspect", "interesting", "customer_contact", "known_noise", "reset_baseline", "ignored"],
+      confirmed: ["repaired", "manual_dispatch", "interesting", "ignored"],
       repaired: ["manual_dispatch", "interesting", "ignored"],
-      watch: ["manual_dispatch", "ignored", "known_noise", "reset_baseline"],
-      suspect_auto: ["manual_dispatch", "interesting", "ignored", "known_noise", "reset_baseline"],
-      seasonal: ["manual_dispatch", "interesting", "ignored", "reset_baseline"],
-      ignored: ["manual_dispatch", "interesting", "reset_baseline"],
-      noise: ["manual_dispatch", "interesting", "ignored", "reset_baseline"],
-      learning: ["manual_dispatch", "interesting", "ignored"],
-      new_high: ["manual_dispatch", "interesting", "ignored"],
-      new_unknown: ["manual_dispatch", "interesting", "ignored"],
-      normal: ["manual_dispatch", "interesting", "ignored"],
+      watch: ["manual_dispatch", "suspect", "leak", "customer_contact", "known_noise", "reset_baseline", "ignored"],
+      suspect_auto: ["manual_dispatch", "leak", "interesting", "customer_contact", "known_noise", "reset_baseline", "ignored"],
+      customer_side: ["customer_contact", "manual_dispatch", "suspect", "interesting", "ignored", "reset_baseline"],
+      seasonal: ["manual_dispatch", "suspect", "interesting", "reset_baseline", "ignored"],
+      ignored: ["manual_dispatch", "suspect", "interesting", "reset_baseline"],
+      noise: ["manual_dispatch", "suspect", "interesting", "reset_baseline", "ignored"],
+      stale_contact: ["manual_dispatch", "suspect", "interesting", "ignored"],
+      learning: ["manual_dispatch", "suspect", "interesting", "ignored"],
+      new_high: ["manual_dispatch", "suspect", "interesting", "ignored"],
+      new_unknown: ["manual_dispatch", "suspect", "interesting", "ignored"],
+      normal: ["manual_dispatch", "suspect", "interesting", "customer_contact", "ignored"],
     };
     const types = active === "all"
-      ? ["leak", "manual_dispatch", "interesting", "ignored"]
-      : (sets[active] || sets[category] || ["manual_dispatch", "interesting", "ignored"]);
+      ? ["manual_dispatch", "suspect", "interesting", "leak", "customer_contact", "ignored"]
+      : (sets[active] || sets[category] || ["manual_dispatch", "suspect", "interesting", "ignored"]);
+    const address = escapeAttr(meter?.address || id);
     return `
-      <select class="row-action" onchange="if(this.value){labelMeter('${escapeAttr(id)}',this.value);this.value=''}">
+      <select class="row-action" aria-label="Flytta ${address}" onchange="if(this.value){labelMeter(\'${escapeAttr(id)}\',this.value);this.value=\'\'}">
         <option value="">Flytta till...</option>
         ${types.map((type) => `<option value="${escapeAttr(type)}">${feedbackButtons[type] || workflowTypes[type] || type}</option>`).join("")}
       </select>
@@ -554,6 +567,7 @@
       seasonal: "#7c3aed",
       noise: "#64748b",
       ignored: "#475569",
+      customer_side: "#06b6d4",
     }[category] || "#0284c7";
   }
 
@@ -607,9 +621,9 @@
       previewMapPoints.push(point);
       mapCoordinates.set(meter.id, coordinates);
       const marker = L.circleMarker(point, {
-        radius: meter.id === selectedPreviewId ? 10 : 8,
-        color: "#ffffff",
-        weight: 3,
+        radius: selectedMeters.has(meter.id) ? 11 : (meter.id === selectedPreviewId ? 10 : 8),
+        color: selectedMeters.has(meter.id) ? "#111827" : "#ffffff",
+        weight: selectedMeters.has(meter.id) ? 4 : 3,
         fillColor: mapMarkerColor(meter.category),
         fillOpacity: 1,
       });
@@ -966,9 +980,10 @@
       };
     }
     selectedMeters.clear();
+    selectedPreviewId = "";
     saveLabels();
     analyze();
-    els.importStatus.textContent = `${rows.length} träffar sparade som ${workflowTypes[type] || type}.`;
+    els.importStatus.textContent = `${rows.length} mätare flyttade till ${workflowTypes[type] || type}.`;
   });
 
   analyze();
