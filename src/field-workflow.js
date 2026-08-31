@@ -370,6 +370,7 @@
   }
 
   function chartDatasets(meter, staleDays) {
+    const staleMarker = meter.points.map((p, index) => (index === meter.points.length - 1 && staleDays >= 14 ? p.current : null));
 
     return [
       { label: "Brus E", data: meter.points.map((p) => p.current), borderColor: "#0ea5e9", backgroundColor: "rgba(14,165,233,.16)", fill: true, tension: .14 },
