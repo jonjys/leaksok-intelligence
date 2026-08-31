@@ -30,7 +30,7 @@ Facit och tolkade mätvärden sparas i webbläsarens IndexedDB och kan återanv�
 
 Fyra verkliga startfacit följer med motorn: Alhagsvägen 58-60 (bekräftad och lagad), Alice Tegnérs väg 23 (värmepanna/säsong), Broängsvägen 22 (lagad) och Vattravägen 8 (aktivt exempel). Lagad och aktiva läckor är manuella listor. Appen ska inte automatiskt lägga något som lagat bara för att värdet går ner.
 
-Flera starkt korrelerade kurvor på samma husnummer markeras som möjlig gemensam servis före mätarna. `Leak` i Excel visas som ett diskret informationstecken för läckage efter mätaren och blir inte en egen arbetslista. `Dry` används som tecken på avstängd sommarvattenmätare och ska inte automatiskt bli läckprioritet.
+Flera starkt korrelerade kurvor på samma husnummer markeras som möjlig gemensam servis före mätarna. `Leak` i Excel visas som `Efter mätare` och hamnar i egen arbetslista för `Kontakta FÄ`. `Dry` används som tecken på avstängd sommarvattenmätare och ska inte automatiskt bli läckprioritet.
 
 ## Kamstrup-principer som motorn följer
 
