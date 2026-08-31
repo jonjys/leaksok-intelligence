@@ -55,13 +55,14 @@
   Object.assign(labelTypes, workflowTypes);
   Object.keys(feedbackButtons).forEach((key) => { delete feedbackButtons[key]; });
   Object.assign(feedbackButtons, {
-    leak: "Hittad läcka",
+    leak: "Konstaterad läcka",
     repaired: "Lagad",
-    manual_dispatch: "Ska åka ut på",
-    interesting: "Intressant",
-    ignored: "Ignorera denna",
+    manual_dispatch: "Åk ut",
+    interesting: "Bevaka",
+    ignored: "Ignorera",
+    customer_contact: "Kontakta FÄ",
     known_noise: "Tillfällig topp",
-    reset_baseline: "Falsklarm - nollställ",
+    reset_baseline: "Nollställ och följ nya värden",
     seasonal: "Säsong",
     false_alarm: "Falsklarm/Annat",
     suspect: "Misstänk",
@@ -360,15 +361,15 @@
     const active = els.filter.value;
     const category = meter?.category || active;
     const sets = {
-      dispatch: ["leak", "suspect", "interesting", "customer_contact", "known_noise", "reset_baseline", "ignored"],
+      dispatch: ["leak", "suspect", "interesting", "customer_contact", "ignored"],
       confirmed: ["repaired", "manual_dispatch", "interesting", "ignored"],
       repaired: ["manual_dispatch", "interesting", "ignored"],
-      watch: ["manual_dispatch", "suspect", "leak", "customer_contact", "known_noise", "reset_baseline", "ignored"],
-      suspect_auto: ["manual_dispatch", "leak", "interesting", "customer_contact", "known_noise", "reset_baseline", "ignored"],
-      customer_side: ["customer_contact", "manual_dispatch", "suspect", "interesting", "ignored", "reset_baseline"],
-      seasonal: ["manual_dispatch", "suspect", "interesting", "reset_baseline", "ignored"],
-      ignored: ["manual_dispatch", "suspect", "interesting", "reset_baseline"],
-      noise: ["manual_dispatch", "suspect", "interesting", "reset_baseline", "ignored"],
+      watch: ["manual_dispatch", "suspect", "leak", "customer_contact", "ignored"],
+      suspect_auto: ["manual_dispatch", "leak", "interesting", "customer_contact", "ignored"],
+      customer_side: ["customer_contact", "manual_dispatch", "suspect", "interesting", "ignored"],
+      seasonal: ["manual_dispatch", "suspect", "interesting", "ignored"],
+      ignored: ["manual_dispatch", "suspect", "interesting"],
+      noise: ["manual_dispatch", "suspect", "interesting", "ignored"],
       stale_contact: ["manual_dispatch", "suspect", "interesting", "ignored"],
       learning: ["manual_dispatch", "suspect", "interesting", "ignored"],
       new_high: ["manual_dispatch", "suspect", "interesting", "ignored"],
