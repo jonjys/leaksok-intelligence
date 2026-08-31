@@ -4,9 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Läcksök Int</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="./src/styles.css">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -23,138 +25,164 @@
   </header>
 
   <main>
-    <section class="dropzone" id="dropzone">
-      <input id="fileInput" type="file" multiple accept=".xlsx,.xls,.csv" hidden>
-      <div>
-        <strong>Ladda Excel</strong>
-        <span>Valfri dag, vecka, månad eller flera filer. Headern hittas automatiskt.</span>
-      </div>
-      <p id="importStatus" class="import-status" role="status" aria-live="polite"></p>
-    </section>
-
-    <section class="meter-preview" id="meterPreview" hidden>
-      <div class="preview-head">
-        <div>
-          <b id="previewTitle">Markerad mätare</b>
-          <span id="previewMeta">Välj en rad i listan</span>
-        </div>
-        <button type="button" class="secondary" id="clearSelection">Rensa markering</button>
-      </div>
-      <div class="preview-chart"><canvas id="selectedChart"></canvas></div>
-    </section>
-
-    <section class="summary" id="summary">
-      <div><b>0</b><span>filer</span></div>
-      <div><b>0</b><span>mätare</span></div>
-      <div><b>0</b><span>åk ut</span></div>
-      <div><b>0</b><span>bevaka</span></div>
-      <div><b>0</b><span>hittade</span></div>
-      <div><b>0</b><span>lagad/störning</span></div>
-      <div><b>0</b><span>under inlärning</span></div>
-    </section>
-
-    <nav class="list-tabs" id="listTabs" aria-label="Listor">
-      <button type="button" data-filter="all">Alla listor <b>0</b></button>
-      <button type="button" data-filter="dispatch">Åk ut <b>0</b></button>
-      <button type="button" data-filter="watch">Bevaka <b>0</b></button>
-      <button type="button" data-filter="suspect_auto">Misstänk <b>0</b></button>
-      <button type="button" data-filter="seasonal">Säsong <b>0</b></button>
-      <button type="button" data-filter="confirmed">Hittad läcka <b>0</b></button>
-      <button type="button" data-filter="repaired">Lagad <b>0</b></button>
-      <button type="button" data-filter="ignored">Ignorera <b>0</b></button>
-      <button type="button" data-filter="stale_contact">Utan avläsning <b>0</b></button>
-      <button type="button" data-filter="learning">Under inlärning <b>0</b></button>
-      <button type="button" data-filter="noise">Falsklarm/störning <b>0</b></button>
-    </nav>
-
-    <section class="controls">
-      <input id="search" type="search" placeholder="Sök adress, serienummer, område. Klistra in flera adresser med radbrytning eller kommatecken">
-      <select id="filter" aria-hidden="true" tabindex="-1">
-        <option value="all">Alla listor</option>
-        <option value="dispatch">Trolig läcka - åk ut</option>
-        <option value="confirmed">Hittade läckor</option>
-        <option value="watch">Bevaka</option>
-        <option value="suspect_auto">Misstänk</option>
-        <option value="seasonal">Säsong</option>
-        <option value="learning">Under inlärning</option>
-        <option value="repaired">Lagad / verifierad</option>
-        <option value="noise">Falsklarm / störning</option>
-        <option value="ignored">Ignorerade</option>
-        <option value="stale_contact">Utan avläsning</option>
-      </select>
-      <select id="sort">
-        <option value="risk">Risk högst först</option>
-        <option value="p">P% högst först</option>
-        <option value="lastJump">Senaste hopp högst först</option>
-        <option value="current">Senaste E högst först</option>
-        <option value="max">Max G högst först</option>
-        <option value="confidence">Säkerhet högst först</option>
-      </select>
-      <div class="pager-controls" id="pagerControls">
-        <label>Visa
-          <select id="pageSize">
-            <option value="25">25</option>
-            <option value="50" selected>50</option>
-            <option value="100">100</option>
-          </select>
-        </label>
-        <button type="button" class="secondary" id="prevPage">Förra</button>
-        <span id="pageInfo">1/1</span>
-        <button type="button" class="secondary" id="nextPage">Nästa</button>
-      </div>
-    </section>
-    <section class="bulk-actions" id="bulkActions" hidden>
-      <span id="bulkCount">0 träffar</span>
-      <select id="bulkType">
-        <option value="manual_dispatch">Ska åka ut på</option>
-        <option value="interesting">Intressant</option>
-        <option value="ignored">Ignorera denna</option>
-        <option value="known_noise">Falskt larm - tillfällig störning/topp</option>
-        <option value="reset_baseline">Falsklarm - nollställ</option>
-        <option value="seasonal">Säsong</option>
-        <option value="suspect">Misstänk</option>
-        <option value="district_heating">Fjärrvärme</option>
-        <option value="large_building">Höghus / stor byggnad</option>
-        <option value="pump">Undercentral / pumpar</option>
-      </select>
-      <button id="bulkSave" class="secondary">Flytta markerade / träffar</button>
-    </section>
-
-    <section class="workspace">
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Välj</th>
-              <th>Beslut</th>
-              <th>Adress</th>
-              <th>E/F/P</th>
-              <th>Trend</th>
-              <th>Historik</th>
-              <th>Varför</th>
-              <th>Facit</th>
-            </tr>
-          </thead>
-          <tbody id="rows">
-            <tr><td colspan="8" class="empty">Ladda Excel-filer för analys.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-    <aside class="panel">
-      <h2>Motor</h2>
-      <ul>
-        <li>Dagligt lägsta brusvärde används som kurvpunkt.</li>
-        <li>Absolutvärde räcker inte. Kurvbeteende väger tyngst.</li>
-        <li>Återkommande årsmönster dämpar varning.</li>
-        <li>Ny nivå som stannar höjer risk.</li>
-        <li>Facit och tolkade mätvärden sparas på denna enhet och påverkar nästa analys.</li>
-        <li>Fjärrvärme, större undercentraler och kundsidelarm vägs separat.</li>
-        <li>Tappad kontakt/gammal avläsning visas separat och ska inte styra akut automatiskt.</li>
-      </ul>
-      <h2>Facitcase</h2>
-      <div id="labels" class="labels"></div>
-    </aside>
+    <aside class="left-rail">
+          <section class="summary" id="summary">
+          <div><b>0</b><span>filer</span></div>
+          <div><b>0</b><span>mätare</span></div>
+          <div><b>0</b><span>åk ut</span></div>
+          <div><b>0</b><span>bevaka</span></div>
+          <div><b>0</b><span>hittade</span></div>
+          <div><b>0</b><span>lagad/störning</span></div>
+          <div><b>0</b><span>under inlärning</span></div>
+          </section>
+    
+          <nav class="list-tabs" id="listTabs" aria-label="Listor">
+          <button type="button" data-filter="all">Alla listor <b>0</b></button>
+          <button type="button" data-filter="dispatch">Åk ut <b>0</b></button>
+          <button type="button" data-filter="watch">Bevaka <b>0</b></button>
+          <button type="button" data-filter="suspect_auto">Misstänk <b>0</b></button>
+          <button type="button" data-filter="seasonal">Säsong <b>0</b></button>
+          <button type="button" data-filter="confirmed">Hittad läcka <b>0</b></button>
+          <button type="button" data-filter="repaired">Lagad <b>0</b></button>
+          <button type="button" data-filter="ignored">Ignorera <b>0</b></button>
+          <button type="button" data-filter="stale_contact">Utan avläsning <b>0</b></button>
+          <button type="button" data-filter="learning">Under inlärning <b>0</b></button>
+          <button type="button" data-filter="noise">Falsklarm/störning <b>0</b></button>
+          </nav>
+        </aside>
+    <div class="content-column">
+      <section class="dropzone" id="dropzone">
+            <input id="fileInput" type="file" multiple accept=".xlsx,.xls,.csv" hidden>
+            <div>
+              <strong>Ladda Excel</strong>
+              <span>Valfri dag, vecka, månad eller flera filer. Headern hittas automatiskt.</span>
+            </div>
+            <p id="importStatus" class="import-status" role="status" aria-live="polite"></p>
+          </section>
+      
+          <section class="meter-preview" id="meterPreview" data-mobile-view="chart" hidden>
+            <div class="preview-head">
+              <div class="preview-heading">
+                <b id="previewTitle">Markerad mätare</b>
+                <span id="previewMeta">Välj en eller flera rader i listan</span>
+              </div>
+              <div class="preview-actions">
+                <div class="preview-view-toggle" role="group" aria-label="Visa graf eller karta">
+                  <button type="button" class="secondary active" id="showPreviewChart" aria-pressed="true">Graf</button>
+                  <button type="button" class="secondary" id="showPreviewMap" aria-pressed="false">Karta</button>
+                </div>
+                <button type="button" class="secondary" id="openNavigation">Kör hit</button>
+                <button type="button" class="secondary" id="clearSelection">Rensa</button>
+              </div>
+            </div>
+            <div class="preview-grid">
+              <div class="preview-chart preview-pane">
+                <canvas id="selectedChart"></canvas>
+              </div>
+              <div class="preview-map-wrap preview-pane">
+                <div class="map-toolbar">
+                  <div role="group" aria-label="Karttyp">
+                    <button type="button" class="secondary" id="streetMap">Karta</button>
+                    <button type="button" class="secondary active" id="satelliteMap">Satellit</button>
+                  </div>
+                  <button type="button" class="secondary" id="locateMe">Min GPS</button>
+                </div>
+                <div id="selectedMap" class="selected-map" aria-label="Karta över markerade mätare"></div>
+                <p id="mapStatus" class="map-status" role="status" aria-live="polite"></p>
+              </div>
+            </div>
+            <div id="selectedMeterChips" class="meter-chips" aria-label="Markerade mätare"></div>
+          </section>
+      
+      <section class="controls">
+            <input id="search" type="search" placeholder="Sök adress, serienummer, område. Klistra in flera adresser med radbrytning eller kommatecken">
+            <select id="filter" aria-hidden="true" tabindex="-1">
+              <option value="all">Alla listor</option>
+              <option value="dispatch">Trolig läcka - åk ut</option>
+              <option value="confirmed">Hittade läckor</option>
+              <option value="watch">Bevaka</option>
+              <option value="suspect_auto">Misstänk</option>
+              <option value="seasonal">Säsong</option>
+              <option value="learning">Under inlärning</option>
+              <option value="repaired">Lagad / verifierad</option>
+              <option value="noise">Falsklarm / störning</option>
+              <option value="ignored">Ignorerade</option>
+              <option value="stale_contact">Utan avläsning</option>
+            </select>
+            <select id="sort">
+              <option value="risk">Risk högst först</option>
+              <option value="p">P% högst först</option>
+              <option value="lastJump">Senaste hopp högst först</option>
+              <option value="current">Senaste E högst först</option>
+              <option value="max">Max G högst först</option>
+              <option value="confidence">Säkerhet högst först</option>
+            </select>
+            <div class="pager-controls" id="pagerControls">
+              <label>Visa
+                <select id="pageSize">
+                  <option value="25">25</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
+              <button type="button" class="secondary" id="prevPage">Förra</button>
+              <span id="pageInfo">1/1</span>
+              <button type="button" class="secondary" id="nextPage">Nästa</button>
+            </div>
+          </section>
+          <section class="bulk-actions" id="bulkActions" hidden>
+            <span id="bulkCount">0 träffar</span>
+            <select id="bulkType">
+              <option value="manual_dispatch">Ska åka ut på</option>
+              <option value="interesting">Intressant</option>
+              <option value="ignored">Ignorera denna</option>
+              <option value="known_noise">Falskt larm - tillfällig störning/topp</option>
+              <option value="reset_baseline">Falsklarm - nollställ</option>
+              <option value="seasonal">Säsong</option>
+              <option value="suspect">Misstänk</option>
+              <option value="district_heating">Fjärrvärme</option>
+              <option value="large_building">Höghus / stor byggnad</option>
+              <option value="pump">Undercentral / pumpar</option>
+            </select>
+            <button id="bulkSave" class="secondary">Flytta markerade / träffar</button>
+          </section>
+      
+          <section class="workspace">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Välj</th>
+                    <th>Beslut</th>
+                    <th>Adress</th>
+                    <th>E/F/P</th>
+                    <th>Trend</th>
+                    <th>Historik</th>
+                    <th>Varför</th>
+                    <th>Facit</th>
+                  </tr>
+                </thead>
+                <tbody id="rows">
+                  <tr><td colspan="8" class="empty">Ladda Excel-filer för analys.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <aside class="panel">
+            <h2>Motor</h2>
+            <ul>
+              <li>Dagligt lägsta brusvärde används som kurvpunkt.</li>
+              <li>Absolutvärde räcker inte. Kurvbeteende väger tyngst.</li>
+              <li>Återkommande årsmönster dämpar varning.</li>
+              <li>Ny nivå som stannar höjer risk.</li>
+              <li>Facit och tolkade mätvärden sparas på denna enhet och påverkar nästa analys.</li>
+              <li>Fjärrvärme, större undercentraler och kundsidelarm vägs separat.</li>
+              <li>Tappad kontakt/gammal avläsning visas separat och ska inte styra akut automatiskt.</li>
+            </ul>
+            <h2>Facitcase</h2>
+            <div id="labels" class="labels"></div>
+          </aside>
+    </div>
   </main>
 
   <dialog id="detailDialog">

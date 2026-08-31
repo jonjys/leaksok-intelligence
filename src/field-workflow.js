@@ -24,8 +24,23 @@
     reset_baseline: ["nollställd/följ nya värden"],
   };
   const selectedMeters = new Set();
+  const GEOCODE_CACHE_KEY = "leaksok_geocode_v1";
+  const geocodeCache = readGeocodeCache();
+  const geocodeInFlight = new Map();
+  const mapCoordinates = new Map();
   let selectedPreviewId = "";
   let currentPage = 1;
+  let geocodeChain = Promise.resolve();
+  let lastGeocodeAt = 0;
+  let mapRenderVersion = 0;
+  let previewMap = null;
+  let previewMapLayers = null;
+  let previewBaseLayer = null;
+  let previewMarkerLayer = null;
+  let previewUserMarker = null;
+  let previewUserLatLng = null;
+  let previewMapPoints = [];
+  let previewMapStyle = "satellite";
 
   Object.assign(categoryText, {
     confirmed: "HITTAD LÄCKA",
@@ -306,7 +321,7 @@
           <div class="small">säkerhet: ${r.confidence}</div>
         </td>
         <td data-label="Adress" class="address-cell">
-          <div class="address-line"><b>${escapeHtml(r.address || "-")}</b>${customerSideMark(r)}<button class="copy-address secondary" title="Kopiera adress" onclick="copyAddress('${escapeAttr(r.id)}', event)">Kopiera</button></div>
+          <div class="address-line"><b>${escapeHtml(r.address || "-")}</b>${customerSideMark(r)}<button class="copy-address secondary" title="Kopiera adress" onclick="copyAddress('${escapeAttr(r.id)}', event)">Kopiera</button><button class="copy-address secondary" title="Öppna GPS" onclick="openMeterNavigation('${escapeAttr(r.id)}', event)">GPS</button></div>
           <div class="small">${escapeHtml(r.serial || r.id)} · ${escapeHtml(r.area || "ÖVRIGT")}</div>
           ${tagLine(r)}
         </td>
@@ -358,6 +373,326 @@
       </select>
     `;
   };
+
+  function readGeocodeCache() {
+    if (typeof localStorage === "undefined") return {};
+    try {
+      const parsed = JSON.parse(localStorage.getItem(GEOCODE_CACHE_KEY) || "{}");
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveGeocodeCache() {
+    if (typeof localStorage === "undefined") return;
+    const entries = Object.entries(geocodeCache);
+    if (entries.length > 1000) {
+      entries
+        .sort((a, b) => Number(a[1]?.at || 0) - Number(b[1]?.at || 0))
+        .slice(0, entries.length - 1000)
+        .forEach(([key]) => { delete geocodeCache[key]; });
+    }
+    try {
+      localStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(geocodeCache));
+    } catch {
+      // The map still works when the browser blocks local storage.
+    }
+  }
+
+  function selectedMeterList() {
+    const ids = selectedMeters.size ? [...selectedMeters] : [selectedPreviewId].filter(Boolean);
+    return ids.map((id) => state.meters.find((meter) => meter.id === id)).filter(Boolean);
+  }
+
+  function addressForMap(meter) {
+    const raw = String(meter.address || "").replace(/\s+/g, " ").trim();
+    if (!raw) return "";
+    const postalAtEnd = raw.match(/^(.*?\d+(?:[-/]\d+)?[A-Za-z]?)\s+(.+?)\s+(\d{5})$/i);
+    if (postalAtEnd) return `${postalAtEnd[1]}, ${postalAtEnd[3]} ${postalAtEnd[2]}, Sverige`;
+    const area = String(meter.area || "").replace(/\s+/g, " ").trim();
+    const suffix = area && !normalize(raw).includes(normalize(area)) ? `, ${area}` : "";
+    return `${raw}${suffix}, Sverige`;
+  }
+
+  function geocodeKey(meter) {
+    return normalize(addressForMap(meter));
+  }
+
+  function waitFor(ms) {
+    return new Promise((resolve) => {
+      if (typeof setTimeout === "function") setTimeout(resolve, ms);
+      else resolve();
+    });
+  }
+
+  function geocodeMeter(meter) {
+    const key = geocodeKey(meter);
+    if (!key) return Promise.resolve(null);
+    const cached = geocodeCache[key];
+    if (Number.isFinite(cached?.lat) && Number.isFinite(cached?.lng)) {
+      const result = { lat: cached.lat, lng: cached.lng, label: cached.label || addressForMap(meter) };
+      mapCoordinates.set(meter.id, result);
+      return Promise.resolve(result);
+    }
+    if (cached?.missing && Date.now() - Number(cached.at || 0) < 7 * 86400000) return Promise.resolve(null);
+    if (geocodeInFlight.has(key)) return geocodeInFlight.get(key);
+  
+    const task = geocodeChain.then(async () => {
+      if (typeof fetch !== "function") throw new Error("GPS-sökning saknas i webbläsaren");
+      const delay = Math.max(0, 1100 - (Date.now() - lastGeocodeAt));
+      if (delay) await waitFor(delay);
+      lastGeocodeAt = Date.now();
+      const url = new URL("https://nominatim.openstreetmap.org/search");
+      url.searchParams.set("format", "jsonv2");
+      url.searchParams.set("limit", "1");
+      url.searchParams.set("countrycodes", "se");
+      url.searchParams.set("accept-language", "sv");
+      url.searchParams.set("q", addressForMap(meter));
+      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error(`GPS-sökning misslyckades (${response.status})`);
+      const results = await response.json();
+      const hit = Array.isArray(results) ? results[0] : null;
+      const lat = Number(hit?.lat);
+      const lng = Number(hit?.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        geocodeCache[key] = { missing: true, at: Date.now() };
+        saveGeocodeCache();
+        return null;
+      }
+      const result = { lat, lng, label: hit.display_name || addressForMap(meter) };
+      geocodeCache[key] = { ...result, at: Date.now() };
+      mapCoordinates.set(meter.id, result);
+      saveGeocodeCache();
+      return result;
+    });
+  
+    geocodeChain = task.catch(() => null);
+    const tracked = task.finally(() => { geocodeInFlight.delete(key); });
+    geocodeInFlight.set(key, tracked);
+    return tracked;
+  }
+
+  function setMapStatus(message) {
+    const status = document.getElementById("mapStatus");
+    if (status) status.textContent = message || "";
+  }
+
+  function updateMapStyleButtons() {
+    document.getElementById("streetMap")?.classList.toggle("active", previewMapStyle === "street");
+    document.getElementById("satelliteMap")?.classList.toggle("active", previewMapStyle === "satellite");
+  }
+
+  function setPreviewMapStyle(style) {
+    if (!["street", "satellite"].includes(style)) return;
+    previewMapStyle = style;
+    updateMapStyleButtons();
+    if (!previewMap || !previewMapLayers) return;
+    if (previewBaseLayer) previewMap.removeLayer(previewBaseLayer);
+    previewBaseLayer = previewMapLayers[style];
+    previewBaseLayer.addTo(previewMap);
+  }
+
+  function ensurePreviewMap() {
+    const mapElement = document.getElementById("selectedMap");
+    if (!mapElement) return null;
+    if (!window.L) {
+      setMapStatus("Kartan kunde inte laddas. Kör hit fungerar fortfarande.");
+      return null;
+    }
+    if (previewMap) return previewMap;
+  
+    const street = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    });
+    const satelliteImage = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19,
+      attribution: "Tiles &copy; Esri",
+    });
+    const satelliteLabels = L.tileLayer("https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19,
+    });
+  
+    previewMapLayers = {
+      street,
+      satellite: L.layerGroup([satelliteImage, satelliteLabels]),
+    };
+    previewMap = L.map(mapElement, {
+      zoomControl: true,
+      attributionControl: true,
+      preferCanvas: true,
+    }).setView([59.2, 17.83], 10);
+    previewBaseLayer = previewMapLayers[previewMapStyle];
+    previewBaseLayer.addTo(previewMap);
+    previewMarkerLayer = L.layerGroup().addTo(previewMap);
+    updateMapStyleButtons();
+    return previewMap;
+  }
+
+  function focusPreviewMap(includeUser = false) {
+    if (!previewMap || !window.L) return;
+    const points = [...previewMapPoints];
+    if (includeUser && previewUserLatLng) points.push(previewUserLatLng);
+    const resize = () => {
+      previewMap.invalidateSize({ pan: false });
+      if (!points.length) return;
+      if (points.length === 1) previewMap.flyTo(points[0], 17, { duration: .35 });
+      else previewMap.fitBounds(L.latLngBounds(points), { padding: [28, 28], maxZoom: 18 });
+    };
+    if (typeof setTimeout === "function") setTimeout(resize, 0);
+    else resize();
+  }
+
+  function mapMarkerColor(category) {
+    return {
+      dispatch: "#dc2626",
+      watch: "#d97706",
+      suspect_auto: "#f59e0b",
+      confirmed: "#059669",
+      repaired: "#2563eb",
+      seasonal: "#7c3aed",
+      noise: "#64748b",
+      ignored: "#475569",
+    }[category] || "#0284c7";
+  }
+
+  function shortMapLabel(meter) {
+    const address = String(meter.address || meter.id).replace(/\s+/g, " ").trim();
+    const streetAndNumber = address.match(/^(.+?\d+(?:[-/]\d+)?[A-Za-z]?)(?:\s|$)/i);
+    return streetAndNumber?.[1] || address;
+  }
+
+  function renderSelectedChips() {
+    const chips = document.getElementById("selectedMeterChips");
+    if (!chips) return;
+    const meters = selectedMeterList();
+    chips.innerHTML = meters.map((meter) => `
+      <button type="button" class="meter-chip${meter.id === selectedPreviewId ? " active" : ""}" data-preview-meter="${escapeAttr(meter.id)}" title="${escapeAttr(meter.address || meter.id)}">
+        ${escapeHtml(shortMapLabel(meter))}
+      </button>
+    `).join("");
+  }
+
+  async function renderSelectedMap() {
+    const version = ++mapRenderVersion;
+    const meters = selectedMeterList();
+    renderSelectedChips();
+    const map = ensurePreviewMap();
+    if (!map || !previewMarkerLayer) return;
+    previewMarkerLayer.clearLayers();
+    previewMapPoints = [];
+    if (!meters.length) {
+      setMapStatus("");
+      return;
+    }
+  
+    setMapStatus(meters.length > 1 ? `Hämtar GPS för ${meters.length} markerade adresser...` : "Hämtar GPS-position...");
+    const located = [];
+    for (let index = 0; index < meters.length; index += 1) {
+      if (version !== mapRenderVersion) return;
+      setMapStatus(`Hämtar GPS ${index + 1}/${meters.length}...`);
+      try {
+        const coordinates = await geocodeMeter(meters[index]);
+        if (coordinates) located.push({ meter: meters[index], coordinates });
+      } catch (error) {
+        if (version === mapRenderVersion) setMapStatus(error.message || "GPS-sökningen misslyckades.");
+      }
+    }
+    if (version !== mapRenderVersion) return;
+  
+    previewMarkerLayer.clearLayers();
+    for (const { meter, coordinates } of located) {
+      const point = [coordinates.lat, coordinates.lng];
+      previewMapPoints.push(point);
+      mapCoordinates.set(meter.id, coordinates);
+      const marker = L.circleMarker(point, {
+        radius: meter.id === selectedPreviewId ? 10 : 8,
+        color: "#ffffff",
+        weight: 3,
+        fillColor: mapMarkerColor(meter.category),
+        fillOpacity: 1,
+      });
+      marker.bindTooltip(shortMapLabel(meter), {
+        permanent: located.length <= 8,
+        direction: "top",
+        offset: [0, -7],
+        className: "meter-map-label",
+      });
+      marker.bindPopup(`
+        <b>${escapeHtml(meter.address || meter.id)}</b><br>
+        ${escapeHtml(categoryText[meter.category] || meter.category)} · risk ${meter.risk}<br>
+        <button type="button" onclick="openMeterNavigation('${escapeAttr(meter.id)}', event)">Kör hit</button>
+      `);
+      marker.on("click", () => {
+        selectedPreviewId = meter.id;
+        renderSelectedPreview();
+      });
+      marker.addTo(previewMarkerLayer);
+    }
+  
+    if (!located.length) {
+      setMapStatus("GPS-position saknas. Kör hit söker direkt på adressen.");
+      previewMap.setView([59.2, 17.83], 10);
+      return;
+    }
+    focusPreviewMap();
+    setMapStatus(located.length === meters.length
+      ? `${located.length} markerade adresser på kartan · OpenStreetMap`
+      : `${located.length} av ${meters.length} adresser hittades · OpenStreetMap`);
+  }
+
+  window.openMeterNavigation = function openMeterNavigation(id, event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  const meter = state.meters.find((item) => item.id === id);
+  if (!meter) return;
+  const coordinates = mapCoordinates.get(id);
+  const destination = coordinates ? `${coordinates.lat},${coordinates.lng}` : addressForMap(meter);
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
+  window.open(url, "_blank", "noopener,noreferrer");
+};
+
+  function locateUser() {
+    const map = ensurePreviewMap();
+    if (!map || !window.navigator?.geolocation) {
+      setMapStatus("GPS är inte tillgänglig i den här webbläsaren.");
+      return;
+    }
+    setMapStatus("Hämtar din GPS-position...");
+    window.navigator.geolocation.getCurrentPosition((position) => {
+      previewUserLatLng = [position.coords.latitude, position.coords.longitude];
+      if (previewUserMarker) previewMap.removeLayer(previewUserMarker);
+      previewUserMarker = L.circleMarker(previewUserLatLng, {
+        radius: 8,
+        color: "#ffffff",
+        weight: 3,
+        fillColor: "#2563eb",
+        fillOpacity: 1,
+      }).bindTooltip("Min position", { permanent: true, direction: "top" }).addTo(previewMap);
+      focusPreviewMap(true);
+      setMapStatus(`Min GPS · noggrannhet cirka ${Math.round(position.coords.accuracy)} m`);
+    }, () => {
+      setMapStatus("Kunde inte läsa GPS. Tillåt platsåtkomst och försök igen.");
+    }, {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 60000,
+    });
+  }
+
+  function setPreviewView(view) {
+    const preview = document.getElementById("meterPreview");
+    if (!preview) return;
+    preview.dataset.mobileView = view;
+    const chartButton = document.getElementById("showPreviewChart");
+    const mapButton = document.getElementById("showPreviewMap");
+    chartButton?.classList.toggle("active", view === "chart");
+    mapButton?.classList.toggle("active", view === "map");
+    chartButton?.setAttribute("aria-pressed", String(view === "chart"));
+    mapButton?.setAttribute("aria-pressed", String(view === "map"));
+    if (view === "map") focusPreviewMap();
+  }
 
   function meterDates(meter) {
     const firstPoint = meter.points[0];
@@ -427,20 +762,29 @@
     const meter = state.meters.find((item) => item.id === selectedPreviewId);
     box.hidden = !meter;
     if (!meter) {
+      mapRenderVersion += 1;
+      previewMapPoints = [];
+      previewMarkerLayer?.clearLayers?.();
+      renderSelectedChips();
       if (state.previewChart) state.previewChart.destroy();
       state.previewChart = null;
       return;
     }
+  
     const dates = meterDates(meter);
     const staleDays = meter.staleReadDays || 0;
+    const selectedCount = selectedMeterList().length;
     document.getElementById("previewTitle").textContent = meter.address || meter.id;
-    document.getElementById("previewMeta").textContent = `${categoryText[meter.category]} · risk ${meter.risk} · ${dates.firstDate} till ${dates.lastDate}${staleDays >= 14 ? ` · tappad kontakt ${staleDays} dagar` : ""}`;
+    document.getElementById("previewMeta").textContent = `${categoryText[meter.category]} · risk ${meter.risk} · ${dates.firstDate} till ${dates.lastDate}${staleDays >= 14 ? ` · tappad kontakt ${staleDays} dagar` : ""}${selectedCount > 1 ? ` · ${selectedCount} mätare på kartan` : ""}`;
     if (state.previewChart) state.previewChart.destroy();
-    const labels = meter.points.map((p) => p.date.toISOString().slice(0, 10));
+    const labels = meter.points.map((point) => point.date.toISOString().slice(0, 10));
     state.previewChart = new Chart(canvas, {
       type: "line",
       data: { labels, datasets: chartDatasets(meter, staleDays) },
       options: chartOptions(labels, meter),
+    });
+    renderSelectedMap().catch((error) => {
+      setMapStatus(error.message || "Kartan kunde inte uppdateras.");
     });
   }
 
@@ -454,6 +798,7 @@
     els.detailText.innerHTML = `
       <div class="detail-actions">
         <button class="secondary" onclick="copyAddress('${escapeAttr(meter.id)}', event)">Kopiera adress</button>
+        <button class="secondary" onclick="openMeterNavigation('${escapeAttr(meter.id)}', event)">Kör hit</button>
         ${feedbackActions(meter.id)}
       </div>
       <p><b>Period:</b> första fil ${firstDate} · sista fil ${lastDate} · senaste mätaravläsning ${lastReadDate}${staleDays >= 14 ? ` · tappad/gammal kontakt ${staleDays} dagar` : ""}</p>
@@ -465,7 +810,6 @@
     const ctx = document.getElementById("detailChart");
     if (state.chart) state.chart.destroy();
     const labels = meter.points.map((p) => p.date.toISOString().slice(0, 10));
-    const staleMarker = meter.points.map((p, index) => (index === meter.points.length - 1 && staleDays >= 14 ? p.current : null));
     state.chart = new Chart(ctx, {
       type: "line",
       data: {
@@ -573,6 +917,20 @@
     selectedMeters.clear();
     selectedPreviewId = "";
     render();
+  });
+  document.getElementById("selectedMeterChips")?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-preview-meter]");
+    if (!button) return;
+    selectedPreviewId = button.dataset.previewMeter;
+    renderSelectedPreview();
+  });
+  document.getElementById("showPreviewChart")?.addEventListener("click", () => setPreviewView("chart"));
+  document.getElementById("showPreviewMap")?.addEventListener("click", () => setPreviewView("map"));
+  document.getElementById("streetMap")?.addEventListener("click", () => setPreviewMapStyle("street"));
+  document.getElementById("satelliteMap")?.addEventListener("click", () => setPreviewMapStyle("satellite"));
+  document.getElementById("locateMe")?.addEventListener("click", locateUser);
+  document.getElementById("openNavigation")?.addEventListener("click", (event) => {
+    if (selectedPreviewId) window.openMeterNavigation(selectedPreviewId, event);
   });
   document.getElementById("pageSize")?.addEventListener("change", () => {
     currentPage = 1;
