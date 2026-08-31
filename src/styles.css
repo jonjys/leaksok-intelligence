@@ -70,8 +70,8 @@ h1 { margin: 0; font-size: 20px; line-height: 1; letter-spacing: 0; }
 
 main {
   display: grid;
-  grid-template-columns: 142px minmax(0, 1fr);
-  gap: 7px;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 6px;
   align-items: start;
   padding: 8px max(12px, env(safe-area-inset-left)) 12px max(12px, env(safe-area-inset-right));
 }
@@ -92,6 +92,42 @@ main {
 .dropzone span { display: block; color: var(--muted); margin-top: 1px; font-size: 11px; line-height: 1.2; }
 .import-status { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.25; }
 
+.meter-preview {
+  grid-column: 2;
+  grid-row: 2;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 9px;
+}
+.meter-preview[hidden] { display: none; }
+.preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.preview-head b {
+  display: block;
+  font-size: 13px;
+  line-height: 1.1;
+}
+.preview-head span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 1px;
+}
+.preview-head button {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.preview-chart {
+  height: 128px;
+}
+
 .summary {
   display: grid;
   grid-template-columns: 1fr;
@@ -105,8 +141,8 @@ main {
 .summary div {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 5px 7px;
+  border-radius: 6px;
+  padding: 4px 6px;
 }
 .summary b { display: block; font-size: 17px; line-height: 1; }
 .summary span { color: var(--muted); font-size: 9px; text-transform: uppercase; font-weight: 800; }
@@ -123,8 +159,8 @@ main {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  min-height: 29px;
-  padding: 5px 7px;
+  min-height: 26px;
+  padding: 4px 6px;
   background: #ffffff;
   color: #172033;
   border-color: var(--line);
@@ -148,6 +184,7 @@ main {
   gap: 7px;
   margin-bottom: 7px;
   grid-column: 2;
+  grid-row: 3;
 }
 #filter {
   display: none;
@@ -163,6 +200,7 @@ main {
   border-radius: 8px;
   background: #ffffff;
   grid-column: 2;
+  grid-row: 4;
 }
 .bulk-actions[hidden] { display: none; }
 .bulk-actions span {
@@ -215,6 +253,7 @@ textarea {
   grid-template-columns: minmax(0, 1fr);
   gap: 7px;
   grid-column: 2;
+  grid-row: 5;
 }
 .table-wrap {
   overflow: auto;
@@ -229,7 +268,7 @@ th:nth-child(4), td:nth-child(4) { width: 120px; }
 th:nth-child(5), td:nth-child(5) { width: 96px; }
 th:nth-child(6), td:nth-child(6) { width: 150px; }
 th:nth-child(8), td:nth-child(8) { width: 154px; }
-th, td { text-align: left; padding: 5px 7px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { position: sticky; top: 0; background: #151b23; color: var(--muted); font-size: 11px; text-transform: uppercase; z-index: 1; }
 th { background: #e9eef5; color: #475569; }
 tr:hover td { background: rgba(255,255,255,.025); }
@@ -318,6 +357,7 @@ tr:hover td { background: #f1f5f9; }
   border-radius: 8px;
   padding: 10px;
   grid-column: 2;
+  grid-row: 6;
   position: static;
   align-self: stretch;
   margin-top: 8px;
