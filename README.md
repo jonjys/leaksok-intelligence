@@ -18,15 +18,17 @@ Målet är inte en snygg Excel-visare. Målet är en smart läckdomare:
    - hur många dagar och avläsningar den nya nivån har hållit
    - återgång efter lagning
 5. Appen låter fältperson markera facit:
-   - konstaterad läcka med datum, osäkert datum och AV/SV/osäkert
-   - lagad med datum, AV/SV, material och dimension
-   - flytta mätaren direkt till Åk ut, Bevaka eller Ignorera
+   - konstaterad läcka som flyttar markerade mätare till `Aktiva läckor`
+   - hittad läcka med datum och osäkert datum
+   - lagad med datum, AV/SV och cirka meter från mätaren
+   - efter mätare/kundsida som egen lista för `Kontakta FÄ`
+   - flytta mätare direkt till Åk ut, Misstänk, Bevaka, Säsong, Ignorera eller Nollställ
 
 Om dagens Excel innehåller en mätare vars senaste riktiga avläsning är gammal avslutas mätkurvan på avläsningsdatumet. Tiden fram till dagens export visas streckad som `Inga avläsningar` och ska inte tolkas som fortsatta mätvärden.
 
 Facit och tolkade mätvärden sparas i webbläsarens IndexedDB och kan återanvändas utan att originalfilerna laddas upp på nytt. En enkel namn- och kodruta fungerar som enhetslås. Det är lokal lagring på samma webbläsare, inte molnsynk eller en serverbaserad säker inloggning.
 
-Fyra verkliga startfacit följer med motorn: Alhagsvägen 58-60 (bekräftad och lagad), Alice Tegnérs väg 23 (värmepanna/säsong), Broängsvägen 22 (lagad) och Vattravägen 8 (aktivt exempel). Ett gammalt facit blockerar inte en ny varning om mätaren senare får en ny ihållande avvikelse.
+Fyra verkliga startfacit följer med motorn: Alhagsvägen 58-60 (bekräftad och lagad), Alice Tegnérs väg 23 (värmepanna/säsong), Broängsvägen 22 (lagad) och Vattravägen 8 (aktivt exempel). Lagad och aktiva läckor är manuella listor. Appen ska inte automatiskt lägga något som lagat bara för att värdet går ner.
 
 Flera starkt korrelerade kurvor på samma husnummer markeras som möjlig gemensam servis före mätarna. `Leak` i Excel visas som ett diskret informationstecken för läckage efter mätaren och blir inte en egen arbetslista. `Dry` används som tecken på avstängd sommarvattenmätare och ska inte automatiskt bli läckprioritet.
 
@@ -72,3 +74,10 @@ node tests/app-engine.test.js
 ## Repo-status
 
 Den här mappen är helt fristående från övriga projekt.
+
+
+## Listor och flyttflöde
+
+Vänstermenyn visar de viktigaste arbetslistorna först: `Alla mätare`, `Åk ut`, `Misstänk`, `Bevaka`, `Efter mätare`, `Aktiva läckor` och `Lagad`. Mindre använda listor ligger hopfällda under `Fler listor`.
+
+`Flytta till` visar fältbeslut i första ledet. Störningsorsaker hålls inne i facitdialogen, så rullgardinen inte blir en lång blandning av beslut och orsakstyper. Markerade mätare visas samtidigt i kartan med tydligare pluppar.
