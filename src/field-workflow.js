@@ -24,6 +24,7 @@
     reset_baseline: ["nollställd/följ nya värden"],
   };
   const selectedMeters = new Set();
+  let selectedPreviewId = "";
   let currentPage = 1;
 
   Object.assign(categoryText, {
@@ -218,6 +219,7 @@
     renderLabels();
     renderBulk(rows, searchTerms);
     renderRows(visibleRows);
+    renderSelectedPreview();
   };
 
   renderSummary = function renderFieldSummary() {
@@ -357,14 +359,94 @@
     `;
   };
 
+  function meterDates(meter) {
+    const firstPoint = meter.points[0];
+    const lastPoint = meter.points[meter.points.length - 1];
+    return {
+      firstDate: firstPoint?.date?.toISOString?.().slice(0, 10) || "-",
+      lastDate: lastPoint?.date?.toISOString?.().slice(0, 10) || "-",
+      lastReadDate: lastPoint?.readAt?.toISOString?.().slice(0, 10) || "-",
+    };
+  }
+
+  function chartDatasets(meter, staleDays) {
+
+    return [
+      { label: "Brus E", data: meter.points.map((p) => p.current), borderColor: "#0ea5e9", backgroundColor: "rgba(14,165,233,.16)", fill: true, tension: .14 },
+      { label: "Trend", data: rollingAverage(meter.points.map((p) => p.current)), borderColor: "#16a34a", borderWidth: 3, pointRadius: 0, tension: .25 },
+      { label: "Snitt F", data: meter.points.map((p) => p.average), borderColor: "#64748b", borderDash: [5, 4], tension: .2 },
+      { label: "Max G", data: meter.points.map((p) => p.max), borderColor: "#f97316", borderDash: [2, 4], tension: .2, hidden: true },
+      { label: staleDays >= 14 ? `Tappad kontakt ${staleDays} dagar` : "Kontakt OK", data: staleMarker, borderColor: "#dc2626", backgroundColor: "#dc2626", pointRadius: staleDays >= 14 ? 6 : 0, pointHoverRadius: 8, showLine: false },
+    ];
+  }
+
+  function chartOptions(labels, meter) {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: "index" },
+      plugins: {
+        legend: { position: "top", labels: { color: "#334155", boxWidth: 12, usePointStyle: true, padding: 8 } },
+        tooltip: {
+          callbacks: {
+            afterBody(items) {
+              const point = meter.points[items[0].dataIndex];
+              const read = point?.readAt?.toISOString?.().slice(0, 10);
+              return [read ? `Avläst: ${read}` : "", point?.info ? `Info: ${point.info}` : ""].filter(Boolean);
+            },
+          },
+        },
+      },
+      elements: { line: { borderWidth: 2.5 }, point: { radius: meter.points.length > 40 ? 0 : 2.5, hoverRadius: 6 } },
+      scales: {
+        x: {
+          ticks: {
+            color: "#475569",
+            maxRotation: 0,
+            minRotation: 0,
+            autoSkip: false,
+            callback(value, index) {
+              const last = labels.length - 1;
+              if (index === 0 || index === last) return labels[index];
+              const step = window.innerWidth < 640 ? Math.ceil(labels.length / 3) : Math.ceil(labels.length / 6);
+              return index % step === 0 ? labels[index] : "";
+            },
+          },
+          grid: { color: "rgba(100,116,139,.14)" },
+        },
+        y: { beginAtZero: true, ticks: { color: "#475569" }, grid: { color: "rgba(100,116,139,.18)" } },
+      },
+    };
+  }
+
+  function renderSelectedPreview() {
+    const box = document.getElementById("meterPreview");
+    const canvas = document.getElementById("selectedChart");
+    if (!box || !canvas) return;
+    const meter = state.meters.find((item) => item.id === selectedPreviewId);
+    box.hidden = !meter;
+    if (!meter) {
+      if (state.previewChart) state.previewChart.destroy();
+      state.previewChart = null;
+      return;
+    }
+    const dates = meterDates(meter);
+    const staleDays = meter.staleReadDays || 0;
+    document.getElementById("previewTitle").textContent = meter.address || meter.id;
+    document.getElementById("previewMeta").textContent = `${categoryText[meter.category]} · risk ${meter.risk} · ${dates.firstDate} till ${dates.lastDate}${staleDays >= 14 ? ` · tappad kontakt ${staleDays} dagar` : ""}`;
+    if (state.previewChart) state.previewChart.destroy();
+    const labels = meter.points.map((p) => p.date.toISOString().slice(0, 10));
+    state.previewChart = new Chart(canvas, {
+      type: "line",
+      data: { labels, datasets: chartDatasets(meter, staleDays) },
+      options: chartOptions(labels, meter),
+    });
+  }
+
   window.openDetail = function openDetailFieldWorkflow(id) {
     const meter = state.meters.find((m) => m.id === id);
     if (!meter) return;
-    const firstPoint = meter.points[0];
-    const lastPoint = meter.points[meter.points.length - 1];
-    const firstDate = firstPoint?.date?.toISOString?.().slice(0, 10) || "-";
-    const lastDate = lastPoint?.date?.toISOString?.().slice(0, 10) || "-";
-    const lastReadDate = lastPoint?.readAt?.toISOString?.().slice(0, 10) || lastDate;
+    const { firstDate, lastDate, lastReadDate } = meterDates(meter);
     const staleDays = meter.staleReadDays || 0;
     els.detailTitle.textContent = meter.address || meter.id;
     els.detailMeta.textContent = `${meter.serial || meter.id} · ${meter.area || "ÖVRIGT"} · ${firstDate} till ${lastDate} · risk ${meter.risk} · ${categoryText[meter.category]}`;
@@ -388,53 +470,10 @@
       data: {
         labels,
         datasets: [
-          { label: "Brus E", data: meter.points.map((p) => p.current), borderColor: "#0ea5e9", backgroundColor: "rgba(14,165,233,.16)", fill: true, tension: .14 },
-          { label: "Trend", data: rollingAverage(meter.points.map((p) => p.current)), borderColor: "#16a34a", borderWidth: 3, pointRadius: 0, tension: .25 },
-          { label: "Snitt F", data: meter.points.map((p) => p.average), borderColor: "#64748b", borderDash: [5, 4], tension: .2 },
-          { label: "Max G", data: meter.points.map((p) => p.max), borderColor: "#f97316", borderDash: [2, 4], tension: .2, hidden: true },
-          { label: staleDays >= 14 ? `Tappad kontakt ${staleDays} dagar` : "Kontakt OK", data: staleMarker, borderColor: "#dc2626", backgroundColor: "#dc2626", pointRadius: staleDays >= 14 ? 7 : 0, pointHoverRadius: 9, showLine: false },
+          ...chartDatasets(meter, staleDays),
         ],
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { intersect: false, mode: "index" },
-        plugins: {
-          legend: { position: "top", labels: { color: "#334155", boxWidth: 14, usePointStyle: true, padding: 10 } },
-          tooltip: {
-            callbacks: {
-              afterBody(items) {
-                const point = meter.points[items[0].dataIndex];
-                const read = point?.readAt?.toISOString?.().slice(0, 10);
-                return [read ? `Avläst: ${read}` : "", point?.info ? `Info: ${point.info}` : ""].filter(Boolean);
-              },
-            },
-          },
-        },
-        elements: { line: { borderWidth: 3 }, point: { radius: meter.points.length > 40 ? 0 : 3, hoverRadius: 6 } },
-        scales: {
-          x: {
-            ticks: {
-              color: "#475569",
-              maxRotation: 0,
-              minRotation: 0,
-              autoSkip: false,
-              callback(value, index) {
-                const last = labels.length - 1;
-                if (index === 0 || index === last) return labels[index];
-                const step = window.innerWidth < 640 ? Math.ceil(labels.length / 3) : Math.ceil(labels.length / 6);
-                return index % step === 0 ? labels[index] : "";
-              },
-            },
-            grid: { color: "rgba(100,116,139,.14)" },
-          },
-          y: {
-            beginAtZero: true,
-            ticks: { color: "#475569" },
-            grid: { color: "rgba(100,116,139,.18)" },
-          },
-        },
-      },
+      options: chartOptions(labels, meter),
     });
     els.detailDialog.showModal();
   };
@@ -509,8 +548,13 @@
   document.getElementById("rows")?.addEventListener("change", (event) => {
     const input = event.target.closest?.(".row-select");
     if (!input) return;
-    if (input.checked) selectedMeters.add(input.dataset.id);
-    else selectedMeters.delete(input.dataset.id);
+    if (input.checked) {
+      selectedMeters.add(input.dataset.id);
+      selectedPreviewId = input.dataset.id;
+    } else {
+      selectedMeters.delete(input.dataset.id);
+      if (selectedPreviewId === input.dataset.id) selectedPreviewId = [...selectedMeters].at(-1) || "";
+    }
     render();
   });
   document.getElementById("listTabs")?.addEventListener("click", (event) => {
@@ -518,11 +562,17 @@
     if (!button) return;
     els.filter.value = button.dataset.filter;
     selectedMeters.clear();
+    selectedPreviewId = "";
     currentPage = 1;
     render();
   });
   els.search?.addEventListener("input", () => { currentPage = 1; }, true);
   els.sort?.addEventListener("change", () => { currentPage = 1; }, true);
+  document.getElementById("clearSelection")?.addEventListener("click", () => {
+    selectedMeters.clear();
+    selectedPreviewId = "";
+    render();
+  });
   document.getElementById("pageSize")?.addEventListener("change", () => {
     currentPage = 1;
     render();
