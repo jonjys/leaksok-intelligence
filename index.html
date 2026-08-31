@@ -27,27 +27,30 @@
   <main>
     <aside class="left-rail">
           <section class="summary" id="summary">
-          <div><b>0</b><span>filer</span></div>
           <div><b>0</b><span>mätare</span></div>
           <div><b>0</b><span>åk ut</span></div>
-          <div><b>0</b><span>bevaka</span></div>
-          <div><b>0</b><span>hittade</span></div>
-          <div><b>0</b><span>lagad/störning</span></div>
-          <div><b>0</b><span>under inlärning</span></div>
+          <div><b>0</b><span>misstänk</span></div>
+          <div><b>0</b><span>aktiva läckor</span></div>
           </section>
     
           <nav class="list-tabs" id="listTabs" aria-label="Listor">
-          <button type="button" data-filter="all">Alla listor <b>0</b></button>
+          <button type="button" data-filter="all">Alla mätare <b>0</b></button>
           <button type="button" data-filter="dispatch">Åk ut <b>0</b></button>
-          <button type="button" data-filter="watch">Bevaka <b>0</b></button>
           <button type="button" data-filter="suspect_auto">Misstänk <b>0</b></button>
-          <button type="button" data-filter="seasonal">Säsong <b>0</b></button>
-          <button type="button" data-filter="confirmed">Hittad läcka <b>0</b></button>
+          <button type="button" data-filter="watch">Bevaka <b>0</b></button>
+          <button type="button" data-filter="customer_side">Efter mätare <b>0</b></button>
+          <button type="button" data-filter="confirmed">Aktiva läckor <b>0</b></button>
           <button type="button" data-filter="repaired">Lagad <b>0</b></button>
-          <button type="button" data-filter="ignored">Ignorera <b>0</b></button>
-          <button type="button" data-filter="stale_contact">Utan avläsning <b>0</b></button>
-          <button type="button" data-filter="learning">Under inlärning <b>0</b></button>
-          <button type="button" data-filter="noise">Falsklarm/störning <b>0</b></button>
+          <details class="more-lists" id="moreLists">
+            <summary>Fler listor <b id="moreListCount">0</b></summary>
+            <div class="more-list-buttons">
+              <button type="button" data-filter="seasonal">Säsong <b>0</b></button>
+              <button type="button" data-filter="noise">Falsklarm/störning <b>0</b></button>
+              <button type="button" data-filter="ignored">Ignorera <b>0</b></button>
+              <button type="button" data-filter="stale_contact">Utan avläsning <b>0</b></button>
+              <button type="button" data-filter="learning">Under inlärning <b>0</b></button>
+            </div>
+          </details>
           </nav>
         </aside>
     <div class="content-column">
@@ -99,7 +102,8 @@
             <select id="filter" aria-hidden="true" tabindex="-1">
               <option value="all">Alla listor</option>
               <option value="dispatch">Trolig läcka - åk ut</option>
-              <option value="confirmed">Hittade läckor</option>
+              <option value="customer_side">Efter mätare</option>
+              <option value="confirmed">Aktiva läckor</option>
               <option value="watch">Bevaka</option>
               <option value="suspect_auto">Misstänk</option>
               <option value="seasonal">Säsong</option>
@@ -133,18 +137,18 @@
           <section class="bulk-actions" id="bulkActions" hidden>
             <span id="bulkCount">0 träffar</span>
             <select id="bulkType">
-              <option value="manual_dispatch">Ska åka ut på</option>
-              <option value="interesting">Intressant</option>
-              <option value="ignored">Ignorera denna</option>
-              <option value="known_noise">Falskt larm - tillfällig störning/topp</option>
-              <option value="reset_baseline">Falsklarm - nollställ</option>
-              <option value="seasonal">Säsong</option>
+              <option value="manual_dispatch">Åk ut</option>
               <option value="suspect">Misstänk</option>
-              <option value="district_heating">Fjärrvärme</option>
-              <option value="large_building">Höghus / stor byggnad</option>
-              <option value="pump">Undercentral / pumpar</option>
+              <option value="interesting">Bevaka</option>
+              <option value="leak">Konstaterad läcka → Aktiva läckor</option>
+              <option value="customer_contact">Kontakta FÄ / Efter mätare</option>
+              <option value="repaired">Lagad</option>
+              <option value="seasonal">Säsong</option>
+              <option value="known_noise">Tillfällig topp</option>
+              <option value="reset_baseline">Nollställ och följ nya värden</option>
+              <option value="ignored">Ignorera</option>
             </select>
-            <button id="bulkSave" class="secondary">Flytta markerade / träffar</button>
+            <button id="bulkSave" class="secondary">Flytta</button>
           </section>
       
           <section class="workspace">
