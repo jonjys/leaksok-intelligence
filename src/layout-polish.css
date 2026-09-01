@@ -275,3 +275,190 @@ dialog {
     display: none;
   }
 }
+
+/* Kamstrup-inspirerad arbetsyta: karta/graf först, mindre listkludd. */
+body {
+  background: #f3f6f9;
+}
+
+.topbar {
+  border-bottom-color: #dbe3ec;
+}
+
+.meter-preview {
+  border-color: #c8d3df;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, .04);
+}
+
+.preview-head {
+  align-items: flex-start;
+}
+
+.preview-actions #focusMapMode.active {
+  color: #ffffff;
+  background: #0f766e;
+  border-color: #0f766e;
+}
+
+.meter-preview.map-focus {
+  position: relative;
+}
+
+.meter-preview.map-focus .preview-grid {
+  grid-template-columns: minmax(420px, 1.45fr) minmax(360px, .9fr);
+}
+
+.meter-preview.map-focus .preview-map-wrap {
+  order: 1;
+  height: min(54vh, 520px);
+}
+
+.meter-preview.map-focus .preview-chart {
+  order: 2;
+  height: min(54vh, 520px);
+}
+
+.preview-map-wrap {
+  border-color: #c4ceda;
+}
+
+.selected-map {
+  filter: saturate(1.04) contrast(1.02);
+}
+
+.preview-chart {
+  border-color: #c4ceda;
+  background:
+    linear-gradient(#f8d8dc 0 32%, #d9efec 32% 76%, #f8fafc 76%),
+    repeating-linear-gradient(90deg, rgba(100,116,139,.13) 0 1px, transparent 1px 46px),
+    #f8fafc;
+}
+
+.bulk-actions {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  border-color: #cbd5e1;
+}
+
+#bulkType {
+  font-weight: 800;
+}
+
+#bulkSave {
+  color: #ffffff;
+  background: #0f766e;
+  border-color: #0f766e;
+}
+
+.feedback-cell,
+th:nth-child(8),
+td:nth-child(8) {
+  display: none !important;
+}
+
+table {
+  min-width: 850px;
+}
+
+th:nth-child(7),
+td:nth-child(7) {
+  width: auto;
+}
+
+tr:has(.row-select:checked) td {
+  background: #ecfdf5;
+}
+
+tr:has(.row-select:checked) td:first-child {
+  box-shadow: inset 4px 0 0 #16a34a;
+}
+
+.move-context-menu {
+  position: fixed;
+  z-index: 5000;
+  width: 236px;
+  padding: 7px;
+  color: #172033;
+  background: rgba(255, 255, 255, .98);
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, .22);
+}
+
+.move-context-menu[hidden] {
+  display: none;
+}
+
+.move-context-menu b {
+  display: block;
+  padding: 4px 6px 7px;
+  color: #475569;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.move-context-menu button {
+  display: block;
+  width: 100%;
+  min-height: 30px;
+  margin: 1px 0;
+  padding: 6px 8px;
+  color: #172033;
+  background: #f8fafc;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 12px;
+}
+
+.move-context-menu button:hover,
+.move-context-menu button:focus {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+.list-tabs button[data-filter="watch"],
+.list-tabs button[data-filter="seasonal"],
+.list-tabs button[data-filter="noise"],
+.list-tabs button[data-filter="ignored"],
+.list-tabs button[data-filter="stale_contact"],
+.list-tabs button[data-filter="learning"] {
+  display: none !important;
+}
+
+.more-lists {
+  display: block;
+}
+
+.more-list-buttons {
+  display: none !important;
+}
+
+.info-drawer .labels {
+  max-height: 260px;
+  overflow: auto;
+}
+
+@media (min-width: 1200px) {
+  .table-wrap {
+    max-height: calc(100vh - 430px);
+  }
+
+  .meter-preview.map-focus + .controls + .bulk-actions + .workspace .table-wrap,
+  .meter-preview.map-focus ~ .workspace .table-wrap {
+    max-height: 38vh;
+  }
+}
+
+@media (max-width: 900px) {
+  .meter-preview.map-focus .preview-grid,
+  .preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .meter-preview.map-focus .preview-map-wrap,
+  .meter-preview.map-focus .preview-chart {
+    height: 320px;
+  }
+}
