@@ -416,7 +416,32 @@
 
   function selectedMeterList() {
     const ids = selectedMeters.size ? [...selectedMeters] : [selectedPreviewId].filter(Boolean);
-    return ids.map((id) => state.meters.find((meter) => meter.id === id)).filter(Boolean);
+    if (ids.length) return ids.map((id) => state.meters.find((meter) => meter.id === id)).filter(Boolean);
+    return overviewMapMeters();
+  }
+
+  function currentRowsForOverview() {
+    const searchTerms = terms(els.search.value);
+    const filter = els.filter.value;
+    const sort = els.sort.value;
+    let rows = [...state.meters];
+    if (filter !== "all") {
+      rows = rows.filter((row) => {
+        if (filter === "learning") return ["learning", "new_high", "new_unknown"].includes(row.category);
+        if (filter === "confirmed") return row.category === "confirmed";
+        if (filter === "suspect_auto") return row.category === "suspect_auto";
+        if (filter === "stale_contact") return row.staleContact || row.staleReadDays >= 14;
+        return row.category === filter;
+      });
+    }
+    if (searchTerms.length) rows = rows.filter((row) => matches(row, searchTerms));
+    rows.sort((a, b) => sortValue(b, sort) - sortValue(a, sort));
+    return rows;
+  }
+
+  function overviewMapMeters() {
+    const priority = { dispatch: 1, confirmed: 2, suspect_auto: 3, customer_side: 4, watch: 5, learning: 6, seasonal: 7, noise: 8, normal: 9, repaired: 10, ignored: 11 };
+    return currentRowsForOverview().sort((a, b) => (priority[a.category] || 20) - (priority[b.category] || 20) || (b.enginePriority || b.risk || 0) - (a.enginePriority || a.risk || 0));
   }
 
   function addressForMap(meter) {
@@ -602,14 +627,36 @@
       return;
     }
   
-    setMapStatus(meters.length > 1 ? `Hämtar GPS för ${meters.length} markerade adresser...` : "Hämtar GPS-position...");
-    const located = [];
-    for (let index = 0; index < meters.length; index += 1) {
+    const overviewMode = !selectedMeters.size && !selectedPreviewId;
+    const cachedLocated = [];
+    for (const meter of meters) {
+      const cached = geocodeCache[geocodeKey(meter)];
+      if (Number.isFinite(cached?.lat) && Number.isFinite(cached?.lng)) {
+        cachedLocated.push({ meter, coordinates: { lat: cached.lat, lng: cached.lng, label: cached.label || addressForMap(meter) } });
+      }
+    }
+    const geocodeLimit = overviewMode ? 140 : meters.length;
+    const queue = meters
+      .filter((meter) => !cachedLocated.some((hit) => hit.meter.id === meter.id))
+      .slice(0, Math.max(0, geocodeLimit - cachedLocated.length));
+    const located = [...cachedLocated];
+
+    if (overviewMode) {
+      setMapStatus(cachedLocated.length
+        ? `${cachedLocated.length} GPS-positioner visas · fyller på prioriterade mätare...`
+        : "Bygger första kartan · hämtar GPS för prioriterade mätare...");
+    } else {
+      setMapStatus(meters.length > 1 ? `Hämtar GPS för ${meters.length} markerade adresser...` : "Hämtar GPS-position...");
+    }
+
+    for (let index = 0; index < queue.length; index += 1) {
       if (version !== mapRenderVersion) return;
-      setMapStatus(`Hämtar GPS ${index + 1}/${meters.length}...`);
+      setMapStatus(overviewMode
+        ? `Fyller karta ${located.length}/${meters.length} · GPS ${index + 1}/${queue.length}`
+        : `Hämtar GPS ${index + 1}/${queue.length}`);
       try {
-        const coordinates = await geocodeMeter(meters[index]);
-        if (coordinates) located.push({ meter: meters[index], coordinates });
+        const coordinates = await geocodeMeter(queue[index]);
+        if (coordinates) located.push({ meter: queue[index], coordinates });
       } catch (error) {
         if (version === mapRenderVersion) setMapStatus(error.message || "GPS-sökningen misslyckades.");
       }
@@ -621,15 +668,16 @@
       const point = [coordinates.lat, coordinates.lng];
       previewMapPoints.push(point);
       mapCoordinates.set(meter.id, coordinates);
+      const selected = selectedMeters.has(meter.id) || meter.id === selectedPreviewId;
       const marker = L.circleMarker(point, {
-        radius: selectedMeters.has(meter.id) ? 11 : (meter.id === selectedPreviewId ? 10 : 8),
-        color: selectedMeters.has(meter.id) ? "#111827" : "#ffffff",
-        weight: selectedMeters.has(meter.id) ? 4 : 3,
+        radius: selected ? 12 : (overviewMode ? 5.5 : 8),
+        color: selected ? "#111827" : "#ffffff",
+        weight: selected ? 4 : (overviewMode ? 1.5 : 3),
         fillColor: mapMarkerColor(meter.category),
-        fillOpacity: 1,
+        fillOpacity: selected ? 1 : .9,
       });
       marker.bindTooltip(shortMapLabel(meter), {
-        permanent: located.length <= 8,
+        permanent: !overviewMode && located.length <= 8,
         direction: "top",
         offset: [0, -7],
         className: "meter-map-label",
@@ -641,7 +689,9 @@
       `);
       marker.on("click", () => {
         selectedPreviewId = meter.id;
-        renderSelectedPreview();
+        selectedMeters.clear();
+        selectedMeters.add(meter.id);
+        render();
       });
       marker.addTo(previewMarkerLayer);
     }
@@ -652,9 +702,11 @@
       return;
     }
     focusPreviewMap();
-    setMapStatus(located.length === meters.length
-      ? `${located.length} markerade adresser på kartan · OpenStreetMap`
-      : `${located.length} av ${meters.length} adresser hittades · OpenStreetMap`);
+    setMapStatus(overviewMode
+      ? `${located.length} av ${meters.length} i aktuell lista på kartan · klicka en plupp för graf`
+      : (located.length === meters.length
+        ? `${located.length} markerade adresser på kartan · OpenStreetMap`
+        : `${located.length} av ${meters.length} adresser hittades · OpenStreetMap`));
   }
 
   window.openMeterNavigation = function openMeterNavigation(id, event) {
@@ -775,14 +827,19 @@
     const canvas = document.getElementById("selectedChart");
     if (!box || !canvas) return;
     const meter = state.meters.find((item) => item.id === selectedPreviewId);
-    box.hidden = !meter;
+    box.hidden = state.meters.length === 0;
+    box.classList.toggle("overview-map", !meter);
     if (!meter) {
-      mapRenderVersion += 1;
-      previewMapPoints = [];
-      previewMarkerLayer?.clearLayers?.();
-      renderSelectedChips();
       if (state.previewChart) state.previewChart.destroy();
       state.previewChart = null;
+      const rows = overviewMapMeters();
+      document.getElementById("previewTitle").textContent = "Karta över mätare";
+      document.getElementById("previewMeta").textContent = rows.length
+        ? `${rows.length} mätare i aktuell lista · klicka en plupp för graf och åtgärder`
+        : "Ladda Excel så visas mätarna på kartan";
+      renderSelectedMap().catch((error) => {
+        setMapStatus(error.message || "Kartan kunde inte uppdateras.");
+      });
       return;
     }
   
