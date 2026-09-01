@@ -13,7 +13,7 @@
   const listNames = {
     all: "Alla mätare",
     dispatch: "Åk ut",
-    suspect_auto: "Misstänk",
+    suspect_auto: "Misstänk / bevaka",
     customer_side: "Efter mätare",
     confirmed: "Aktiva läckor",
     repaired: "Lagad",
@@ -88,12 +88,14 @@
     if (!window.Chart || window.Chart.defaults.datasetPolished) return;
     Chart.defaults.datasetPolished = true;
     Chart.defaults.color = "#334155";
-    Chart.defaults.borderColor = "rgba(100, 116, 139, .20)";
-    Chart.defaults.elements.line.borderWidth = 3;
+    Chart.defaults.borderColor = "rgba(100, 116, 139, .16)";
+    Chart.defaults.animation.duration = 180;
+    Chart.defaults.elements.line.borderWidth = 2.4;
     Chart.defaults.elements.point.radius = 0;
-    Chart.defaults.elements.point.hoverRadius = 4;
-    Chart.defaults.plugins.legend.labels.boxWidth = 11;
-    Chart.defaults.plugins.legend.labels.boxHeight = 11;
+    Chart.defaults.elements.point.hoverRadius = 5;
+    Chart.defaults.plugins.legend.labels.boxWidth = 10;
+    Chart.defaults.plugins.legend.labels.boxHeight = 10;
+    registerSmartChartPlugin();
   }
 
   function ensureMapModeButton() {
@@ -185,8 +187,157 @@
     });
   }
 
+  function simplifySortSelect() {
+    const select = document.getElementById("sort");
+    if (!select || select.dataset.smartSort === "true") return;
+    const current = select.value;
+    select.innerHTML = [
+      ["risk", "Motorprioritet"],
+      ["persistence", "Beständig längst"],
+      ["robustRise", "Robust ökning"],
+      ["current", "Senaste värde"],
+      ["confidence", "Säkerhet"],
+    ].map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+    select.value = [...select.options].some((option) => option.value === current) ? current : "risk";
+    select.dataset.smartSort = "true";
+  }
+
+  function registerSmartChartPlugin() {
+    if (!window.Chart || Chart.registry.plugins.get("leakEvidenceBands")) return;
+    Chart.register({
+      id: "leakEvidenceBands",
+      beforeDraw(chart) {
+        if (!["selectedChart", "detailChart"].includes(chart.canvas?.id)) return;
+        const area = chart.chartArea;
+        const y = chart.scales?.y;
+        if (!area || !y) return;
+        const { ctx } = chart;
+        const zones = [
+          [0, 50, "rgba(14, 165, 164, .075)"],
+          [50, 100, "rgba(245, 158, 11, .075)"],
+          [100, Math.max(100, y.max), "rgba(225, 29, 72, .075)"],
+        ];
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(area.left, area.top, area.right - area.left, area.bottom - area.top);
+        ctx.clip();
+        zones.forEach(([from, to, color]) => {
+          if (from >= y.max || to <= y.min) return;
+          const top = y.getPixelForValue(Math.min(to, y.max));
+          const bottom = y.getPixelForValue(Math.max(from, y.min));
+          ctx.fillStyle = color;
+          ctx.fillRect(area.left, top, area.right - area.left, bottom - top);
+        });
+        ctx.restore();
+      },
+      afterDraw(chart) {
+        if (!["selectedChart", "detailChart"].includes(chart.canvas?.id)) return;
+        const active = chart.tooltip?.getActiveElements?.()?.[0];
+        if (!active || !chart.chartArea) return;
+        const { ctx, chartArea } = chart;
+        ctx.save();
+        ctx.strokeStyle = "rgba(15, 23, 42, .32)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(active.element.x, chartArea.top);
+        ctx.lineTo(active.element.x, chartArea.bottom);
+        ctx.stroke();
+        ctx.restore();
+      },
+    });
+  }
+
+  function styleChart(chart) {
+    if (!chart || chart.$smartStyled) return;
+    chart.$smartStyled = true;
+    const colors = [
+      { border: "#147dcc", background: "rgba(20, 125, 204, .10)", width: 2.2 },
+      { border: "#078b77", background: "transparent", width: 3 },
+      { border: "#64748b", background: "transparent", width: 1.6 },
+      { border: "#dc5264", background: "transparent", width: 1.5 },
+      { border: "#94a3b8", background: "transparent", width: 1.6 },
+    ];
+    chart.data.datasets.forEach((dataset, index) => {
+      const palette = colors[index] || colors[0];
+      dataset.borderColor = palette.border;
+      dataset.backgroundColor = palette.background;
+      dataset.borderWidth = palette.width;
+      dataset.pointBackgroundColor = palette.border;
+      dataset.pointBorderColor = "#ffffff";
+      dataset.pointBorderWidth = 1.5;
+      dataset.fill = index === 0;
+    });
+    chart.options.animation = { duration: 180 };
+    chart.options.interaction = { intersect: false, mode: "index" };
+    chart.options.plugins.legend.labels = {
+      ...(chart.options.plugins.legend.labels || {}),
+      color: "#334155",
+      usePointStyle: true,
+      padding: 14,
+    };
+    chart.options.scales.x.ticks.color = "#64748b";
+    chart.options.scales.y.ticks.color = "#64748b";
+    chart.options.scales.x.grid.color = "rgba(100, 116, 139, .10)";
+    chart.options.scales.y.grid.color = "rgba(100, 116, 139, .14)";
+    chart.update("none");
+  }
+
+  function decorateCharts() {
+    if (!window.Chart) return;
+    styleChart(typeof state !== "undefined" ? state.previewChart : null);
+    styleChart(typeof state !== "undefined" ? state.chart : null);
+  }
+
+  function previewMeter() {
+    if (typeof state === "undefined") return null;
+    const title = document.getElementById("previewTitle")?.textContent?.trim();
+    const byTitle = state.meters.find((meter) => (meter.address || meter.id) === title);
+    if (byTitle) return byTitle;
+    const checked = document.querySelector(".row-select:checked")?.dataset.id;
+    return state.meters.find((meter) => meter.id === checked) || null;
+  }
+
+  function renderEngineKpis() {
+    const preview = document.getElementById("meterPreview");
+    const head = preview?.querySelector(".preview-head");
+    if (!preview || !head) return;
+    let strip = preview.querySelector(".preview-kpis");
+    if (!strip) {
+      strip = document.createElement("div");
+      strip.className = "preview-kpis";
+      head.insertAdjacentElement("afterend", strip);
+    }
+    const meter = previewMeter();
+    if (!meter?.engine) {
+      strip.hidden = true;
+      return;
+    }
+    strip.hidden = false;
+    const engine = meter.engine;
+    const rise = Math.round((engine.relativeRise || 0) * 100);
+    const values = [
+      ["Motor", meter.risk],
+      ["Bas", Math.round(engine.baseline || 0)],
+      ["Nu", Math.round(engine.recentLevel || 0)],
+      ["Ökning", `${rise > 0 ? "+" : ""}${rise}%`],
+      ["Beständig", engine.sustained ? `${engine.persistenceDays} d` : `${engine.trailingElevated || 0} st`],
+    ];
+    strip.innerHTML = values.map(([label, value]) => `<span><small>${label}</small><b>${value}</b></span>`).join("");
+    strip.classList.toggle("is-alert", meter.category === "dispatch");
+  }
+
+  function compactRowReasons() {
+    document.querySelectorAll("#rows tr").forEach((row) => {
+      const reasons = row.querySelectorAll(".reason-cell li");
+      reasons.forEach((reason, index) => { reason.hidden = index > 2; });
+      row.tabIndex = 0;
+    });
+  }
+
   function polish() {
     simplifyBulkSelect();
+    simplifySortSelect();
     polishListTabs();
     moveInfoPanel();
     removeRowMoveTo();
@@ -195,6 +346,9 @@
     ensureMapModeButton();
     ensureContextMenu();
     makeRowsSelectOnClick();
+    renderEngineKpis();
+    compactRowReasons();
+    setTimeout(decorateCharts, 0);
   }
 
   const originalRender = window.render;
