@@ -1055,3 +1055,129 @@ th:nth-child(8) {
     max-height: 56vh;
   }
 }
+
+
+/* Map-first workspace */
+.meter-preview {
+  order: -1;
+}
+
+.meter-preview.overview-map {
+  position: relative;
+  padding: 7px;
+}
+
+.meter-preview.overview-map .preview-heading b {
+  font-size: 15px;
+}
+
+.meter-preview.overview-map .preview-grid {
+  grid-template-columns: minmax(0, 1fr);
+  height: min(58vh, 560px);
+}
+
+.meter-preview.overview-map .preview-chart {
+  display: none;
+}
+
+.meter-preview.overview-map .preview-map-wrap {
+  min-height: 360px;
+  height: 100%;
+}
+
+.meter-preview.overview-map .meter-chips,
+.meter-preview.overview-map .preview-kpis,
+.meter-preview.overview-map #focusMapMode,
+.meter-preview.overview-map .preview-view-toggle {
+  display: none !important;
+}
+
+.meter-preview.overview-map .preview-head {
+  position: absolute;
+  z-index: 500;
+  top: 18px;
+  left: 18px;
+  max-width: min(520px, calc(100% - 36px));
+  padding: 9px 11px;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid rgba(203, 213, 225, .9);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, .18);
+  backdrop-filter: blur(10px);
+}
+
+.meter-preview.overview-map .map-status {
+  position: absolute;
+  z-index: 500;
+  left: 16px;
+  bottom: 14px;
+  max-width: min(620px, calc(100% - 32px));
+  padding: 6px 9px;
+  color: #172033;
+  background: rgba(255, 255, 255, .92);
+  border: 1px solid #d7dee8;
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.meter-preview.overview-map .selected-map {
+  min-height: 360px;
+}
+
+.meter-preview.overview-map .map-toolbar {
+  position: absolute;
+  z-index: 501;
+  right: 14px;
+  top: 14px;
+  padding: 4px;
+  background: rgba(255, 255, 255, .9);
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, .14);
+}
+
+.meter-map-label {
+  color: #172033;
+  background: rgba(255,255,255,.92);
+  border: 1px solid rgba(203,213,225,.9);
+  border-radius: 5px;
+  box-shadow: none;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+@media (min-width: 1180px) {
+  .meter-preview:not(.overview-map) .preview-grid {
+    height: 300px;
+  }
+
+  .meter-preview.overview-map .preview-grid {
+    height: calc(100dvh - 250px);
+    min-height: 430px;
+  }
+
+  .meter-preview.overview-map + .controls + .bulk-actions + .workspace .table-wrap,
+  .meter-preview.overview-map ~ .workspace .table-wrap {
+    max-height: 31vh;
+  }
+}
+
+@media (max-width: 760px) {
+  .meter-preview.overview-map .preview-grid,
+  .meter-preview.overview-map .preview-map-wrap,
+  .meter-preview.overview-map .selected-map {
+    height: 62vh;
+    min-height: 360px;
+  }
+
+  .meter-preview.overview-map .preview-head {
+    position: static;
+    max-width: none;
+    margin-bottom: 6px;
+    box-shadow: none;
+  }
+
+  .meter-preview.overview-map .map-toolbar {
+    top: 72px;
+  }
+}
