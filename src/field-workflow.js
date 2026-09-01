@@ -43,6 +43,7 @@
   let previewUserLatLng = null;
   let previewMapPoints = [];
   let previewMapStyle = "satellite";
+  let mapCategoryFilter = "all";
 
   Object.assign(categoryText, {
     confirmed: "HITTAD LÄCKA",
@@ -441,7 +442,27 @@
 
   function overviewMapMeters() {
     const priority = { dispatch: 1, confirmed: 2, suspect_auto: 3, customer_side: 4, watch: 5, learning: 6, seasonal: 7, noise: 8, normal: 9, repaired: 10, ignored: 11 };
-    return currentRowsForOverview().sort((a, b) => (priority[a.category] || 20) - (priority[b.category] || 20) || (b.enginePriority || b.risk || 0) - (a.enginePriority || a.risk || 0));
+    return currentRowsForOverview()
+      .filter((meter) => mapFilterMatch(meter))
+      .sort((a, b) => (priority[a.category] || 20) - (priority[b.category] || 20) || (b.enginePriority || b.risk || 0) - (a.enginePriority || a.risk || 0));
+  }
+
+  function mapFilterMatch(meter) {
+    if (mapCategoryFilter === "all") return true;
+    if (mapCategoryFilter === "suspect") return ["suspect_auto", "watch"].includes(meter.category);
+    if (mapCategoryFilter === "field") return ["dispatch", "suspect_auto", "watch", "confirmed", "customer_side"].includes(meter.category);
+    return meter.category === mapCategoryFilter;
+  }
+
+  function mapFilterLabel() {
+    return {
+      all: "Alla",
+      field: "Fältläge",
+      dispatch: "Åk ut",
+      suspect: "Bevakning",
+      confirmed: "Aktiva läckor",
+      customer_side: "Efter mätare",
+    }[mapCategoryFilter] || "Alla";
   }
 
   function addressForMap(meter) {
@@ -532,8 +553,44 @@
     previewBaseLayer.addTo(previewMap);
   }
 
+  function ensureMapCategoryControls() {
+    const toolbar = document.querySelector(".map-toolbar");
+    if (!toolbar || document.getElementById("mapCategoryControls")) return;
+    const controls = document.createElement("div");
+    controls.id = "mapCategoryControls";
+    controls.className = "map-category-controls";
+    controls.setAttribute("role", "group");
+    controls.setAttribute("aria-label", "Visa mätare på kartan");
+    controls.innerHTML = [
+      ["field", "Fält"],
+      ["dispatch", "Åk ut"],
+      ["suspect", "Bevakning"],
+      ["confirmed", "Aktiva"],
+      ["customer_side", "Efter"],
+      ["all", "Alla"],
+    ].map(([value, label]) => `<button type="button" class="secondary" data-map-filter="${value}">${label}</button>`).join("");
+    toolbar.prepend(controls);
+    controls.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-map-filter]");
+      if (!button) return;
+      mapCategoryFilter = button.dataset.mapFilter;
+      selectedMeters.clear();
+      selectedPreviewId = "";
+      updateMapCategoryButtons();
+      render();
+    });
+    updateMapCategoryButtons();
+  }
+
+  function updateMapCategoryButtons() {
+    document.querySelectorAll("[data-map-filter]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.mapFilter === mapCategoryFilter);
+    });
+  }
+
   function ensurePreviewMap() {
     const mapElement = document.getElementById("selectedMap");
+    ensureMapCategoryControls();
     if (!mapElement) return null;
     if (!window.L) {
       setMapStatus("Kartan kunde inte laddas. Kör hit fungerar fortfarande.");
@@ -707,7 +764,7 @@
     }
     focusPreviewMap();
     setMapStatus(overviewMode
-      ? `${located.length} av ${meters.length} i aktuell lista på kartan · klicka en plupp för graf`
+      ? `${mapFilterLabel()}: ${located.length} av ${meters.length} på kartan · klicka en plupp för graf`
       : (located.length === meters.length
         ? `${located.length} markerade adresser på kartan · OpenStreetMap`
         : `${located.length} av ${meters.length} adresser hittades · OpenStreetMap`));
@@ -839,8 +896,8 @@
       const rows = overviewMapMeters();
       document.getElementById("previewTitle").textContent = "Karta över mätare";
       document.getElementById("previewMeta").textContent = rows.length
-        ? `${rows.length} mätare i aktuell lista · klicka en plupp för graf och åtgärder`
-        : "Ladda Excel så visas mätarna på kartan";
+        ? `${mapFilterLabel()}: ${rows.length} mätare på kartan · klicka en plupp för graf och åtgärder`
+        : `${mapFilterLabel()}: inga mätare i kartfiltret`;
       renderSelectedMap().catch((error) => {
         setMapStatus(error.message || "Kartan kunde inte uppdateras.");
       });
@@ -1004,6 +1061,7 @@
   document.getElementById("showPreviewMap")?.addEventListener("click", () => setPreviewView("map"));
   document.getElementById("streetMap")?.addEventListener("click", () => setPreviewMapStyle("street"));
   document.getElementById("satelliteMap")?.addEventListener("click", () => setPreviewMapStyle("satellite"));
+  updateMapCategoryButtons();
   document.getElementById("locateMe")?.addEventListener("click", locateUser);
   document.getElementById("openNavigation")?.addEventListener("click", (event) => {
     if (selectedPreviewId) window.openMeterNavigation(selectedPreviewId, event);
