@@ -606,6 +606,10 @@
   function renderSelectedChips() {
     const chips = document.getElementById("selectedMeterChips");
     if (!chips) return;
+    if (!selectedMeters.size && !selectedPreviewId) {
+      chips.innerHTML = "";
+      return;
+    }
     const meters = selectedMeterList();
     chips.innerHTML = meters.map((meter) => `
       <button type="button" class="meter-chip${meter.id === selectedPreviewId ? " active" : ""}" data-preview-meter="${escapeAttr(meter.id)}" title="${escapeAttr(meter.address || meter.id)}">
