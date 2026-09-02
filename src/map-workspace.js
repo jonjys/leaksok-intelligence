@@ -5,6 +5,8 @@
   let userPickedFilter = false;
   let ranInitialFilter = false;
   let renderTimer = 0;
+  let geocodeBudget = 32;
+  let geocodeBudgetReset = 0;
 
   function savedView() {
     try { return localStorage.getItem(VIEW_KEY) || "map"; }
@@ -22,6 +24,33 @@
 
   function saveFilter(filter) {
     try { localStorage.setItem(MAP_FILTER_KEY, filter); } catch {}
+  }
+
+  function installGeocodeThrottle() {
+    if (!window.fetch || window.fetch.leaksokMapThrottle) return;
+    const nativeFetch = window.fetch.bind(window);
+    const wrappedFetch = function throttledFetch(input, init) {
+      const raw = typeof input === "string" ? input : input?.url || "";
+      const isNominatim = /nominatim\.openstreetmap\.org\/search/i.test(raw);
+      const hasSelection = Boolean(document.querySelector(".row-select:checked"));
+      if (isNominatim && !hasSelection) {
+        const now = Date.now();
+        if (now > geocodeBudgetReset) {
+          geocodeBudget = 32;
+          geocodeBudgetReset = now + 9000;
+        }
+        geocodeBudget -= 1;
+        if (geocodeBudget < 0) {
+          return Promise.resolve(new Response("[]", {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }));
+        }
+      }
+      return nativeFetch(input, init);
+    };
+    wrappedFetch.leaksokMapThrottle = true;
+    window.fetch = wrappedFetch;
   }
 
   function ensureWorkspaceToggle() {
@@ -89,7 +118,8 @@
     if (document.body.dataset.workView === "list") return;
     const wanted = savedFilter();
     const active = document.querySelector(".map-category-controls button.active[data-map-filter]");
-    const target = document.querySelector(`.map-category-controls button[data-map-filter="${CSS.escape(wanted)}"]`)
+    const escaped = window.CSS?.escape ? CSS.escape(wanted) : wanted.replace(/"/g, "");
+    const target = document.querySelector(`.map-category-controls button[data-map-filter="${escaped}"]`)
       || document.querySelector(`.map-category-controls button[data-map-filter="${DEFAULT_FILTER}"]`);
     if (!target) return;
     if (!force && ranInitialFilter && (userPickedFilter || active?.dataset.mapFilter === target.dataset.mapFilter)) return;
@@ -123,6 +153,7 @@
   }
 
   function polish() {
+    installGeocodeThrottle();
     ensureWorkspaceToggle();
     setWorkView(document.body.dataset.workView || savedView(), false);
     forceLightMap();
@@ -131,6 +162,7 @@
     scheduleMapFilter(false);
   }
 
+  installGeocodeThrottle();
   rememberMapFilterClicks();
   document.addEventListener("DOMContentLoaded", polish);
   const observer = new MutationObserver(polish);
