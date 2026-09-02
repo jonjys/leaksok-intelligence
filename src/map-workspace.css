@@ -1,0 +1,168 @@
+/* Lightweight map/list workspace */
+.topbar .workspace-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: #e8eef5;
+  border: 1px solid #ccd6e3;
+  border-radius: 7px;
+}
+
+.topbar .workspace-toggle button {
+  min-height: 28px;
+  padding: 4px 9px;
+  color: #334155;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.topbar .workspace-toggle button.active {
+  color: #ffffff;
+  background: #0f766e;
+}
+
+#satelliteMap,
+.map-toolbar button#satelliteMap {
+  display: none !important;
+}
+
+body[data-work-view="map"] .meter-preview {
+  order: -2;
+}
+
+body[data-work-view="map"] .meter-preview.overview-map .preview-grid {
+  height: min(36vh, 360px) !important;
+  min-height: 260px !important;
+}
+
+body[data-work-view="map"] .meter-preview.overview-map .preview-map-wrap,
+body[data-work-view="map"] .meter-preview.overview-map .selected-map {
+  min-height: 260px !important;
+}
+
+body[data-work-view="map"] .meter-preview:not(.overview-map) .preview-grid {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+  height: min(39vh, 390px) !important;
+}
+
+body[data-work-view="map"] .map-toolbar {
+  max-width: min(720px, calc(100% - 28px));
+}
+
+body[data-work-view="map"] .map-category-controls {
+  max-width: 520px;
+}
+
+body[data-work-view="map"] .map-category-controls button[data-map-filter="all"] {
+  opacity: .72;
+}
+
+body[data-work-view="map"] .table-wrap {
+  max-height: 36vh !important;
+}
+
+body[data-work-view="list"] .meter-preview {
+  display: none !important;
+}
+
+body[data-work-view="list"] .table-wrap {
+  max-height: calc(100dvh - 178px) !important;
+  min-height: calc(100dvh - 178px);
+}
+
+body[data-work-view="list"] .controls {
+  top: 60px;
+}
+
+body[data-work-view="list"] .bulk-actions {
+  top: 104px;
+}
+
+#listTabs button[data-filter="suspect_auto"] {
+  display: flex !important;
+  visibility: visible !important;
+}
+
+#listTabs button[data-filter="watch"] {
+  display: none !important;
+}
+
+.list-tabs button[data-filter="suspect_auto"]::after {
+  content: "bevaka";
+  margin-left: auto;
+  color: #64748b;
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.meter-preview.overview-map .preview-head {
+  max-width: min(460px, calc(100% - 36px));
+  padding: 7px 9px;
+}
+
+.meter-preview.overview-map .preview-heading span {
+  display: block;
+  max-width: 420px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.leaflet-container {
+  background: #dfe7ee;
+}
+
+.leaflet-tile-pane {
+  filter: saturate(.9) contrast(.98);
+}
+
+.leaflet-marker-pane .leaflet-interactive {
+  cursor: pointer;
+}
+
+@media (min-width: 1300px) {
+  body[data-work-view="map"] .content-column {
+    gap: 6px;
+  }
+
+  body[data-work-view="map"] .meter-preview.overview-map .preview-grid {
+    height: min(39vh, 390px) !important;
+  }
+
+  body[data-work-view="map"] .table-wrap {
+    max-height: 39vh !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .topbar .workspace-toggle {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
+  .topbar .workspace-toggle button {
+    flex: 1;
+  }
+
+  body[data-work-view="map"] .meter-preview.overview-map .preview-grid,
+  body[data-work-view="map"] .meter-preview.overview-map .preview-map-wrap,
+  body[data-work-view="map"] .meter-preview.overview-map .selected-map {
+    height: 42vh !important;
+    min-height: 270px !important;
+  }
+
+  body[data-work-view="map"] .meter-preview:not(.overview-map) .preview-grid {
+    display: block;
+    height: 280px !important;
+  }
+
+  body[data-work-view="list"] .table-wrap {
+    max-height: 62vh !important;
+    min-height: 62vh;
+  }
+}
