@@ -93,6 +93,9 @@
       boxWidth: 9,
       font: { size: 11, weight: "800" },
     };
+    chart.options.scales = chart.options.scales || {};
+    chart.options.scales.x = chart.options.scales.x || {};
+    chart.options.scales.y = chart.options.scales.y || {};
     chart.options.scales.x.border = { color: "rgba(100,116,139,.35)" };
     chart.options.scales.y.border = { color: "rgba(100,116,139,.35)" };
     chart.options.scales.x.grid = { color: "rgba(100,116,139,.13)", drawTicks: false };
