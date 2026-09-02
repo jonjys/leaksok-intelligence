@@ -1,0 +1,66 @@
+/* Kamstrup-style chart polish */
+.preview-chart,
+.chart-box {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(244, 63, 94, .13) 0 34%, rgba(20, 184, 166, .15) 34% 78%, rgba(248, 250, 252, .98) 78% 100%),
+    repeating-linear-gradient(90deg, rgba(100, 116, 139, .13) 0 1px, transparent 1px 42px),
+    repeating-linear-gradient(0deg, rgba(100, 116, 139, .10) 0 1px, transparent 1px 30px),
+    #ffffff !important;
+}
+
+.preview-chart::before,
+.chart-box::before {
+  content: "AKUSTISKT BRUS";
+  position: absolute;
+  z-index: 1;
+  top: 7px;
+  left: 9px;
+  color: #64748b;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  pointer-events: none;
+}
+
+.preview-chart canvas,
+.chart-box canvas {
+  position: relative;
+  z-index: 2;
+}
+
+.preview-chart {
+  min-height: 260px;
+}
+
+.meter-preview:not(.overview-map) .preview-chart {
+  min-height: 300px;
+}
+
+.chart-box {
+  min-height: min(68vh, 600px);
+}
+
+.spark {
+  background:
+    linear-gradient(180deg, rgba(244, 63, 94, .10) 0 38%, rgba(20, 184, 166, .10) 38% 80%, transparent 80%),
+    #ffffff;
+  border: 1px solid #d8e1ec;
+  border-radius: 4px;
+}
+
+.spark polyline,
+.spark path {
+  stroke-width: 2.4;
+}
+
+@media (max-width: 760px) {
+  .preview-chart {
+    min-height: 260px;
+  }
+
+  .chart-box {
+    min-height: 58vh;
+  }
+}
