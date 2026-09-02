@@ -53,6 +53,21 @@
     window.fetch = wrappedFetch;
   }
 
+  function installMapWheelGuard() {
+    const mapElement = document.getElementById("selectedMap");
+    if (!mapElement || mapElement.dataset.wheelGuard === "true") return;
+    mapElement.dataset.wheelGuard = "true";
+    mapElement.addEventListener("wheel", (event) => {
+      event.stopImmediatePropagation();
+    }, { capture: true, passive: true });
+    mapElement.addEventListener("gesturestart", (event) => {
+      event.stopPropagation();
+    }, { capture: true, passive: true });
+    mapElement.addEventListener("dblclick", (event) => {
+      if (!event.target.closest(".leaflet-marker-pane, .leaflet-control")) event.stopImmediatePropagation();
+    }, { capture: true });
+  }
+
   function ensureWorkspaceToggle() {
     if (document.getElementById("workspaceToggle")) return;
     const actions = document.querySelector(".topbar .actions");
@@ -154,6 +169,7 @@
 
   function polish() {
     installGeocodeThrottle();
+    installMapWheelGuard();
     ensureWorkspaceToggle();
     setWorkView(document.body.dataset.workView || savedView(), false);
     forceLightMap();
@@ -163,6 +179,7 @@
   }
 
   installGeocodeThrottle();
+  installMapWheelGuard();
   rememberMapFilterClicks();
   document.addEventListener("DOMContentLoaded", polish);
   const observer = new MutationObserver(polish);
