@@ -42,7 +42,7 @@
   let previewUserMarker = null;
   let previewUserLatLng = null;
   let previewMapPoints = [];
-  let previewMapStyle = "satellite";
+  let previewMapStyle = "street";
   let mapCategoryFilter = "all";
 
   Object.assign(categoryText, {
@@ -274,9 +274,17 @@
     renderListTabs(counts);
   };
 
+  function ensureSuspectTabVisible() {
+    const tab = document.querySelector('#listTabs button[data-filter="suspect_auto"]');
+    if (!tab) return;
+    tab.hidden = false;
+    tab.style.display = "";
+  }
+
   function renderListTabs(counts) {
     const tabs = document.getElementById("listTabs");
     if (!tabs) return;
+    ensureSuspectTabVisible();
     const active = els.filter.value;
     const values = {
       all: state.meters.length, dispatch: counts.dispatch, watch: counts.watch, suspect_auto: counts.suspect, customer_side: counts.customer,
@@ -618,7 +626,9 @@
       zoomControl: true,
       attributionControl: true,
       preferCanvas: true,
-    }).setView([59.2, 17.83], 10);
+      maxBounds: [[59.05, 17.55], [59.35, 18.15]],
+      maxBoundsViscosity: .7,
+    }).setView([59.20, 17.83], 12);
     previewBaseLayer = previewMapLayers[previewMapStyle];
     previewBaseLayer.addTo(previewMap);
     previewMarkerLayer = L.layerGroup().addTo(previewMap);
@@ -626,13 +636,21 @@
     return previewMap;
   }
 
-  function focusPreviewMap(includeUser = false) {
+  function focusPreviewMap(includeUser = false, overviewMode = false) {
     if (!previewMap || !window.L) return;
     const points = [...previewMapPoints];
     if (includeUser && previewUserLatLng) points.push(previewUserLatLng);
     const resize = () => {
       previewMap.invalidateSize({ pan: false });
-      if (!points.length) return;
+      if (!points.length) {
+        if (overviewMode) previewMap.setView([59.20, 17.83], 12);
+        return;
+      }
+      if (overviewMode) {
+        const bounds = L.latLngBounds(points);
+        previewMap.fitBounds(bounds, { padding: [18, 18], maxZoom: 13 });
+        return;
+      }
       if (points.length === 1) previewMap.flyTo(points[0], 17, { duration: .35 });
       else previewMap.fitBounds(L.latLngBounds(points), { padding: [28, 28], maxZoom: 18 });
     };
@@ -696,7 +714,7 @@
         cachedLocated.push({ meter, coordinates: { lat: cached.lat, lng: cached.lng, label: cached.label || addressForMap(meter) } });
       }
     }
-    const geocodeLimit = overviewMode ? 140 : meters.length;
+    const geocodeLimit = overviewMode ? 80 : meters.length;
     const queue = meters
       .filter((meter) => !cachedLocated.some((hit) => hit.meter.id === meter.id))
       .slice(0, Math.max(0, geocodeLimit - cachedLocated.length));
@@ -705,7 +723,7 @@
     if (overviewMode) {
       setMapStatus(cachedLocated.length
         ? `${cachedLocated.length} GPS-positioner visas · fyller på prioriterade mätare...`
-        : "Bygger första kartan · hämtar GPS för prioriterade mätare...");
+        : "Bygger Botkyrka-karta · hämtar GPS för prioriterade mätare...");
     } else {
       setMapStatus(meters.length > 1 ? `Hämtar GPS för ${meters.length} markerade adresser...` : "Hämtar GPS-position...");
     }
@@ -759,10 +777,10 @@
   
     if (!located.length) {
       setMapStatus("GPS-position saknas. Kör hit söker direkt på adressen.");
-      previewMap.setView([59.2, 17.83], 10);
+      previewMap.setView([59.20, 17.83], 12);
       return;
     }
-    focusPreviewMap();
+    focusPreviewMap(false, overviewMode);
     setMapStatus(overviewMode
       ? `${mapFilterLabel()}: ${located.length} av ${meters.length} på kartan · klicka en plupp för graf`
       : (located.length === meters.length
