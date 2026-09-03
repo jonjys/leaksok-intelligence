@@ -1,20 +1,32 @@
 (function applyMapWorkspace() {
   const VIEW_KEY = "leaksok_workspace_view_v1";
+  const MOBILE_VIEW_KEY = "leaksok_mobile_workspace_view_v1";
   const MAP_FILTER_KEY = "leaksok_map_filter_v1";
+  const MOBILE_FILTER_KEY = "leaksok_mobile_field_filter_v1";
   const DEFAULT_FILTER = "field";
+  const MOBILE_BREAKPOINT = 760;
   let userPickedFilter = false;
   let ranInitialFilter = false;
   let renderTimer = 0;
   let geocodeBudget = 32;
   let geocodeBudgetReset = 0;
+  let lastMobileState = window.innerWidth <= MOBILE_BREAKPOINT;
+  let mobileDefaultsApplied = false;
+
+  function isMobile() {
+    return window.innerWidth <= MOBILE_BREAKPOINT;
+  }
 
   function savedView() {
-    try { return localStorage.getItem(VIEW_KEY) || "map"; }
-    catch { return "map"; }
+    const fallback = isMobile() ? "list" : "map";
+    const key = isMobile() ? MOBILE_VIEW_KEY : VIEW_KEY;
+    try { return localStorage.getItem(key) || fallback; }
+    catch { return fallback; }
   }
 
   function saveView(view) {
-    try { localStorage.setItem(VIEW_KEY, view); } catch {}
+    const key = isMobile() ? MOBILE_VIEW_KEY : VIEW_KEY;
+    try { localStorage.setItem(key, view); } catch {}
   }
 
   function savedFilter() {
@@ -53,21 +65,6 @@
     window.fetch = wrappedFetch;
   }
 
-  function installMapWheelGuard() {
-    const mapElement = document.getElementById("selectedMap");
-    if (!mapElement || mapElement.dataset.wheelGuard === "true") return;
-    mapElement.dataset.wheelGuard = "true";
-    mapElement.addEventListener("wheel", (event) => {
-      event.stopImmediatePropagation();
-    }, { capture: true, passive: true });
-    mapElement.addEventListener("gesturestart", (event) => {
-      event.stopPropagation();
-    }, { capture: true, passive: true });
-    mapElement.addEventListener("dblclick", (event) => {
-      if (!event.target.closest(".leaflet-marker-pane, .leaflet-control")) event.stopImmediatePropagation();
-    }, { capture: true });
-  }
-
   function ensureWorkspaceToggle() {
     if (document.getElementById("workspaceToggle")) return;
     const actions = document.querySelector(".topbar .actions");
@@ -87,11 +84,49 @@
       if (!button) return;
       setWorkView(button.dataset.workView, true);
     });
+    syncWorkspaceLabels();
+  }
+
+  function syncWorkspaceLabels() {
+    const mapButton = document.querySelector('#workspaceToggle [data-work-view="map"]');
+    const listButton = document.querySelector('#workspaceToggle [data-work-view="list"]');
+    const listLabel = isMobile() ? "Fält" : "Lista";
+    if (mapButton && mapButton.textContent !== "Karta") mapButton.textContent = "Karta";
+    if (listButton && listButton.textContent !== listLabel) listButton.textContent = listLabel;
+  }
+
+  function ensureMobileMapControls() {
+    const controls = document.querySelector(".controls");
+    if (controls && !document.getElementById("openMobileMap")) {
+      const openButton = document.createElement("button");
+      openButton.id = "openMobileMap";
+      openButton.type = "button";
+      openButton.className = "secondary mobile-map-open";
+      openButton.textContent = "Öppna helskärmskarta";
+      openButton.addEventListener("click", () => setWorkView("map", true));
+      controls.appendChild(openButton);
+    }
+
+    const toolbar = document.querySelector(".map-toolbar");
+    if (toolbar && !document.getElementById("closeMobileMap")) {
+      const closeButton = document.createElement("button");
+      closeButton.id = "closeMobileMap";
+      closeButton.type = "button";
+      closeButton.className = "secondary mobile-map-close";
+      closeButton.textContent = "Tillbaka till fältläge";
+      closeButton.addEventListener("click", () => setWorkView("list", true));
+      toolbar.appendChild(closeButton);
+    }
   }
 
   function setWorkView(view, persist) {
     const next = view === "list" ? "list" : "map";
     document.body.dataset.workView = next;
+    document.body.dataset.mobileMapOpen = String(isMobile() && next === "map");
+    if (isMobile() && next === "map") {
+      const preview = document.getElementById("meterPreview");
+      if (preview) preview.dataset.mobileView = "map";
+    }
     document.querySelectorAll("#workspaceToggle [data-work-view]").forEach((button) => {
       button.classList.toggle("active", button.dataset.workView === next);
       button.setAttribute("aria-pressed", String(button.dataset.workView === next));
@@ -121,6 +156,27 @@
       userPickedFilter = true;
       saveFilter(button.dataset.mapFilter || DEFAULT_FILTER);
     }, true);
+  }
+
+  function rememberMobileFieldFilter() {
+    document.addEventListener("click", (event) => {
+      const button = event.target.closest?.("#listTabs button[data-filter]");
+      if (!button || !isMobile()) return;
+      try { localStorage.setItem(MOBILE_FILTER_KEY, button.dataset.filter || "dispatch"); } catch {}
+    }, true);
+  }
+
+  function applyMobileFieldDefaults() {
+    if (!isMobile() || mobileDefaultsApplied) return;
+    mobileDefaultsApplied = true;
+    const filter = document.getElementById("filter");
+    const pageSize = document.getElementById("pageSize");
+    let wanted = "dispatch";
+    try { wanted = localStorage.getItem(MOBILE_FILTER_KEY) || wanted; } catch {}
+    const validFilters = new Set(["all", "dispatch", "suspect_auto", "watch", "customer_side", "confirmed", "repaired", "seasonal", "noise", "ignored", "stale_contact", "learning"]);
+    if (filter && validFilters.has(wanted)) filter.value = wanted;
+    if (pageSize) pageSize.value = "25";
+    if (typeof render === "function") render();
   }
 
   function scheduleMapFilter(force) {
@@ -169,8 +225,10 @@
 
   function polish() {
     installGeocodeThrottle();
-    installMapWheelGuard();
     ensureWorkspaceToggle();
+    ensureMobileMapControls();
+    syncWorkspaceLabels();
+    applyMobileFieldDefaults();
     setWorkView(document.body.dataset.workView || savedView(), false);
     forceLightMap();
     keepSuspectVisible();
@@ -179,10 +237,18 @@
   }
 
   installGeocodeThrottle();
-  installMapWheelGuard();
   rememberMapFilterClicks();
+  rememberMobileFieldFilter();
   document.addEventListener("DOMContentLoaded", polish);
   const observer = new MutationObserver(polish);
   observer.observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener("resize", () => {
+    const mobile = isMobile();
+    if (mobile === lastMobileState) return;
+    lastMobileState = mobile;
+    if (mobile) mobileDefaultsApplied = false;
+    syncWorkspaceLabels();
+    setWorkView(savedView(), false);
+  });
   setTimeout(polish, 0);
 }());
