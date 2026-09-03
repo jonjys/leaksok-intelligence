@@ -395,15 +395,25 @@ function findExportDate(rows) {
 function parseDate(value) {
   if (!value) return null;
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
-  const text = String(value);
+  if (typeof value === "number" && Number.isFinite(value) && value > 0 && value < 100000) {
+    const wholeDays = Math.floor(value);
+    const fraction = value - wholeDays;
+    const date = new Date(1899, 11, 30);
+    date.setDate(date.getDate() + wholeDays);
+    date.setSeconds(Math.round(fraction * 86400));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const text = String(value).trim();
   const iso = text.match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
   if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3], +(iso[4] || 0), +(iso[5] || 0));
+  const swedish = text.match(/(?:^|\D)(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:[ T](\d{1,2}):(\d{2}))?(?:\D|$)/);
+  if (swedish) return new Date(+swedish[3], +swedish[2] - 1, +swedish[1], +(swedish[4] || 0), +(swedish[5] || 0));
   return null;
 }
 
 function dateFromFile(file) {
-  const match = file.name.match(/(\d{4})-(\d{2})-(\d{2})[ _-](\d{2})-(\d{2})/);
-  if (match) return new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]);
+  const match = file.name.match(/(\d{4})-(\d{2})-(\d{2})(?:[ _-](\d{2})-(\d{2}))?/);
+  if (match) return new Date(+match[1], +match[2] - 1, +match[3], +(match[4] || 0), +(match[5] || 0));
   return new Date(file.lastModified || Date.now());
 }
 
@@ -449,8 +459,11 @@ function analyze() {
 function dedupePoints(points) {
   const byKey = new Map();
   [...points].sort((a, b) => a.date - b.date).forEach((point) => {
-    const key = point.date.toISOString().slice(0, 16);
-    byKey.set(key, point);
+    const key = localDate(point.date);
+    const existing = byKey.get(key);
+    if (!existing || point.current < existing.current || (point.current === existing.current && point.date > existing.date)) {
+      byKey.set(key, point);
+    }
   });
   return [...byKey.values()].sort((a, b) => a.date - b.date);
 }
@@ -610,9 +623,9 @@ function addressClusterKey(address) {
 }
 
 function curveCorrelation(firstPoints, secondPoints) {
-  const secondByDate = new Map(secondPoints.map((point) => [point.date.toISOString().slice(0, 10), point.current]));
+  const secondByDate = new Map(secondPoints.map((point) => [localDate(point.date), point.current]));
   const pairs = firstPoints
-    .map((point) => [point.current, secondByDate.get(point.date.toISOString().slice(0, 10))])
+    .map((point) => [point.current, secondByDate.get(localDate(point.date))])
     .filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
   if (pairs.length < 5) return 0;
   const first = pairs.map((pair) => pair[0]);
@@ -718,7 +731,7 @@ function detectNewLevel(points) {
     const beforeStable = before.every((v) => v <= Math.max(beforeAvg * 1.7, beforeAvg + 8));
     const meaningfulLevel = afterAvg >= 15 || (beforeAvg <= 12 && afterAvg >= 8 && ratio >= 2.5);
     if (ratio >= 2.3 && meaningfulLevel && afterStillHigh && beforeStable) {
-      const candidate = { split, ratio, date: points[split].date.toISOString().slice(0, 10) };
+      const candidate = { split, ratio, date: localDate(points[split].date) };
       if (!best || candidate.ratio > best.ratio) best = candidate;
     }
   }
@@ -890,16 +903,19 @@ function readingTimeline(points) {
   for (const point of points) {
     const readingDate = validDate(point.readAt) && point.readAt <= endDate ? point.readAt : point.date;
     if (!validDate(readingDate)) continue;
-    const key = readingDate.toISOString().slice(0, 10);
-    byReadingDate.set(key, { ...point, readingDate });
+    const key = localDate(readingDate);
+    const existing = byReadingDate.get(key);
+    if (!existing || point.current < existing.current || (point.current === existing.current && point.date > existing.date)) {
+      byReadingDate.set(key, { ...point, readingDate });
+    }
   }
   const observed = [...byReadingDate.values()].sort((a, b) => a.readingDate - b.readingDate);
   const last = observed[observed.length - 1];
-  const gapDays = last ? Math.max(0, Math.floor((endDate - last.readingDate) / 86400000)) : 0;
+  const gapDays = last ? calendarDaysBetween(last.readingDate, endDate) : 0;
   return {
     points: observed,
     endDate,
-    lastReadingDate: last ? last.readingDate.toISOString().slice(0, 10) : "-",
+    lastReadingDate: last ? localDate(last.readingDate) : "-",
     gapDays,
     hasGap: gapDays >= 14,
   };
@@ -992,8 +1008,8 @@ window.openDetail = function openDetail(id) {
   const timeline = readingTimeline(meter.points);
   const graphPoints = timeline.points;
   const appendGap = (values) => timeline.hasGap ? [...values, null] : values;
-  const labels = graphPoints.map((point) => point.readingDate.toISOString().slice(0, 10));
-  if (timeline.hasGap) labels.push(timeline.endDate.toISOString().slice(0, 10));
+  const labels = graphPoints.map((point) => localDate(point.readingDate));
+  if (timeline.hasGap) labels.push(localDate(timeline.endDate));
   const missingData = new Array(labels.length).fill(null);
   if (timeline.hasGap && graphPoints.length) {
     missingData[graphPoints.length - 1] = graphPoints[graphPoints.length - 1].current;
@@ -1036,7 +1052,7 @@ window.openDetail = function openDetail(id) {
         },
         subtitle: {
           display: timeline.hasGap,
-          text: timeline.hasGap ? `Inga avläsningar ${timeline.lastReadingDate} – ${timeline.endDate.toISOString().slice(0, 10)}` : "",
+          text: timeline.hasGap ? `Inga avläsningar ${timeline.lastReadingDate} – ${localDate(timeline.endDate)}` : "",
           color: "#c7d0dc",
           font: { weight: "700", size: 13 },
           padding: { bottom: 12 },
@@ -1146,6 +1162,13 @@ function localDate(date) {
   return `${year}-${month}-${day}`;
 }
 
+function calendarDaysBetween(from, to) {
+  if (!(from instanceof Date) || !(to instanceof Date) || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return 0;
+  const fromDay = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+  const toDay = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.max(0, Math.round((toDay - fromDay) / 86400000));
+}
+
 function cleanText(value) { return String(value ?? "").trim(); }
 function normalizeAddress(value) {
   return cleanText(value).toUpperCase().replace(/\b\d{5}\b/g, "").replace(/\s+/g, " ");
@@ -1159,7 +1182,24 @@ function areaOf(value) {
 }
 function parseNumber(value) {
   if (value == null || value === "") return null;
-  const number = parseFloat(String(value).replace(",", ".").replace(/[^0-9.-]/g, ""));
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  let normalized = String(value).trim()
+    .replace(/[\u2212\u2012\u2013\u2014]/g, "-")
+    .replace(/[\s\u00a0\u202f]/g, "")
+    .replace(/[^0-9,.-]/g, "");
+  const comma = normalized.lastIndexOf(",");
+  const dot = normalized.lastIndexOf(".");
+  if (comma >= 0 && dot >= 0) {
+    const decimal = comma > dot ? "," : ".";
+    const thousands = decimal === "," ? /\./g : /,/g;
+    normalized = normalized.replace(thousands, "");
+    if (decimal === ",") normalized = normalized.replace(/,/g, ".");
+  } else if (comma >= 0) {
+    normalized = normalized.replace(/,/g, ".");
+  }
+  const firstDot = normalized.indexOf(".");
+  if (firstDot >= 0) normalized = normalized.slice(0, firstDot + 1) + normalized.slice(firstDot + 1).replace(/\./g, "");
+  const number = Number(normalized);
   return Number.isFinite(number) ? number : null;
 }
 function avg(values) { return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0; }
@@ -1173,7 +1213,9 @@ function stdev(values) {
 }
 function median(values) {
   const sorted = [...values].sort((a, b) => a - b);
-  return sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+  if (!sorted.length) return 0;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 function round(n) { return Number.isFinite(n) ? Math.round(n) : "-"; }
