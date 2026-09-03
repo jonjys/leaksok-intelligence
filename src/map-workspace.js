@@ -1,6 +1,5 @@
 (function applyMapWorkspace() {
   const VIEW_KEY = "leaksok_workspace_view_v1";
-  const MOBILE_VIEW_KEY = "leaksok_mobile_workspace_view_v1";
   const MAP_FILTER_KEY = "leaksok_map_filter_v1";
   const MOBILE_FILTER_KEY = "leaksok_mobile_field_filter_v1";
   const DEFAULT_FILTER = "field";
@@ -18,15 +17,14 @@
   }
 
   function savedView() {
-    const fallback = isMobile() ? "list" : "map";
-    const key = isMobile() ? MOBILE_VIEW_KEY : VIEW_KEY;
-    try { return localStorage.getItem(key) || fallback; }
-    catch { return fallback; }
+    if (isMobile()) return "list";
+    try { return localStorage.getItem(VIEW_KEY) || "map"; }
+    catch { return "map"; }
   }
 
   function saveView(view) {
-    const key = isMobile() ? MOBILE_VIEW_KEY : VIEW_KEY;
-    try { localStorage.setItem(key, view); } catch {}
+    if (isMobile()) return;
+    try { localStorage.setItem(VIEW_KEY, view); } catch {}
   }
 
   function savedFilter() {
