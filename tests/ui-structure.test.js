@@ -42,6 +42,7 @@ assert.match(mapProCss, /grid-template-columns:\s*252px minmax\(0, 1fr\)/);
 assert.match(mapProCss, /\.map-toolbar[\s\S]*right:\s*13px !important;[\s\S]*left:\s*auto !important;/);
 assert.match(mapProCss, /\.map-inspector/);
 assert.match(workspaceV3Css, /grid-template-rows:\s*clamp\(330px, 46vh, 500px\)/);
+assert.match(workspaceV3Css, /\.workspace \{ grid-row: 4 !important; \}/);
 assert.match(workspaceV3Css, /\.meter-context-menu/);
 assert.match(workspaceV3Css, /#rows tr\[data-meter-row\]\.row-selected/);
 assert.match(workspaceV3Css, /\.map-inspector-actions\[hidden\]/);
