@@ -47,7 +47,10 @@
 
     if (!ordered.length) return emptyAnalysis();
     const values = ordered.map((point) => point.current);
-    const recentCount = Math.min(5, Math.max(2, Math.ceil(values.length * 0.3)));
+    const desiredRecentCount = Math.max(2, Math.ceil(values.length * 0.3));
+    const recentCount = values.length > 1
+      ? Math.min(5, values.length - 1, desiredRecentCount)
+      : 1;
     const split = Math.max(1, values.length - recentCount);
     const baselineValues = values.slice(0, split);
     const recentValues = values.slice(-recentCount);
@@ -67,7 +70,7 @@
     }
     const elevatedStart = trailingElevated ? ordered[ordered.length - trailingElevated].date : ordered[ordered.length - 1].date;
     const persistenceDays = trailingElevated > 1
-      ? Math.max(0, Math.round((ordered[ordered.length - 1].date - elevatedStart) / DAY_MS))
+      ? calendarDaysBetween(elevatedStart, ordered[ordered.length - 1].date)
       : 0;
     const sustained = trailingElevated >= 3 && persistenceDays >= 7 && recentShare >= 0.6;
 
@@ -205,7 +208,9 @@
     if (engine.transientSpike) return "noise";
     if (profile.repeatedPattern && !engine.sustained) return "seasonal";
     if (dryCode && !leakCode) return "normal";
-    if (score >= 72 && hardEvidence >= 2 && (engine.sustained || burst) && (engine.recentLevel >= 15 || burst)) return "dispatch";
+    if (engine.recentLevel >= 250) return "dispatch";
+    const corroboratedHighLevel = engine.trailingElevated >= 2 && engine.recentLevel >= 60 && engine.relativeRise >= 0.5;
+    if (score >= 72 && hardEvidence >= 2 && (engine.sustained || burst || corroboratedHighLevel) && (engine.recentLevel >= 15 || burst)) return "dispatch";
     if (score >= 44 && hardEvidence >= 2 && (engine.trailingElevated >= 2 || profile.newLevel || profile.slowRise)) return "suspect_auto";
     if (shortHistory) return "learning";
     return "normal";
@@ -216,10 +221,12 @@
     if (label.type === "leak") return { category: "confirmed", score: Math.max(score, 86) };
     if (label.type === "repaired") return { category: "repaired", score: Math.min(score, 18) };
     if (label.type === "manual_dispatch") return { category: "dispatch", score: Math.max(score, 94) };
-    if (["suspect", "interesting"].includes(label.type)) return { category: "suspect_auto", score: Math.max(score, 48) };
+    if (label.type === "suspect") return { category: "suspect_auto", score: Math.max(score, 48) };
+    if (label.type === "interesting") return { category: "watch", score: Math.max(score, 45) };
     if (label.type === "customer_contact") return { category: "customer_side", score: Math.max(Math.min(score, 62), 40) };
-    if (["seasonal", "known_noise", "district_heating", "large_building", "pump", "false_alarm"].includes(label.type)) {
-      return { category: "seasonal", score: Math.min(score, 22) };
+    if (label.type === "seasonal") return { category: "seasonal", score: Math.min(score, 22) };
+    if (["known_noise", "district_heating", "large_building", "pump", "false_alarm"].includes(label.type)) {
+      return { category: "noise", score: Math.min(score, 22) };
     }
     if (label.type === "reset_baseline") return { category: "normal", score: Math.min(score, 15) };
     if (label.type === "ignored") return { category: "ignored", score: 0 };
@@ -256,7 +263,13 @@
 
   function readAgeDays(point) {
     if (!point?.date || !point?.readAt) return 0;
-    return Math.max(0, Math.round((point.date - point.readAt) / DAY_MS));
+    return calendarDaysBetween(point.readAt, point.date);
+  }
+
+  function calendarDaysBetween(from, to) {
+    const fromDay = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+    const toDay = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+    return Math.max(0, Math.round((toDay - fromDay) / DAY_MS));
   }
 
   function median(values) {
