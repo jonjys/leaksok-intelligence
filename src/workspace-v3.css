@@ -239,6 +239,8 @@ body {
   background: linear-gradient(135deg, var(--v3-blue), var(--v3-cyan)) !important;
 }
 
+.map-inspector-actions[hidden] { display: none !important; }
+
 .map-meter-card {
   border-color: #d4e1ea !important;
   border-radius: 10px !important;
