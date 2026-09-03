@@ -27,7 +27,9 @@
   };
   const selectedMeters = new Set();
   const GEOCODE_CACHE_KEY = "leaksok_geocode_v1";
+  const MAP_MARKS_KEY = "leaksok_map_marks_v1";
   const geocodeCache = readGeocodeCache();
+  const mapMarks = readMapMarks();
   const geocodeInFlight = new Map();
   const mapCoordinates = new Map();
   let selectedPreviewId = "";
@@ -39,11 +41,17 @@
   let previewMapLayers = null;
   let previewBaseLayer = null;
   let previewMarkerLayer = null;
+  let previewAnnotationLayer = null;
   let previewUserMarker = null;
   let previewUserLatLng = null;
   let previewMapPoints = [];
+  let previewMapEntries = [];
   let previewMapStyle = "street";
   let mapCategoryFilter = "all";
+  let mapToolMode = "";
+  let selectionStart = null;
+  let selectionRectangle = null;
+  let ignoreNextMapClick = false;
 
   Object.assign(categoryText, {
     confirmed: "HITTAD LÄCKA",
@@ -89,9 +97,14 @@
     const result = originalScoreMeter(meter, networkContext);
     const label = state.labels[meter.id];
     const shortHistory = result.profile?.coverage?.days < 365 || meter.points.length < 5;
-    const staleReadDays = result.staleReadDays ?? Math.max(0, Math.round(((result.last?.date || new Date()) - (result.last?.readAt || result.last?.date || new Date())) / 86400000));
+    const staleReadDays = result.staleReadDays ?? calendarDaysBetween(
+      result.last?.readAt || result.last?.date || new Date(),
+      result.last?.date || new Date()
+    );
     const staleContact = result.staleContact || staleReadDays >= 14;
     const customerSide = Boolean(result.infrastructure?.customerSide);
+    result.staleReadDays = staleReadDays;
+    result.staleContact = staleContact;
     if (label?.type === "leak") result.category = "confirmed";
     if (label?.type === "repaired") result.category = "repaired";
     if (label?.type === "manual_dispatch") {
@@ -272,7 +285,72 @@
       <div><b>${counts.confirmed}</b><span>aktiva läckor</span></div>
     `;
     renderListTabs(counts);
+    renderMapConsole(counts);
   };
+
+  function ensureMapConsole() {
+    const rail = document.querySelector(".left-rail");
+    if (!rail || document.getElementById("mapConsole")) return;
+    const consolePanel = document.createElement("section");
+    consolePanel.id = "mapConsole";
+    consolePanel.className = "map-console";
+    consolePanel.innerHTML = `
+      <div class="map-console-heading">
+        <span>OPERATIV KARTA</span>
+        <b>Prioritera och markera</b>
+      </div>
+      <label class="map-search-label" for="mapSearch">Sök mätare</label>
+      <div class="map-search-wrap">
+        <span aria-hidden="true">⌕</span>
+        <input id="mapSearch" type="search" autocomplete="off" placeholder="Adress, nummer, område">
+      </div>
+      <nav class="map-status-list" aria-label="Kartfilter">
+        <button type="button" data-map-filter="field"><span><i class="map-status-dot field"></i>Fältläge</span><b data-map-count="field">0</b></button>
+        <button type="button" data-map-filter="dispatch"><span><i class="map-status-dot dispatch"></i>Åk ut</span><b data-map-count="dispatch">0</b></button>
+        <button type="button" data-map-filter="suspect"><span><i class="map-status-dot suspect"></i>Misstänkt / bevaka</span><b data-map-count="suspect">0</b></button>
+        <button type="button" data-map-filter="confirmed"><span><i class="map-status-dot confirmed"></i>Aktiva läckor</span><b data-map-count="confirmed">0</b></button>
+        <button type="button" data-map-filter="customer_side"><span><i class="map-status-dot customer"></i>Efter mätare</span><b data-map-count="customer_side">0</b></button>
+        <button type="button" data-map-filter="all"><span><i class="map-status-dot all"></i>Alla mätare</span><b data-map-count="all">0</b></button>
+      </nav>
+      <div class="map-gesture-help">
+        <b>Kartkommandon</b>
+        <span>Dubbelklick / scroll: zooma</span>
+        <span>Shift + dra: zooma område</span>
+        <span>Välj ruta: markera flera</span>
+      </div>
+    `;
+    rail.prepend(consolePanel);
+    const search = consolePanel.querySelector("#mapSearch");
+    search.addEventListener("input", () => {
+      els.search.value = search.value;
+      currentPage = 1;
+      render();
+    });
+    consolePanel.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-map-filter]");
+      if (!button) return;
+      applyMapCategoryFilter(button.dataset.mapFilter);
+    });
+  }
+
+  function renderMapConsole(counts) {
+    ensureMapConsole();
+    const search = document.getElementById("mapSearch");
+    if (search && search !== document.activeElement) search.value = els.search.value;
+    const values = {
+      field: counts.dispatch + counts.suspect + counts.watch + counts.confirmed + counts.customer,
+      dispatch: counts.dispatch,
+      suspect: counts.suspect + counts.watch,
+      confirmed: counts.confirmed,
+      customer_side: counts.customer,
+      all: counts.meters,
+    };
+    Object.entries(values).forEach(([key, value]) => {
+      const output = document.querySelector(`[data-map-count="${key}"]`);
+      if (output) output.textContent = String(value);
+    });
+    updateMapCategoryButtons();
+  }
 
   function ensureSuspectTabVisible() {
     const tab = document.querySelector('#listTabs button[data-filter="suspect_auto"]');
@@ -314,6 +392,7 @@
     if (label.confirmedDateUncertain) parts.push("datum osäkert");
     if (label.repairedDate) parts.push(`lagad ${label.repairedDate}`);
     if (Number.isFinite(label.distanceMeters)) parts.push(`ca ${label.distanceMeters} m från mätaren`);
+    if (Number.isFinite(label.valveToLeakMeters)) parts.push(`${label.valveToLeakMeters} m ventil–läcka`);
     if (label.distanceUncertain) parts.push("avstånd osäkert");
     if (label.lineType) parts.push(label.lineType);
     if (label.noiseTags?.length) parts.push(label.noiseTags.join(", "));
@@ -404,6 +483,25 @@
       return parsed && typeof parsed === "object" ? parsed : {};
     } catch {
       return {};
+    }
+  }
+
+  function readMapMarks() {
+    if (typeof localStorage === "undefined") return {};
+    try {
+      const parsed = JSON.parse(localStorage.getItem(MAP_MARKS_KEY) || "{}");
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveMapMarks() {
+    if (typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem(MAP_MARKS_KEY, JSON.stringify(mapMarks));
+    } catch {
+      setMapStatus("Kartmarkeringen visas men kunde inte sparas lokalt.");
     }
   }
 
@@ -581,13 +679,20 @@
     controls.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-map-filter]");
       if (!button) return;
-      mapCategoryFilter = button.dataset.mapFilter;
-      selectedMeters.clear();
-      selectedPreviewId = "";
-      updateMapCategoryButtons();
-      render();
+      applyMapCategoryFilter(button.dataset.mapFilter);
     });
     updateMapCategoryButtons();
+  }
+
+  function applyMapCategoryFilter(filter) {
+    const valid = new Set(["field", "dispatch", "suspect", "confirmed", "customer_side", "all"]);
+    mapCategoryFilter = valid.has(filter) ? filter : "field";
+    els.filter.value = "all";
+    selectedMeters.clear();
+    selectedPreviewId = "";
+    clearSelectionRectangle();
+    updateMapCategoryButtons();
+    render();
   }
 
   function updateMapCategoryButtons() {
@@ -596,9 +701,227 @@
     });
   }
 
+  function ensureMapDrawingControls() {
+    const toolbar = document.querySelector(".map-toolbar");
+    if (!toolbar || document.getElementById("mapDrawingControls")) return;
+    const controls = document.createElement("div");
+    controls.id = "mapDrawingControls";
+    controls.className = "map-drawing-controls";
+    controls.setAttribute("role", "group");
+    controls.setAttribute("aria-label", "Markera på kartan");
+    controls.innerHTML = `
+      <button type="button" class="secondary" data-map-tool="select" title="Dra en ruta runt flera mätare">▣ Välj ruta</button>
+      <button type="button" class="secondary" data-map-tool="valve" title="Klicka sedan på ventilens position">◉ Ventil</button>
+      <button type="button" class="secondary leak-tool" data-map-tool="leak" title="Klicka sedan där läckan hittades">× Läckpunkt</button>
+      <button type="button" class="secondary clear-map-marks" data-map-tool="clear" title="Rensa ventil och läckpunkt">Rensa märken</button>
+    `;
+    const locate = document.getElementById("locateMe");
+    toolbar.insertBefore(controls, locate || null);
+    controls.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-map-tool]");
+      if (!button) return;
+      const tool = button.dataset.mapTool;
+      if (tool === "clear") {
+        clearMapMarks();
+        return;
+      }
+      setMapToolMode(mapToolMode === tool ? "" : tool);
+    });
+    updateMapToolButtons();
+  }
+
+  function activeMapMeter() {
+    return state.meters.find((meter) => meter.id === selectedPreviewId)
+      || state.meters.find((meter) => selectedMeters.has(meter.id))
+      || null;
+  }
+
+  function updateMapToolButtons() {
+    document.querySelectorAll("[data-map-tool]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.mapTool === mapToolMode);
+      button.setAttribute("aria-pressed", String(button.dataset.mapTool === mapToolMode));
+    });
+    const mapElement = document.getElementById("selectedMap");
+    if (mapElement) {
+      mapElement.dataset.mapTool = mapToolMode;
+      mapElement.classList.toggle("is-map-marking", Boolean(mapToolMode));
+    }
+  }
+
+  function setMapToolMode(mode) {
+    const next = ["select", "valve", "leak"].includes(mode) ? mode : "";
+    if (["valve", "leak"].includes(next) && !activeMapMeter()) {
+      setMapStatus("Välj först en mätare som ventil/läckpunkt ska kopplas till.");
+      return;
+    }
+    mapToolMode = next;
+    selectionStart = null;
+    if (previewMap?.dragging) {
+      if (mapToolMode === "select") previewMap.dragging.disable();
+      else previewMap.dragging.enable();
+    }
+    updateMapToolButtons();
+    if (mapToolMode === "select") setMapStatus("Dra en ruta runt mätarna du vill markera. Esc avbryter.");
+    if (mapToolMode === "valve") setMapStatus("Klicka på kartan där ventilen ligger. Punkten kan sedan dras.");
+    if (mapToolMode === "leak") setMapStatus("Klicka på kartan där läckan hittades. Avståndet räknas automatiskt.");
+  }
+
+  function clearSelectionRectangle() {
+    if (selectionRectangle && previewMap) previewMap.removeLayer(selectionRectangle);
+    selectionRectangle = null;
+    selectionStart = null;
+  }
+
+  function clearMapMarks() {
+    const meter = activeMapMeter();
+    if (!meter) {
+      setMapStatus("Välj en mätare vars kartmarkering ska rensas.");
+      return;
+    }
+    delete mapMarks[meter.id];
+    saveMapMarks();
+    renderMapAnnotations(meter, mapCoordinates.get(meter.id));
+    renderMapInspector(meter);
+    setMapToolMode("");
+    setMapStatus("Ventil och läckpunkt rensades för vald mätare.");
+  }
+
+  function refreshMarkDistances(meter, mark) {
+    const meterPoint = mapCoordinates.get(meter.id);
+    mark.distanceFromMeter = mark.leak && meterPoint && window.LeakMapTools
+      ? LeakMapTools.roundedDistance(meterPoint, mark.leak)
+      : null;
+    mark.distanceValveToLeak = mark.leak && mark.valve && window.LeakMapTools
+      ? LeakMapTools.roundedDistance(mark.valve, mark.leak)
+      : null;
+    mark.updatedAt = new Date().toISOString();
+  }
+
+  function saveMapPoint(meter, kind, latlng) {
+    const mark = mapMarks[meter.id] || {};
+    mark[kind] = { lat: latlng.lat, lng: latlng.lng };
+    refreshMarkDistances(meter, mark);
+    mapMarks[meter.id] = mark;
+    saveMapMarks();
+    renderMapAnnotations(meter, mapCoordinates.get(meter.id));
+    renderMapInspector(meter);
+    const label = kind === "valve" ? "Ventilen" : "Läckpunkten";
+    const distance = kind === "leak" && Number.isFinite(mark.distanceFromMeter)
+      ? ` · ca ${mark.distanceFromMeter} m från husnumrets kartpunkt`
+      : "";
+    setMapStatus(`${label} markerades${distance}. Dra punkten för att finjustera.`);
+  }
+
+  function annotationIcon(kind) {
+    const leak = kind === "leak";
+    return L.divIcon({
+      className: `map-annotation-icon ${kind}`,
+      html: `<span>${leak ? "×" : "V"}</span>`,
+      iconSize: [34, 34],
+      iconAnchor: [17, 17],
+    });
+  }
+
+  function annotationMarker(meter, kind, point) {
+    const marker = L.marker(point, {
+      icon: annotationIcon(kind),
+      draggable: true,
+      keyboard: true,
+      title: kind === "leak" ? "Markerad läckpunkt" : "Markerad ventil",
+      zIndexOffset: kind === "leak" ? 1200 : 1100,
+    }).addTo(previewAnnotationLayer);
+    marker.bindTooltip(kind === "leak" ? "Läckpunkt" : "Ventil", { direction: "top", offset: [0, -14] });
+    marker.on("dragend", () => saveMapPoint(meter, kind, marker.getLatLng()));
+    return marker;
+  }
+
+  function renderMapAnnotations(meter, coordinates) {
+    if (!previewAnnotationLayer || !window.L) return;
+    previewAnnotationLayer.clearLayers();
+    if (!meter) return;
+    const mark = mapMarks[meter.id];
+    if (!mark) return;
+    if (mark.valve) annotationMarker(meter, "valve", mark.valve);
+    if (mark.leak) annotationMarker(meter, "leak", mark.leak);
+    if (coordinates && mark.leak) {
+      L.polyline([[coordinates.lat, coordinates.lng], mark.leak], {
+        color: "#e11d48",
+        weight: 3,
+        dashArray: "8 7",
+        opacity: .9,
+        interactive: false,
+      }).addTo(previewAnnotationLayer);
+    }
+    if (mark.valve && mark.leak) {
+      L.polyline([mark.valve, mark.leak], {
+        color: "#0f766e",
+        weight: 4,
+        opacity: .9,
+        interactive: false,
+      }).addTo(previewAnnotationLayer);
+    }
+  }
+
+  function handleMapClick(event) {
+    if (ignoreNextMapClick) {
+      ignoreNextMapClick = false;
+      return;
+    }
+    if (!["valve", "leak"].includes(mapToolMode)) return;
+    const meter = activeMapMeter();
+    if (!meter) return;
+    const kind = mapToolMode;
+    saveMapPoint(meter, kind, event.latlng);
+    setMapToolMode("");
+  }
+
+  function startAreaSelection(event) {
+    if (mapToolMode !== "select" || event.originalEvent?.button !== 0) return;
+    clearSelectionRectangle();
+    selectionStart = event.latlng;
+    selectionRectangle = L.rectangle([selectionStart, selectionStart], {
+      color: "#0f766e",
+      weight: 2,
+      dashArray: "7 5",
+      fillColor: "#14b8a6",
+      fillOpacity: .14,
+      interactive: false,
+    }).addTo(previewMap);
+  }
+
+  function moveAreaSelection(event) {
+    if (!selectionStart || !selectionRectangle) return;
+    selectionRectangle.setBounds(L.latLngBounds(selectionStart, event.latlng));
+  }
+
+  function finishAreaSelection(event) {
+    if (!selectionStart || !selectionRectangle || !window.LeakMapTools) return;
+    selectionRectangle.setBounds(L.latLngBounds(selectionStart, event.latlng));
+    const bounds = selectionRectangle.getBounds();
+    const selectedIds = LeakMapTools.idsWithinBounds(previewMapEntries, {
+      southWest: bounds.getSouthWest(),
+      northEast: bounds.getNorthEast(),
+    });
+    selectionStart = null;
+    ignoreNextMapClick = true;
+    mapToolMode = "";
+    previewMap.dragging.enable();
+    updateMapToolButtons();
+    selectedMeters.clear();
+    selectedIds.forEach((id) => selectedMeters.add(id));
+    selectedPreviewId = selectedIds[0] || "";
+    if (!selectedIds.length) {
+      setMapStatus("Ingen synlig mätare låg i rutan. Zooma närmare eller välj en större ruta.");
+      return;
+    }
+    render();
+    setMapStatus(`${selectedIds.length} mätare markerade i rutan.`);
+  }
+
   function ensurePreviewMap() {
     const mapElement = document.getElementById("selectedMap");
     ensureMapCategoryControls();
+    ensureMapDrawingControls();
     if (!mapElement) return null;
     if (!window.L) {
       setMapStatus("Kartan kunde inte laddas. Kör hit fungerar fortfarande.");
@@ -626,12 +949,22 @@
       zoomControl: true,
       attributionControl: true,
       preferCanvas: true,
+      doubleClickZoom: true,
+      touchZoom: true,
+      scrollWheelZoom: window.innerWidth > 760,
+      dragging: true,
+      boxZoom: true,
       maxBounds: [[59.05, 17.55], [59.35, 18.15]],
       maxBoundsViscosity: .7,
     }).setView([59.20, 17.83], 12);
     previewBaseLayer = previewMapLayers[previewMapStyle];
     previewBaseLayer.addTo(previewMap);
     previewMarkerLayer = L.layerGroup().addTo(previewMap);
+    previewAnnotationLayer = L.layerGroup().addTo(previewMap);
+    previewMap.on("click", handleMapClick);
+    previewMap.on("mousedown", startAreaSelection);
+    previewMap.on("mousemove", moveAreaSelection);
+    previewMap.on("mouseup", finishAreaSelection);
     updateMapStyleButtons();
     return previewMap;
   }
@@ -693,6 +1026,117 @@
     `).join("");
   }
 
+  function ensureMapInspector() {
+    const preview = document.getElementById("meterPreview");
+    if (!preview || document.getElementById("mapInspector")) return;
+    const inspector = document.createElement("aside");
+    inspector.id = "mapInspector";
+    inspector.className = "map-inspector";
+    inspector.setAttribute("aria-label", "Mätare i kartvyn");
+    inspector.innerHTML = `
+      <div class="map-inspector-head">
+        <div><span id="mapInspectorEyebrow">MÄTARE I KARTVYN</span><b id="mapInspectorTitle">Prioriterad kö</b></div>
+        <strong id="mapInspectorCount">0</strong>
+      </div>
+      <div id="mapMeasurement" class="map-measurement" hidden></div>
+      <div id="mapInspectorActions" class="map-inspector-actions" hidden>
+        <button type="button" class="secondary" data-inspector-action="navigate">Kör hit</button>
+        <button type="button" class="secondary confirm-leak" data-inspector-action="confirm-leak">Hittad läcka</button>
+        <button type="button" class="secondary" data-inspector-action="clear-selection">Visa kartkö</button>
+      </div>
+      <div id="mapInspectorList" class="map-inspector-list"></div>
+    `;
+    preview.appendChild(inspector);
+    inspector.addEventListener("click", (event) => {
+      const card = event.target.closest("button[data-map-inspector-meter]");
+      if (card) {
+        const id = card.dataset.mapInspectorMeter;
+        clearSelectionRectangle();
+        if (event.shiftKey) {
+          if (selectedMeters.has(id)) selectedMeters.delete(id);
+          else selectedMeters.add(id);
+          selectedPreviewId = selectedMeters.has(id) ? id : ([...selectedMeters].at(-1) || "");
+        } else if (selectedMeters.size > 1 && selectedMeters.has(id)) {
+          selectedPreviewId = id;
+        } else {
+          selectedMeters.clear();
+          selectedMeters.add(id);
+          selectedPreviewId = id;
+        }
+        render();
+        return;
+      }
+      const action = event.target.closest("button[data-inspector-action]")?.dataset.inspectorAction;
+      if (!action) return;
+      if (action === "clear-selection") {
+        selectedMeters.clear();
+        selectedPreviewId = "";
+        clearSelectionRectangle();
+        render();
+      }
+      if (action === "navigate" && selectedPreviewId) window.openMeterNavigation(selectedPreviewId, event);
+      if (action === "confirm-leak" && selectedPreviewId) {
+        const mark = mapMarks[selectedPreviewId];
+        window.labelMeter(selectedPreviewId, "leak");
+        const field = document.getElementById("distanceMeters");
+        if (field && Number.isFinite(mark?.distanceFromMeter)) field.value = String(mark.distanceFromMeter);
+      }
+    });
+  }
+
+  function mapMeterCard(meter, selected) {
+    const status = categoryText[meter.category] || meter.category;
+    const current = round(meter.last?.current);
+    const persistence = meter.engine?.persistenceDays || 0;
+    return `
+      <button type="button" class="map-meter-card${selected ? " active" : ""}" data-map-inspector-meter="${escapeAttr(meter.id)}">
+        <span class="map-card-status ${escapeAttr(meter.category)}"><i></i>${escapeHtml(status)}</span>
+        <b>${escapeHtml(shortMapLabel(meter))}</b>
+        <span class="map-card-meta">${escapeHtml(meter.serial || meter.id)} · ${escapeHtml(meter.area || "ÖVRIGT")}</span>
+        <span class="map-card-numbers"><strong>${meter.risk}</strong><small>risk</small><strong>${current}</strong><small>brus E</small>${persistence ? `<strong>${persistence}</strong><small>dagar</small>` : ""}</span>
+      </button>
+    `;
+  }
+
+  function renderMapInspector(meter) {
+    ensureMapInspector();
+    const list = document.getElementById("mapInspectorList");
+    const title = document.getElementById("mapInspectorTitle");
+    const eyebrow = document.getElementById("mapInspectorEyebrow");
+    const count = document.getElementById("mapInspectorCount");
+    const actions = document.getElementById("mapInspectorActions");
+    const measurement = document.getElementById("mapMeasurement");
+    if (!list || !title || !eyebrow || !count || !actions || !measurement) return;
+
+    const rows = meter ? selectedMeterList() : overviewMapMeters();
+    eyebrow.textContent = meter ? "MARKERADE MÄTARE" : "MÄTARE I KARTVYN";
+    title.textContent = meter
+      ? (rows.length > 1 ? `${rows.length} markerade` : "Vald mätare")
+      : `${mapFilterLabel()} · prioriterad kö`;
+    count.textContent = String(rows.length);
+    actions.hidden = !meter;
+
+    const mark = meter ? mapMarks[meter.id] : null;
+    if (meter && (mark?.valve || mark?.leak)) {
+      const parts = [];
+      if (mark.valve) parts.push("Ventil markerad");
+      if (mark.leak && Number.isFinite(mark.distanceFromMeter)) parts.push(`Läckpunkt ca ${mark.distanceFromMeter} m från husnumret`);
+      if (Number.isFinite(mark.distanceValveToLeak)) parts.push(`${mark.distanceValveToLeak} m ventil–läcka`);
+      measurement.hidden = false;
+      measurement.innerHTML = `<b>Kartmätning</b><span>${parts.map(escapeHtml).join(" · ")}</span><small>Ungefärligt fågelvägsavstånd från kartpunkterna.</small>`;
+    } else {
+      measurement.hidden = true;
+      measurement.innerHTML = "";
+    }
+
+    if (!rows.length) {
+      list.innerHTML = `<p class="map-inspector-empty">Inga mätare matchar sökningen och kartfiltret.</p>`;
+      return;
+    }
+    list.innerHTML = rows.slice(0, 100).map((row) => mapMeterCard(row, row.id === selectedPreviewId)).join("");
+    if (rows.length > 100) list.insertAdjacentHTML("beforeend", `<p class="map-inspector-empty">Visar de 100 högst prioriterade av ${rows.length}.</p>`);
+  }
+
   async function renderSelectedMap() {
     const version = ++mapRenderVersion;
     const meters = selectedMeterList();
@@ -701,6 +1145,7 @@
     if (!map || !previewMarkerLayer) return;
     previewMarkerLayer.clearLayers();
     previewMapPoints = [];
+    previewMapEntries = [];
     if (!meters.length) {
       setMapStatus("");
       return;
@@ -746,6 +1191,7 @@
     for (const { meter, coordinates } of located) {
       const point = [coordinates.lat, coordinates.lng];
       previewMapPoints.push(point);
+      previewMapEntries.push({ id: meter.id, lat: coordinates.lat, lng: coordinates.lng });
       mapCoordinates.set(meter.id, coordinates);
       const selected = selectedMeters.has(meter.id) || meter.id === selectedPreviewId;
       const marker = L.circleMarker(point, {
@@ -767,6 +1213,7 @@
         <button type="button" onclick="openMeterNavigation('${escapeAttr(meter.id)}', event)">Kör hit</button>
       `);
       marker.on("click", () => {
+        clearSelectionRectangle();
         selectedPreviewId = meter.id;
         selectedMeters.clear();
         selectedMeters.add(meter.id);
@@ -774,6 +1221,8 @@
       });
       marker.addTo(previewMarkerLayer);
     }
+
+    renderMapAnnotations(activeMapMeter(), activeMapMeter() ? mapCoordinates.get(activeMapMeter().id) : null);
   
     if (!located.length) {
       setMapStatus("GPS-position saknas. Kör hit söker direkt på adressen.");
@@ -844,9 +1293,9 @@
     const firstPoint = meter.points[0];
     const lastPoint = meter.points[meter.points.length - 1];
     return {
-      firstDate: firstPoint?.date?.toISOString?.().slice(0, 10) || "-",
-      lastDate: lastPoint?.date?.toISOString?.().slice(0, 10) || "-",
-      lastReadDate: lastPoint?.readAt?.toISOString?.().slice(0, 10) || "-",
+      firstDate: firstPoint?.date ? localDate(firstPoint.date) : "-",
+      lastDate: lastPoint?.date ? localDate(lastPoint.date) : "-",
+      lastReadDate: lastPoint?.readAt ? localDate(lastPoint.readAt) : "-",
     };
   }
 
@@ -854,7 +1303,7 @@
     const staleMarker = meter.points.map((p, index) => (index === meter.points.length - 1 && staleDays >= 14 ? p.current : null));
 
     return [
-      { label: "Brus E", data: meter.points.map((p) => p.current), borderColor: "#0ea5e9", backgroundColor: "rgba(14,165,233,.16)", fill: true, tension: .14 },
+      { label: "Brus E", data: meter.points.map((p) => p.current), borderColor: "#0284c7", backgroundColor: "rgba(14,165,233,.18)", fill: true, tension: .14, pointRadius: meter.points.length > 50 ? 0 : 2 },
       { label: "Trend", data: rollingAverage(meter.points.map((p) => p.current)), borderColor: "#16a34a", borderWidth: 3, pointRadius: 0, tension: .25 },
       { label: "Snitt F", data: meter.points.map((p) => p.average), borderColor: "#64748b", borderDash: [5, 4], tension: .2 },
       { label: "Max G", data: meter.points.map((p) => p.max), borderColor: "#f97316", borderDash: [2, 4], tension: .2, hidden: true },
@@ -873,7 +1322,7 @@
           callbacks: {
             afterBody(items) {
               const point = meter.points[items[0].dataIndex];
-              const read = point?.readAt?.toISOString?.().slice(0, 10);
+              const read = point?.readAt instanceof Date ? localDate(point.readAt) : "";
               return [read ? `Avläst: ${read}` : "", point?.info ? `Info: ${point.info}` : ""].filter(Boolean);
             },
           },
@@ -886,17 +1335,12 @@
             color: "#475569",
             maxRotation: 0,
             minRotation: 0,
-            autoSkip: false,
-            callback(value, index) {
-              const last = labels.length - 1;
-              if (index === 0 || index === last) return labels[index];
-              const step = window.innerWidth < 640 ? Math.ceil(labels.length / 3) : Math.ceil(labels.length / 6);
-              return index % step === 0 ? labels[index] : "";
-            },
+            autoSkip: true,
+            maxTicksLimit: window.innerWidth < 640 ? 4 : 6,
           },
           grid: { color: "rgba(100,116,139,.14)" },
         },
-        y: { beginAtZero: true, ticks: { color: "#475569" }, grid: { color: "rgba(100,116,139,.18)" } },
+        y: { beginAtZero: true, grace: "8%", ticks: { color: "#475569", maxTicksLimit: 7 }, grid: { color: "rgba(100,116,139,.18)" } },
       },
     };
   }
@@ -916,6 +1360,7 @@
       document.getElementById("previewMeta").textContent = rows.length
         ? `${mapFilterLabel()}: ${rows.length} mätare på kartan · klicka en plupp för graf och åtgärder`
         : `${mapFilterLabel()}: inga mätare i kartfiltret`;
+      renderMapInspector(null);
       renderSelectedMap().catch((error) => {
         setMapStatus(error.message || "Kartan kunde inte uppdateras.");
       });
@@ -928,12 +1373,13 @@
     document.getElementById("previewTitle").textContent = meter.address || meter.id;
     document.getElementById("previewMeta").textContent = `${categoryText[meter.category]} · risk ${meter.risk} · ${dates.firstDate} till ${dates.lastDate}${staleDays >= 14 ? ` · tappad kontakt ${staleDays} dagar` : ""}${selectedCount > 1 ? ` · ${selectedCount} mätare på kartan` : ""}`;
     if (state.previewChart) state.previewChart.destroy();
-    const labels = meter.points.map((point) => point.date.toISOString().slice(0, 10));
+    const labels = meter.points.map((point) => localDate(point.date));
     state.previewChart = new Chart(canvas, {
       type: "line",
       data: { labels, datasets: chartDatasets(meter, staleDays) },
       options: chartOptions(labels, meter),
     });
+    renderMapInspector(meter);
     renderSelectedMap().catch((error) => {
       setMapStatus(error.message || "Kartan kunde inte uppdateras.");
     });
@@ -960,7 +1406,7 @@
     `;
     const ctx = document.getElementById("detailChart");
     if (state.chart) state.chart.destroy();
-    const labels = meter.points.map((p) => p.date.toISOString().slice(0, 10));
+    const labels = meter.points.map((p) => localDate(p.date));
     state.chart = new Chart(ctx, {
       type: "line",
       data: {
@@ -1022,6 +1468,13 @@
     if (type === "leak") {
       next.confirmedDate = document.getElementById("confirmedDate").value || localDate(new Date());
       next.confirmedDateUncertain = document.getElementById("confirmedDateUncertain").checked;
+      const mark = mapMarks[id];
+      if (mark?.leak) {
+        next.distanceMeters = Number.isFinite(mark.distanceFromMeter) ? mark.distanceFromMeter : null;
+        next.valveToLeakMeters = Number.isFinite(mark.distanceValveToLeak) ? mark.distanceValveToLeak : null;
+        next.mapMarks = { valve: mark.valve || null, leak: mark.leak };
+        next.distanceUncertain = true;
+      }
       delete next.lineType;
     } else if (type === "repaired") {
       next.repairedDate = document.getElementById("repairedDate").value || localDate(new Date());
@@ -1059,14 +1512,21 @@
     els.filter.value = button.dataset.filter;
     selectedMeters.clear();
     selectedPreviewId = "";
+    clearSelectionRectangle();
     currentPage = 1;
     render();
   });
-  els.search?.addEventListener("input", () => { currentPage = 1; }, true);
+  els.search?.addEventListener("input", () => {
+    currentPage = 1;
+    const mapSearch = document.getElementById("mapSearch");
+    if (mapSearch && mapSearch !== document.activeElement) mapSearch.value = els.search.value;
+  }, true);
   els.sort?.addEventListener("change", () => { currentPage = 1; }, true);
   document.getElementById("clearSelection")?.addEventListener("click", () => {
     selectedMeters.clear();
     selectedPreviewId = "";
+    clearSelectionRectangle();
+    setMapToolMode("");
     render();
   });
   document.getElementById("selectedMeterChips")?.addEventListener("click", (event) => {
@@ -1095,6 +1555,12 @@
   document.getElementById("nextPage")?.addEventListener("click", () => {
     currentPage += 1;
     render();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !mapToolMode) return;
+    clearSelectionRectangle();
+    setMapToolMode("");
+    setMapStatus("Kartverktyget avbröts.");
   });
   document.getElementById("bulkSave")?.addEventListener("click", () => {
     const searchTerms = terms(els.search.value);
