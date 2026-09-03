@@ -329,6 +329,11 @@ body {
     min-height: 0 !important;
   }
 
+  body[data-work-view="map"] .meter-preview { grid-row: 1 !important; }
+  body[data-work-view="map"] .controls { grid-row: 2 !important; }
+  body[data-work-view="map"] .bulk-actions { grid-row: 3 !important; }
+  body[data-work-view="map"] .workspace { grid-row: 4 !important; }
+
   body[data-work-view="map"] .dropzone,
   body[data-work-view="map"] .content-column > .panel { display: none !important; }
 
