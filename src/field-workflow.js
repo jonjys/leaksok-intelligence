@@ -89,9 +89,14 @@
     const result = originalScoreMeter(meter, networkContext);
     const label = state.labels[meter.id];
     const shortHistory = result.profile?.coverage?.days < 365 || meter.points.length < 5;
-    const staleReadDays = result.staleReadDays ?? Math.max(0, Math.round(((result.last?.date || new Date()) - (result.last?.readAt || result.last?.date || new Date())) / 86400000));
+    const staleReadDays = result.staleReadDays ?? calendarDaysBetween(
+      result.last?.readAt || result.last?.date || new Date(),
+      result.last?.date || new Date()
+    );
     const staleContact = result.staleContact || staleReadDays >= 14;
     const customerSide = Boolean(result.infrastructure?.customerSide);
+    result.staleReadDays = staleReadDays;
+    result.staleContact = staleContact;
     if (label?.type === "leak") result.category = "confirmed";
     if (label?.type === "repaired") result.category = "repaired";
     if (label?.type === "manual_dispatch") {
@@ -626,6 +631,10 @@
       zoomControl: true,
       attributionControl: true,
       preferCanvas: true,
+      doubleClickZoom: true,
+      touchZoom: true,
+      scrollWheelZoom: false,
+      dragging: true,
       maxBounds: [[59.05, 17.55], [59.35, 18.15]],
       maxBoundsViscosity: .7,
     }).setView([59.20, 17.83], 12);
@@ -844,9 +853,9 @@
     const firstPoint = meter.points[0];
     const lastPoint = meter.points[meter.points.length - 1];
     return {
-      firstDate: firstPoint?.date?.toISOString?.().slice(0, 10) || "-",
-      lastDate: lastPoint?.date?.toISOString?.().slice(0, 10) || "-",
-      lastReadDate: lastPoint?.readAt?.toISOString?.().slice(0, 10) || "-",
+      firstDate: firstPoint?.date ? localDate(firstPoint.date) : "-",
+      lastDate: lastPoint?.date ? localDate(lastPoint.date) : "-",
+      lastReadDate: lastPoint?.readAt ? localDate(lastPoint.readAt) : "-",
     };
   }
 
@@ -928,7 +937,7 @@
     document.getElementById("previewTitle").textContent = meter.address || meter.id;
     document.getElementById("previewMeta").textContent = `${categoryText[meter.category]} · risk ${meter.risk} · ${dates.firstDate} till ${dates.lastDate}${staleDays >= 14 ? ` · tappad kontakt ${staleDays} dagar` : ""}${selectedCount > 1 ? ` · ${selectedCount} mätare på kartan` : ""}`;
     if (state.previewChart) state.previewChart.destroy();
-    const labels = meter.points.map((point) => point.date.toISOString().slice(0, 10));
+    const labels = meter.points.map((point) => localDate(point.date));
     state.previewChart = new Chart(canvas, {
       type: "line",
       data: { labels, datasets: chartDatasets(meter, staleDays) },
@@ -960,7 +969,7 @@
     `;
     const ctx = document.getElementById("detailChart");
     if (state.chart) state.chart.destroy();
-    const labels = meter.points.map((p) => p.date.toISOString().slice(0, 10));
+    const labels = meter.points.map((p) => localDate(p.date));
     state.chart = new Chart(ctx, {
       type: "line",
       data: {
