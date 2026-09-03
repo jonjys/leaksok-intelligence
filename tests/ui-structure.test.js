@@ -6,6 +6,7 @@ const workspace = fs.readFileSync(require.resolve("../src/map-workspace.js"), "u
 const officeCss = fs.readFileSync(require.resolve("../src/office-demo.css"), "utf8");
 const mapProCss = fs.readFileSync(require.resolve("../src/map-pro.css"), "utf8");
 const workspaceV3Css = fs.readFileSync(require.resolve("../src/workspace-v3.css"), "utf8");
+const layoutPolish = fs.readFileSync(require.resolve("../src/layout-polish.js"), "utf8");
 const html = fs.readFileSync(require.resolve("../index.html"), "utf8");
 
 assert.match(field, /doubleClickZoom:\s*true/);
@@ -43,6 +44,9 @@ assert.match(mapProCss, /\.map-inspector/);
 assert.match(workspaceV3Css, /grid-template-rows:\s*clamp\(330px, 46vh, 500px\)/);
 assert.match(workspaceV3Css, /\.meter-context-menu/);
 assert.match(workspaceV3Css, /#rows tr\[data-meter-row\]\.row-selected/);
+assert.match(workspaceV3Css, /\.map-inspector-actions\[hidden\]/);
+assert.doesNotMatch(layoutPolish, /select\.innerHTML = \[/);
+assert.doesNotMatch(layoutPolish, /checkbox\.checked = !checkbox\.checked/);
 assert.match(html, /data-filter="suspect">Misstänkt \/ bevaka/);
 assert.doesNotMatch(html, /data-filter="suspect_auto">/);
 assert.match(html, /value="name">Namn A–Ö/);
