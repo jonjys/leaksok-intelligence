@@ -669,6 +669,10 @@ tbody td {
     flex-wrap: nowrap !important;
   }
 
+  body[data-work-view="map"] .map-toolbar > [role="group"]:not(.map-category-controls) {
+    display: none !important;
+  }
+
   body[data-work-view="map"] #locateMe,
   body[data-work-view="map"] .mobile-map-close {
     display: block !important;
