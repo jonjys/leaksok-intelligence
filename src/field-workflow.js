@@ -2,13 +2,13 @@
   const workflowTypes = {
     leak: "Konstaterad läcka",
     repaired: "Lagad",
-    seasonal: "Säsong",
+    seasonal: "Värmepanna / säsong",
     known_noise: "Falsklarm/Annat",
     district_heating: "Fjärrvärme",
     large_building: "Höghus/stor byggnad",
     pump: "Undercentral/pumpar",
     false_alarm: "Falsklarm/Annat",
-    suspect: "Misstänk",
+    suspect: "Misstänkt / bevaka",
     ignored: "Ignorera",
     manual_dispatch: "Åk ut",
     interesting: "Bevaka",
@@ -26,8 +26,10 @@
     customer_contact: ["efter mätare/kontakta FÄ"],
   };
   const selectedMeters = new Set();
-  const GEOCODE_CACHE_KEY = "leaksok_geocode_v1";
+  const GEOCODE_CACHE_KEY = "leaksok_geocode_v2_exact";
   const MAP_MARKS_KEY = "leaksok_map_marks_v1";
+  const BOTKYRKA_BOUNDS = [[59.065, 17.54], [59.29, 18.035]];
+  const BOTKYRKA_CENTER = [59.18, 17.80];
   const geocodeCache = readGeocodeCache();
   const mapMarks = readMapMarks();
   const geocodeInFlight = new Map();
@@ -52,11 +54,13 @@
   let selectionStart = null;
   let selectionRectangle = null;
   let ignoreNextMapClick = false;
+  let lastFilteredRows = [];
+  let contextMeterId = "";
 
   Object.assign(categoryText, {
     confirmed: "HITTAD LÄCKA",
     customer_side: "EFTER MÄTARE",
-    seasonal: "SÄSONG",
+    seasonal: "VÄRMEPANNA / SÄSONG",
     noise: "FALSKLARM / STÖRNING",
     ignored: "IGNORERAD",
     suspect_auto: "MISSTÄNK",
@@ -72,16 +76,15 @@
     customer_contact: "Kontakta FÄ",
     known_noise: "Tillfällig topp",
     reset_baseline: "Nollställ och följ nya värden",
-    seasonal: "Säsong",
+    seasonal: "Värmepanna / säsong",
     false_alarm: "Falsklarm/Annat",
-    suspect: "Misstänk",
+    suspect: "Misstänkt / bevaka",
   });
   const listLabels = {
     all: "Alla mätare",
     dispatch: "Åk ut",
-    watch: "Bevaka",
-    suspect_auto: "Misstänk",
-    seasonal: "Säsong",
+    suspect: "Misstänkt / bevaka",
+    seasonal: "Värmepanna / säsong",
     confirmed: "Aktiva läckor",
     customer_side: "Efter mätare",
     repaired: "Lagad",
@@ -209,6 +212,73 @@
     return searchTerms.some((term) => haystack.includes(term));
   }
 
+  function matchesFilter(row, filter) {
+    if (filter === "all") return true;
+    if (filter === "suspect") return ["suspect_auto", "watch"].includes(row.category);
+    if (filter === "learning") return ["learning", "new_high", "new_unknown"].includes(row.category);
+    if (filter === "confirmed") return row.category === "confirmed";
+    if (filter === "stale_contact") return row.staleContact || row.staleReadDays >= 14;
+    return row.category === filter;
+  }
+
+  function meterTown(row) {
+    const known = ["TULLINGE", "TUMBA", "ALBY", "GRÖDINGE", "VÅRSTA", "NORSBORG", "FITJA", "HALLUNDA", "ERIKSBERG", "VÄRSTA"];
+    const text = normalize(`${row.area || ""} ${row.address || ""}`);
+    return known.find((town) => text.includes(normalize(town))) || String(row.area || "ÖVRIGT").trim().toUpperCase();
+  }
+
+  function refreshAreaFilter() {
+    const select = document.getElementById("areaFilter");
+    if (!select) return;
+    const current = select.value || "all";
+    const preferred = ["TULLINGE", "TUMBA", "ALBY", "GRÖDINGE", "VÅRSTA", "NORSBORG"];
+    const towns = [...new Set(state.meters.map(meterTown).filter(Boolean))]
+      .sort((a, b) => {
+        const ai = preferred.indexOf(a);
+        const bi = preferred.indexOf(b);
+        if (ai >= 0 || bi >= 0) return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+        return a.localeCompare(b, "sv", { sensitivity: "base" });
+      });
+    const signature = towns.join("|");
+    if (select.dataset.signature !== signature) {
+      select.innerHTML = `<option value="all">Alla orter</option>${towns.map((town) => `<option value="${escapeAttr(normalize(town))}">${escapeHtml(town)}</option>`).join("")}`;
+      select.dataset.signature = signature;
+    }
+    select.value = [...select.options].some((option) => option.value === current) ? current : "all";
+  }
+
+  function latestReadingTime(row) {
+    const point = row.points?.[row.points.length - 1] || row.last;
+    const date = point?.readAt || point?.date;
+    const time = date instanceof Date ? date.getTime() : new Date(date || 0).getTime();
+    return Number.isFinite(time) ? time : 0;
+  }
+
+  function compareRows(a, b, sort) {
+    if (sort === "name") return String(a.address || a.serial || a.id).localeCompare(String(b.address || b.serial || b.id), "sv", { numeric: true, sensitivity: "base" });
+    if (sort === "area") {
+      const area = String(a.area || "").localeCompare(String(b.area || ""), "sv", { sensitivity: "base" });
+      return area || String(a.address || a.id).localeCompare(String(b.address || b.id), "sv", { numeric: true, sensitivity: "base" });
+    }
+    if (sort === "lastRead") return latestReadingTime(b) - latestReadingTime(a);
+    return sortValue(b, sort) - sortValue(a, sort);
+  }
+
+  function matchingRows() {
+    const searchTerms = terms(els.search.value);
+    const filter = els.filter.value;
+    const sort = els.sort.value;
+    const area = document.getElementById("areaFilter")?.value || "all";
+    const excluded = document.getElementById("excludeFilter")?.value || "none";
+    const rows = state.meters
+      .filter((row) => matchesFilter(row, filter))
+      .filter((row) => area === "all" || normalize(meterTown(row)) === area)
+      .filter((row) => excluded === "none" || !matchesFilter(row, excluded))
+      .filter((row) => !searchTerms.length || matches(row, searchTerms));
+    rows.sort((a, b) => compareRows(a, b, sort));
+    return rows;
+  }
+
   function renderBulk(rows, searchTerms) {
     const box = document.getElementById("bulkActions");
     const count = document.getElementById("bulkCount");
@@ -219,6 +289,139 @@
     if (show) count.textContent = selectedCount > 0 ? `${selectedCount} markerade` : `${rows.length} träffar`;
     const save = document.getElementById("bulkSave");
     if (save) save.textContent = selectedCount > 0 ? `Flytta ${selectedCount} markerade` : `Flytta ${rows.length} träffar`;
+  }
+
+  function updateSelectionControls() {
+    const selectAll = document.getElementById("selectAllMatches");
+    const clearAll = document.getElementById("clearAllSelection");
+    const allSelected = lastFilteredRows.length > 0 && lastFilteredRows.every((row) => selectedMeters.has(row.id));
+    if (selectAll) {
+      selectAll.disabled = lastFilteredRows.length === 0;
+      selectAll.textContent = allSelected ? `${lastFilteredRows.length} markerade` : `Markera alla ${lastFilteredRows.length || ""}`.trim();
+      selectAll.classList.toggle("active", allSelected);
+    }
+    if (clearAll) {
+      clearAll.hidden = selectedMeters.size === 0;
+      clearAll.textContent = `Avmarkera (${selectedMeters.size})`;
+    }
+  }
+
+  function quickAssignMeters(ids, type) {
+    const meters = ids.map((id) => state.meters.find((meter) => meter.id === id)).filter(Boolean);
+    if (!meters.length) return;
+    const now = new Date().toISOString();
+    const today = localDate(new Date());
+    for (const meter of meters) {
+      if (type === "auto") {
+        delete state.labels[meter.id];
+        continue;
+      }
+      const existing = state.labels[meter.id] || {};
+      const next = {
+        ...existing,
+        type,
+        address: meter.address || existing.address,
+        serial: meter.serial || existing.serial,
+        notedDate: existing.notedDate || today,
+        at: now,
+        source: "snabbgruppering",
+      };
+      if (type === "leak") next.confirmedDate = existing.confirmedDate || today;
+      if (type === "repaired") next.repairedDate = existing.repairedDate || today;
+      if (bulkDefaults[type]?.length) next.noiseTags = [...new Set([...(existing.noiseTags || []), ...bulkDefaults[type]])];
+      state.labels[meter.id] = next;
+    }
+    saveLabels();
+    closeMeterContextMenu();
+    analyze();
+    els.importStatus.textContent = `${meters.length} mätare sparade i ${type === "auto" ? "Automatisk bedömning" : (workflowTypes[type] || type)}.`;
+  }
+
+  window.quickGroupMeter = function quickGroupMeter(id, type) {
+    if (!id || !type) return;
+    quickAssignMeters([id], type);
+  };
+
+  function ensureMeterContextMenu() {
+    let menu = document.getElementById("meterContextMenu");
+    if (menu) return menu;
+    menu = document.createElement("div");
+    menu.id = "meterContextMenu";
+    menu.className = "meter-context-menu";
+    menu.hidden = true;
+    menu.setAttribute("role", "menu");
+    menu.innerHTML = `
+      <div class="context-menu-head"><span>SNABBVAL</span><b id="contextMeterName">Mätare</b></div>
+      <button type="button" data-context-action="show">Visa graf</button>
+      <button type="button" data-context-action="toggle">Avmarkera</button>
+      <label for="contextGroupSelect">Lägg i grupp</label>
+      <select id="contextGroupSelect">
+        <option value="suspect">Misstänkt / bevaka</option>
+        <option value="manual_dispatch">Åk ut</option>
+        <option value="customer_contact">Efter mätare</option>
+        <option value="leak">Aktiva läckor</option>
+        <option value="seasonal">Värmepanna / säsong</option>
+        <option value="known_noise">Falsklarm / störning</option>
+        <option value="repaired">Lagad</option>
+        <option value="ignored">Ignorera</option>
+        <option value="auto">Automatisk bedömning</option>
+      </select>
+      <button type="button" class="context-save" data-context-action="save">Spara grupp</button>
+    `;
+    document.body.appendChild(menu);
+    menu.addEventListener("click", (event) => {
+      const action = event.target.closest("[data-context-action]")?.dataset.contextAction;
+      if (!action || !contextMeterId) return;
+      if (action === "show") {
+        selectedPreviewId = contextMeterId;
+        if (!selectedMeters.has(contextMeterId)) selectedMeters.add(contextMeterId);
+        closeMeterContextMenu();
+        render();
+      }
+      if (action === "toggle") {
+        if (selectedMeters.has(contextMeterId)) selectedMeters.delete(contextMeterId);
+        else selectedMeters.add(contextMeterId);
+        selectedPreviewId = selectedMeters.has(contextMeterId) ? contextMeterId : ([...selectedMeters].at(-1) || "");
+        closeMeterContextMenu();
+        render();
+      }
+      if (action === "save") {
+        const ids = selectedMeters.has(contextMeterId) ? [...selectedMeters] : [contextMeterId];
+        quickAssignMeters(ids, document.getElementById("contextGroupSelect")?.value || "suspect");
+      }
+    });
+    return menu;
+  }
+
+  function openMeterContextMenu(id, clientX, clientY) {
+    const meter = state.meters.find((item) => item.id === id);
+    if (!meter) return;
+    if (!selectedMeters.has(id)) {
+      selectedMeters.clear();
+      selectedMeters.add(id);
+    }
+    selectedPreviewId = id;
+    contextMeterId = id;
+    render();
+    const menu = ensureMeterContextMenu();
+    const name = document.getElementById("contextMeterName");
+    if (name) name.textContent = shortMapLabel(meter);
+    const toggle = menu.querySelector('[data-context-action="toggle"]');
+    if (toggle) toggle.textContent = selectedMeters.has(id) ? "Avmarkera" : "Markera";
+    const currentType = state.labels[id]?.type;
+    const select = document.getElementById("contextGroupSelect");
+    if (select) select.value = [...select.options].some((option) => option.value === currentType) ? currentType : "suspect";
+    menu.hidden = false;
+    const width = 270;
+    const height = 330;
+    menu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(clientY, window.innerHeight - height - 8))}px`;
+  }
+
+  function closeMeterContextMenu() {
+    const menu = document.getElementById("meterContextMenu");
+    if (menu) menu.hidden = true;
+    contextMeterId = "";
   }
 
   function pageSize() {
@@ -238,21 +441,10 @@
   }
 
   render = function renderFieldWorkflow() {
+    refreshAreaFilter();
     const searchTerms = terms(els.search.value);
-    const filter = els.filter.value;
-    const sort = els.sort.value;
-    let rows = [...state.meters];
-    if (filter !== "all") {
-      rows = rows.filter((row) => {
-        if (filter === "learning") return ["learning", "new_high", "new_unknown"].includes(row.category);
-        if (filter === "confirmed") return row.category === "confirmed";
-        if (filter === "suspect_auto") return row.category === "suspect_auto";
-        if (filter === "stale_contact") return row.staleContact || row.staleReadDays >= 14;
-        return row.category === filter;
-      });
-    }
-    if (searchTerms.length) rows = rows.filter((row) => matches(row, searchTerms));
-    rows.sort((a, b) => sortValue(b, sort) - sortValue(a, sort));
+    const rows = matchingRows();
+    lastFilteredRows = rows;
     renderPager(rows.length);
     const size = pageSize();
     const visibleRows = rows.slice((currentPage - 1) * size, currentPage * size);
@@ -261,6 +453,7 @@
     renderBulk(rows, searchTerms);
     renderRows(visibleRows);
     renderSelectedPreview();
+    updateSelectionControls();
   };
 
   renderSummary = function renderFieldSummary() {
@@ -281,7 +474,7 @@
     els.summary.innerHTML = `
       <div><b>${counts.meters}</b><span>mätare</span></div>
       <div><b>${counts.dispatch}</b><span>åk ut</span></div>
-      <div><b>${counts.suspect}</b><span>misstänk</span></div>
+      <div><b>${counts.suspect + counts.watch}</b><span>misstänkt</span></div>
       <div><b>${counts.confirmed}</b><span>aktiva läckor</span></div>
     `;
     renderListTabs(counts);
@@ -289,83 +482,19 @@
   };
 
   function ensureMapConsole() {
-    const rail = document.querySelector(".left-rail");
-    if (!rail || document.getElementById("mapConsole")) return;
-    const consolePanel = document.createElement("section");
-    consolePanel.id = "mapConsole";
-    consolePanel.className = "map-console";
-    consolePanel.innerHTML = `
-      <div class="map-console-heading">
-        <span>OPERATIV KARTA</span>
-        <b>Prioritera och markera</b>
-      </div>
-      <label class="map-search-label" for="mapSearch">Sök mätare</label>
-      <div class="map-search-wrap">
-        <span aria-hidden="true">⌕</span>
-        <input id="mapSearch" type="search" autocomplete="off" placeholder="Adress, nummer, område">
-      </div>
-      <nav class="map-status-list" aria-label="Kartfilter">
-        <button type="button" data-map-filter="field"><span><i class="map-status-dot field"></i>Fältläge</span><b data-map-count="field">0</b></button>
-        <button type="button" data-map-filter="dispatch"><span><i class="map-status-dot dispatch"></i>Åk ut</span><b data-map-count="dispatch">0</b></button>
-        <button type="button" data-map-filter="suspect"><span><i class="map-status-dot suspect"></i>Misstänkt / bevaka</span><b data-map-count="suspect">0</b></button>
-        <button type="button" data-map-filter="confirmed"><span><i class="map-status-dot confirmed"></i>Aktiva läckor</span><b data-map-count="confirmed">0</b></button>
-        <button type="button" data-map-filter="customer_side"><span><i class="map-status-dot customer"></i>Efter mätare</span><b data-map-count="customer_side">0</b></button>
-        <button type="button" data-map-filter="all"><span><i class="map-status-dot all"></i>Alla mätare</span><b data-map-count="all">0</b></button>
-      </nav>
-      <div class="map-gesture-help">
-        <b>Kartkommandon</b>
-        <span>Dubbelklick / scroll: zooma</span>
-        <span>Shift + dra: zooma område</span>
-        <span>Välj ruta: markera flera</span>
-      </div>
-    `;
-    rail.prepend(consolePanel);
-    const search = consolePanel.querySelector("#mapSearch");
-    search.addEventListener("input", () => {
-      els.search.value = search.value;
-      currentPage = 1;
-      render();
-    });
-    consolePanel.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-map-filter]");
-      if (!button) return;
-      applyMapCategoryFilter(button.dataset.mapFilter);
-    });
+    document.getElementById("mapConsole")?.remove();
   }
 
   function renderMapConsole(counts) {
     ensureMapConsole();
-    const search = document.getElementById("mapSearch");
-    if (search && search !== document.activeElement) search.value = els.search.value;
-    const values = {
-      field: counts.dispatch + counts.suspect + counts.watch + counts.confirmed + counts.customer,
-      dispatch: counts.dispatch,
-      suspect: counts.suspect + counts.watch,
-      confirmed: counts.confirmed,
-      customer_side: counts.customer,
-      all: counts.meters,
-    };
-    Object.entries(values).forEach(([key, value]) => {
-      const output = document.querySelector(`[data-map-count="${key}"]`);
-      if (output) output.textContent = String(value);
-    });
-    updateMapCategoryButtons();
-  }
-
-  function ensureSuspectTabVisible() {
-    const tab = document.querySelector('#listTabs button[data-filter="suspect_auto"]');
-    if (!tab) return;
-    tab.hidden = false;
-    tab.style.display = "";
   }
 
   function renderListTabs(counts) {
     const tabs = document.getElementById("listTabs");
     if (!tabs) return;
-    ensureSuspectTabVisible();
     const active = els.filter.value;
     const values = {
-      all: state.meters.length, dispatch: counts.dispatch, watch: counts.watch, suspect_auto: counts.suspect, customer_side: counts.customer,
+      all: state.meters.length, dispatch: counts.dispatch, suspect: counts.suspect + counts.watch, customer_side: counts.customer,
       seasonal: counts.seasonal, confirmed: counts.confirmed, repaired: counts.repaired, ignored: counts.ignored, stale_contact: counts.stale, learning: counts.short, noise: counts.noise,
     };
     const secondary = ["seasonal", "noise", "ignored", "stale_contact", "learning"];
@@ -407,11 +536,11 @@
       return;
     }
     els.rows.innerHTML = rows.map((r) => `
-      <tr>
+      <tr data-meter-row="${escapeAttr(r.id)}" class="${selectedMeters.has(r.id) ? "row-selected" : ""}" tabindex="0">
         <td data-label="Välj" class="select-cell">
           <label class="row-check">
             <input type="checkbox" class="row-select" data-id="${escapeAttr(r.id)}" ${selectedMeters.has(r.id) ? "checked" : ""}>
-            <span>Markera</span>
+            <span>Välj</span>
           </label>
         </td>
         <td data-label="Beslut" class="decision-cell">
@@ -449,28 +578,29 @@
     const active = els.filter.value;
     const category = meter?.category || active;
     const sets = {
-      dispatch: ["leak", "suspect", "interesting", "customer_contact", "ignored"],
-      confirmed: ["repaired", "manual_dispatch", "interesting", "ignored"],
-      repaired: ["manual_dispatch", "interesting", "ignored"],
+      dispatch: ["leak", "suspect", "customer_contact", "ignored"],
+      confirmed: ["repaired", "manual_dispatch", "suspect", "ignored"],
+      repaired: ["manual_dispatch", "suspect", "ignored"],
       watch: ["manual_dispatch", "suspect", "leak", "customer_contact", "ignored"],
-      suspect_auto: ["manual_dispatch", "leak", "interesting", "customer_contact", "ignored"],
-      customer_side: ["customer_contact", "manual_dispatch", "suspect", "interesting", "ignored"],
-      seasonal: ["manual_dispatch", "suspect", "interesting", "ignored"],
-      ignored: ["manual_dispatch", "suspect", "interesting"],
-      noise: ["manual_dispatch", "suspect", "interesting", "ignored"],
-      stale_contact: ["manual_dispatch", "suspect", "interesting", "ignored"],
-      learning: ["manual_dispatch", "suspect", "interesting", "ignored"],
-      new_high: ["manual_dispatch", "suspect", "interesting", "ignored"],
-      new_unknown: ["manual_dispatch", "suspect", "interesting", "ignored"],
-      normal: ["manual_dispatch", "suspect", "interesting", "customer_contact", "ignored"],
+      suspect_auto: ["manual_dispatch", "leak", "suspect", "customer_contact", "ignored"],
+      customer_side: ["customer_contact", "manual_dispatch", "suspect", "ignored"],
+      seasonal: ["manual_dispatch", "suspect", "ignored"],
+      ignored: ["manual_dispatch", "suspect"],
+      noise: ["manual_dispatch", "suspect", "ignored"],
+      stale_contact: ["manual_dispatch", "suspect", "ignored"],
+      learning: ["manual_dispatch", "suspect", "ignored"],
+      new_high: ["manual_dispatch", "suspect", "ignored"],
+      new_unknown: ["manual_dispatch", "suspect", "ignored"],
+      normal: ["manual_dispatch", "suspect", "customer_contact", "ignored"],
     };
     const types = active === "all"
-      ? ["manual_dispatch", "suspect", "interesting", "leak", "customer_contact", "ignored"]
-      : (sets[active] || sets[category] || ["manual_dispatch", "suspect", "interesting", "ignored"]);
+      ? ["manual_dispatch", "suspect", "leak", "customer_contact", "seasonal", "ignored"]
+      : (sets[active] || sets[category] || ["manual_dispatch", "suspect", "ignored"]);
     const address = escapeAttr(meter?.address || id);
     return `
-      <select class="row-action" aria-label="Flytta ${address}" onchange="if(this.value){labelMeter(\'${escapeAttr(id)}\',this.value);this.value=\'\'}">
-        <option value="">Flytta till...</option>
+      <select class="row-action" aria-label="Flytta ${address}" onchange="if(this.value){quickGroupMeter(\'${escapeAttr(id)}\',this.value);this.value=\'\'}">
+        <option value="">Välj grupp...</option>
+        <option value="auto">Ta bort manuell grupp</option>
         ${types.map((type) => `<option value="${escapeAttr(type)}">${feedbackButtons[type] || workflowTypes[type] || type}</option>`).join("")}
       </select>
     `;
@@ -528,22 +658,7 @@
   }
 
   function currentRowsForOverview() {
-    const searchTerms = terms(els.search.value);
-    const filter = els.filter.value;
-    const sort = els.sort.value;
-    let rows = [...state.meters];
-    if (filter !== "all") {
-      rows = rows.filter((row) => {
-        if (filter === "learning") return ["learning", "new_high", "new_unknown"].includes(row.category);
-        if (filter === "confirmed") return row.category === "confirmed";
-        if (filter === "suspect_auto") return row.category === "suspect_auto";
-        if (filter === "stale_contact") return row.staleContact || row.staleReadDays >= 14;
-        return row.category === filter;
-      });
-    }
-    if (searchTerms.length) rows = rows.filter((row) => matches(row, searchTerms));
-    rows.sort((a, b) => sortValue(b, sort) - sortValue(a, sort));
-    return rows;
+    return matchingRows();
   }
 
   function overviewMapMeters() {
@@ -554,21 +669,11 @@
   }
 
   function mapFilterMatch(meter) {
-    if (mapCategoryFilter === "all") return true;
-    if (mapCategoryFilter === "suspect") return ["suspect_auto", "watch"].includes(meter.category);
-    if (mapCategoryFilter === "field") return ["dispatch", "suspect_auto", "watch", "confirmed", "customer_side"].includes(meter.category);
-    return meter.category === mapCategoryFilter;
+    return Boolean(meter);
   }
 
   function mapFilterLabel() {
-    return {
-      all: "Alla",
-      field: "Fältläge",
-      dispatch: "Åk ut",
-      suspect: "Bevakning",
-      confirmed: "Aktiva läckor",
-      customer_side: "Efter mätare",
-    }[mapCategoryFilter] || "Alla";
+    return listLabels[els.filter.value] || "Alla mätare";
   }
 
   function addressForMap(meter) {
@@ -581,8 +686,45 @@
     return `${raw}${suffix}, Sverige`;
   }
 
+  function parseMapAddress(meter) {
+    const raw = String(meter.address || "").replace(/[,]+/g, " ").replace(/\s+/g, " ").trim();
+    const atEnd = raw.match(/^(.+?)\s+(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(.+?)\s+(\d{5})$/i);
+    const beforeTown = raw.match(/^(.+?)\s+(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(\d{5})\s+(.+)$/i);
+    const match = atEnd || beforeTown;
+    if (!match) return null;
+    return atEnd
+      ? { street: `${match[1]} ${match[2]}`, road: match[1], house: match[2], city: match[3], postcode: match[4] }
+      : { street: `${match[1]} ${match[2]}`, road: match[1], house: match[2], city: match[4], postcode: match[3] };
+  }
+
+  function geocodeHitIsExact(hit, parsed) {
+    if (!hit || !parsed) return false;
+    const address = hit.address || {};
+    const hitHouse = normalize(address.house_number || "").replace(/\s/g, "");
+    const expectedHouse = normalize(parsed.house).replace(/\s/g, "");
+    if (!hitHouse || hitHouse !== expectedHouse) return false;
+    const hitRoad = normalize(address.road || address.pedestrian || address.residential || address.footway || "");
+    const expectedRoad = normalize(parsed.road);
+    const roadWords = expectedRoad.split(" ").filter((word) => word.length > 2);
+    const roadMatches = hitRoad === expectedRoad
+      || hitRoad.includes(expectedRoad)
+      || expectedRoad.includes(hitRoad)
+      || (roadWords.length > 0 && roadWords.every((word) => hitRoad.includes(word)));
+    if (!roadMatches) return false;
+    const postcode = String(address.postcode || "").replace(/\s/g, "");
+    return !postcode || postcode === parsed.postcode;
+  }
+
   function geocodeKey(meter) {
     return normalize(addressForMap(meter));
+  }
+
+  function isInsideBotkyrka(point) {
+    const lat = Number(point?.lat);
+    const lng = Number(point?.lng);
+    return Number.isFinite(lat) && Number.isFinite(lng)
+      && lat >= BOTKYRKA_BOUNDS[0][0] && lat <= BOTKYRKA_BOUNDS[1][0]
+      && lng >= BOTKYRKA_BOUNDS[0][1] && lng <= BOTKYRKA_BOUNDS[1][1];
   }
 
   function waitFor(ms) {
@@ -596,7 +738,7 @@
     const key = geocodeKey(meter);
     if (!key) return Promise.resolve(null);
     const cached = geocodeCache[key];
-    if (Number.isFinite(cached?.lat) && Number.isFinite(cached?.lng)) {
+    if (isInsideBotkyrka(cached)) {
       const result = { lat: cached.lat, lng: cached.lng, label: cached.label || addressForMap(meter) };
       mapCoordinates.set(meter.id, result);
       return Promise.resolve(result);
@@ -611,17 +753,30 @@
       lastGeocodeAt = Date.now();
       const url = new URL("https://nominatim.openstreetmap.org/search");
       url.searchParams.set("format", "jsonv2");
-      url.searchParams.set("limit", "1");
+      url.searchParams.set("limit", "5");
+      url.searchParams.set("addressdetails", "1");
       url.searchParams.set("countrycodes", "se");
       url.searchParams.set("accept-language", "sv");
-      url.searchParams.set("q", addressForMap(meter));
+      url.searchParams.set("viewbox", `${BOTKYRKA_BOUNDS[0][1]},${BOTKYRKA_BOUNDS[1][0]},${BOTKYRKA_BOUNDS[1][1]},${BOTKYRKA_BOUNDS[0][0]}`);
+      url.searchParams.set("bounded", "1");
+      const parsed = parseMapAddress(meter);
+      if (parsed) {
+        url.searchParams.set("street", parsed.street);
+        url.searchParams.set("city", parsed.city);
+        url.searchParams.set("postalcode", parsed.postcode);
+        url.searchParams.set("country", "Sverige");
+      } else {
+        url.searchParams.set("q", addressForMap(meter));
+      }
       const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
       if (!response.ok) throw new Error(`GPS-sökning misslyckades (${response.status})`);
       const results = await response.json();
-      const hit = Array.isArray(results) ? results[0] : null;
+      const hit = Array.isArray(results)
+        ? (parsed ? results.find((candidate) => geocodeHitIsExact(candidate, parsed)) : results[0])
+        : null;
       const lat = Number(hit?.lat);
       const lng = Number(hit?.lon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      if (!hit || !isInsideBotkyrka({ lat, lng })) {
         geocodeCache[key] = { missing: true, at: Date.now() };
         saveGeocodeCache();
         return null;
@@ -660,34 +815,13 @@
   }
 
   function ensureMapCategoryControls() {
-    const toolbar = document.querySelector(".map-toolbar");
-    if (!toolbar || document.getElementById("mapCategoryControls")) return;
-    const controls = document.createElement("div");
-    controls.id = "mapCategoryControls";
-    controls.className = "map-category-controls";
-    controls.setAttribute("role", "group");
-    controls.setAttribute("aria-label", "Visa mätare på kartan");
-    controls.innerHTML = [
-      ["field", "Fält"],
-      ["dispatch", "Åk ut"],
-      ["suspect", "Bevakning"],
-      ["confirmed", "Aktiva"],
-      ["customer_side", "Efter"],
-      ["all", "Alla"],
-    ].map(([value, label]) => `<button type="button" class="secondary" data-map-filter="${value}">${label}</button>`).join("");
-    toolbar.prepend(controls);
-    controls.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-map-filter]");
-      if (!button) return;
-      applyMapCategoryFilter(button.dataset.mapFilter);
-    });
-    updateMapCategoryButtons();
+    document.getElementById("mapCategoryControls")?.remove();
   }
 
   function applyMapCategoryFilter(filter) {
-    const valid = new Set(["field", "dispatch", "suspect", "confirmed", "customer_side", "all"]);
-    mapCategoryFilter = valid.has(filter) ? filter : "field";
-    els.filter.value = "all";
+    const mapping = { field: "all", dispatch: "dispatch", suspect: "suspect", confirmed: "confirmed", customer_side: "customer_side", all: "all" };
+    els.filter.value = mapping[filter] || "all";
+    mapCategoryFilter = "all";
     selectedMeters.clear();
     selectedPreviewId = "";
     clearSelectionRectangle();
@@ -696,9 +830,7 @@
   }
 
   function updateMapCategoryButtons() {
-    document.querySelectorAll("[data-map-filter]").forEach((button) => {
-      button.classList.toggle("active", button.dataset.mapFilter === mapCategoryFilter);
-    });
+    document.querySelectorAll("[data-map-filter]").forEach((button) => button.remove());
   }
 
   function ensureMapDrawingControls() {
@@ -713,7 +845,7 @@
       <button type="button" class="secondary" data-map-tool="select" title="Dra en ruta runt flera mätare">▣ Välj ruta</button>
       <button type="button" class="secondary" data-map-tool="valve" title="Klicka sedan på ventilens position">◉ Ventil</button>
       <button type="button" class="secondary leak-tool" data-map-tool="leak" title="Klicka sedan där läckan hittades">× Läckpunkt</button>
-      <button type="button" class="secondary clear-map-marks" data-map-tool="clear" title="Rensa ventil och läckpunkt">Rensa märken</button>
+      <button type="button" class="secondary clear-map-marks" data-map-tool="clear" title="Rensa ventil och läckpunkt">Rensa</button>
     `;
     const locate = document.getElementById("locateMe");
     toolbar.insertBefore(controls, locate || null);
@@ -952,11 +1084,16 @@
       doubleClickZoom: true,
       touchZoom: true,
       scrollWheelZoom: window.innerWidth > 760,
+      wheelDebounceTime: 110,
+      wheelPxPerZoomLevel: 240,
+      zoomDelta: 1,
+      zoomSnap: 1,
       dragging: true,
       boxZoom: true,
-      maxBounds: [[59.05, 17.55], [59.35, 18.15]],
-      maxBoundsViscosity: .7,
-    }).setView([59.20, 17.83], 12);
+      minZoom: 11,
+      maxBounds: BOTKYRKA_BOUNDS,
+      maxBoundsViscosity: 1,
+    }).setView(BOTKYRKA_CENTER, 12);
     previewBaseLayer = previewMapLayers[previewMapStyle];
     previewBaseLayer.addTo(previewMap);
     previewMarkerLayer = L.layerGroup().addTo(previewMap);
@@ -976,7 +1113,7 @@
     const resize = () => {
       previewMap.invalidateSize({ pan: false });
       if (!points.length) {
-        if (overviewMode) previewMap.setView([59.20, 17.83], 12);
+        if (overviewMode) previewMap.setView(BOTKYRKA_CENTER, 12);
         return;
       }
       if (overviewMode) {
@@ -1042,7 +1179,7 @@
       <div id="mapInspectorActions" class="map-inspector-actions" hidden>
         <button type="button" class="secondary" data-inspector-action="navigate">Kör hit</button>
         <button type="button" class="secondary confirm-leak" data-inspector-action="confirm-leak">Hittad läcka</button>
-        <button type="button" class="secondary" data-inspector-action="clear-selection">Visa kartkö</button>
+        <button type="button" class="secondary" data-inspector-action="clear-selection">Avmarkera</button>
       </div>
       <div id="mapInspectorList" class="map-inspector-list"></div>
     `;
@@ -1081,6 +1218,12 @@
         const field = document.getElementById("distanceMeters");
         if (field && Number.isFinite(mark?.distanceFromMeter)) field.value = String(mark.distanceFromMeter);
       }
+    });
+    inspector.addEventListener("contextmenu", (event) => {
+      const card = event.target.closest("[data-map-inspector-meter]");
+      if (!card) return;
+      event.preventDefault();
+      openMeterContextMenu(card.dataset.mapInspectorMeter, event.clientX, event.clientY);
     });
   }
 
@@ -1155,7 +1298,7 @@
     const cachedLocated = [];
     for (const meter of meters) {
       const cached = geocodeCache[geocodeKey(meter)];
-      if (Number.isFinite(cached?.lat) && Number.isFinite(cached?.lng)) {
+      if (isInsideBotkyrka(cached)) {
         cachedLocated.push({ meter, coordinates: { lat: cached.lat, lng: cached.lng, label: cached.label || addressForMap(meter) } });
       }
     }
@@ -1226,7 +1369,7 @@
   
     if (!located.length) {
       setMapStatus("GPS-position saknas. Kör hit söker direkt på adressen.");
-      previewMap.setView([59.20, 17.83], 12);
+      previewMap.setView(BOTKYRKA_CENTER, 12);
       return;
     }
     focusPreviewMap(false, overviewMode);
@@ -1356,7 +1499,7 @@
       if (state.previewChart) state.previewChart.destroy();
       state.previewChart = null;
       const rows = overviewMapMeters();
-      document.getElementById("previewTitle").textContent = "Karta över mätare";
+      document.getElementById("previewTitle").textContent = "Operativ karta";
       document.getElementById("previewMeta").textContent = rows.length
         ? `${mapFilterLabel()}: ${rows.length} mätare på kartan · klicka en plupp för graf och åtgärder`
         : `${mapFilterLabel()}: inga mätare i kartfiltret`;
@@ -1494,6 +1637,36 @@
   }
 
   document.getElementById("feedbackForm")?.addEventListener("submit", saveFieldFeedback, true);
+  document.getElementById("rows")?.addEventListener("click", (event) => {
+    const row = event.target.closest?.("tr[data-meter-row]");
+    if (!row || event.target.closest?.("button, input, label, a, select, textarea, svg")) return;
+    const id = row.dataset.meterRow;
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      if (selectedMeters.has(id)) selectedMeters.delete(id);
+      else selectedMeters.add(id);
+      selectedPreviewId = selectedMeters.has(id) ? id : ([...selectedMeters].at(-1) || "");
+    } else {
+      const deselectOnly = selectedMeters.size === 1 && selectedMeters.has(id);
+      selectedMeters.clear();
+      if (deselectOnly) selectedPreviewId = "";
+      else {
+        selectedMeters.add(id);
+        selectedPreviewId = id;
+      }
+    }
+    render();
+  });
+  document.getElementById("rows")?.addEventListener("dblclick", (event) => {
+    const row = event.target.closest?.("tr[data-meter-row]");
+    if (!row || event.target.closest?.("button, input, label, a, select, textarea")) return;
+    window.openDetail(row.dataset.meterRow);
+  });
+  document.getElementById("rows")?.addEventListener("contextmenu", (event) => {
+    const row = event.target.closest?.("tr[data-meter-row]");
+    if (!row) return;
+    event.preventDefault();
+    openMeterContextMenu(row.dataset.meterRow, event.clientX, event.clientY);
+  });
   document.getElementById("rows")?.addEventListener("change", (event) => {
     const input = event.target.closest?.(".row-select");
     if (!input) return;
@@ -1522,11 +1695,54 @@
     if (mapSearch && mapSearch !== document.activeElement) mapSearch.value = els.search.value;
   }, true);
   els.sort?.addEventListener("change", () => { currentPage = 1; }, true);
+  document.getElementById("areaFilter")?.addEventListener("change", () => {
+    currentPage = 1;
+    selectedMeters.clear();
+    selectedPreviewId = "";
+    render();
+  });
+  document.getElementById("excludeFilter")?.addEventListener("change", () => {
+    currentPage = 1;
+    selectedMeters.clear();
+    selectedPreviewId = "";
+    render();
+  });
+  document.querySelector("thead")?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("button[data-sort-table]");
+    if (!button) return;
+    const sort = button.dataset.sortTable;
+    if (sort === "select") {
+      const allSelected = lastFilteredRows.length > 0 && lastFilteredRows.every((row) => selectedMeters.has(row.id));
+      if (allSelected) {
+        selectedMeters.clear();
+        selectedPreviewId = "";
+      } else {
+        lastFilteredRows.forEach((row) => selectedMeters.add(row.id));
+        selectedPreviewId = lastFilteredRows[0]?.id || "";
+      }
+      render();
+      return;
+    }
+    els.sort.value = sort;
+    currentPage = 1;
+    render();
+  });
   document.getElementById("clearSelection")?.addEventListener("click", () => {
     selectedMeters.clear();
     selectedPreviewId = "";
     clearSelectionRectangle();
     setMapToolMode("");
+    render();
+  });
+  document.getElementById("selectAllMatches")?.addEventListener("click", () => {
+    lastFilteredRows.forEach((meter) => selectedMeters.add(meter.id));
+    selectedPreviewId = lastFilteredRows[0]?.id || selectedPreviewId;
+    render();
+  });
+  document.getElementById("clearAllSelection")?.addEventListener("click", () => {
+    selectedMeters.clear();
+    selectedPreviewId = "";
+    clearSelectionRectangle();
     render();
   });
   document.getElementById("selectedMeterChips")?.addEventListener("click", (event) => {
@@ -1557,10 +1773,16 @@
     render();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !mapToolMode) return;
-    clearSelectionRectangle();
-    setMapToolMode("");
-    setMapStatus("Kartverktyget avbröts.");
+    if (event.key !== "Escape") return;
+    if (!document.getElementById("meterContextMenu")?.hidden) closeMeterContextMenu();
+    if (mapToolMode) {
+      clearSelectionRectangle();
+      setMapToolMode("");
+      setMapStatus("Kartverktyget avbröts.");
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest?.("#meterContextMenu")) closeMeterContextMenu();
   });
   document.getElementById("bulkSave")?.addEventListener("click", () => {
     const searchTerms = terms(els.search.value);
