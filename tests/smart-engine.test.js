@@ -71,6 +71,19 @@ const customerSide = rank([10, 40, 80], {
 });
 assert.equal(customerSide.category, "customer_side");
 
+const heatPumpPoints = [
+  { date: new Date("2025-05-15T06:00:00"), readAt: new Date("2025-05-15T06:00:00"), current: 10 },
+  { date: new Date("2025-07-15T06:00:00"), readAt: new Date("2025-07-15T06:00:00"), current: 11 },
+  { date: new Date("2025-11-15T06:00:00"), readAt: new Date("2025-11-15T06:00:00"), current: 27 },
+  { date: new Date("2026-02-15T06:00:00"), readAt: new Date("2026-02-15T06:00:00"), current: 29 },
+];
+const heatPump = rank([], { points: heatPumpPoints });
+assert.equal(heatPump.category, "seasonal");
+assert.equal(heatPump.engine.heatPump.is, true);
+
+const tooLoudForHeatPump = heatPumpPoints.map((point, index) => ({ ...point, current: index === 3 ? 45 : point.current }));
+assert.equal(SmartEngine.detectHeatPumpSeasonality(tooLoudForHeatPump).is, false);
+
 const manualCases = {
   leak: "confirmed",
   repaired: "repaired",
