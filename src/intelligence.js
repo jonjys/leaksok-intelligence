@@ -33,13 +33,13 @@
 
       if (!baselineIsStable || latest < clearStepThreshold || afterAverage < elevatedThreshold || change < 0.8) continue;
 
-      const persistenceDays = Math.max(0, Math.round((ordered[ordered.length - 1].date - after[0].date) / DAY_MS));
+      const persistenceDays = calendarDaysBetween(after[0].date, ordered[ordered.length - 1].date);
       const persistent = persistenceDays >= 7 && elevatedReadings >= 3 && elevatedShare >= 0.75;
       const candidate = {
         from: baseline,
         to: latest,
         change,
-        changedAt: after[0].date.toISOString().slice(0, 10),
+        changedAt: dateKey(after[0].date),
         persistenceDays,
         elevatedReadings,
         persistent,
@@ -154,6 +154,19 @@
     );
     if (!denominator) return 0;
     return deviationsA.reduce((sum, value, index) => sum + value * deviationsB[index], 0) / denominator;
+  }
+
+  function dateKey(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function calendarDaysBetween(from, to) {
+    const fromDay = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+    const toDay = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+    return Math.max(0, Math.round((toDay - fromDay) / DAY_MS));
   }
 
   return { detectAnnualRepeat, detectHeatingSeason, detectLowRelativeRise };
