@@ -90,6 +90,7 @@
       ? context.staleReadDays
       : readAgeDays(ordered[ordered.length - 1]);
     const staleContact = staleReadDays >= 14;
+    const heatPump = detectHeatPumpSeasonality(ordered);
 
     return {
       points: ordered.length,
@@ -109,6 +110,7 @@
       normalizedSlope,
       staleReadDays,
       staleContact,
+      heatPump,
     };
   }
 
@@ -147,6 +149,7 @@
     else if (leakCode && !customerSide) { score += 14; evidence.push("LEAK i Excel"); }
 
     if (engine.transientSpike) { score -= 42; evidence.push("enstaka topp nedvägd"); }
+    if (engine.heatPump.is) { score -= 38; evidence.push(engine.heatPump.reason); }
     if (profile.repeatedPattern) { score -= 32; evidence.push("återkommande säsongsmönster"); }
     if (profile.fluctuating && !engine.sustained) { score -= 16; evidence.push("fladdrig signal"); }
     if (dryCode && !leakCode) { score -= 20; evidence.push("DRY/torr driftstatus"); }
@@ -205,6 +208,7 @@
     const { score, hardEvidence, shortHistory, customerSide, burst, leakCode, dryCode, engine, profile } = context;
     if (engine.staleContact) return "normal";
     if (customerSide || (leakCode && /customer|kund/i.test(String(profile.environment || "")))) return "customer_side";
+    if (engine.heatPump.is && !burst && !leakCode) return "seasonal";
     if (engine.transientSpike) return "noise";
     if (profile.repeatedPattern && !engine.sustained) return "seasonal";
     if (dryCode && !leakCode) return "normal";
@@ -236,6 +240,7 @@
   function compactReasons(existing, engine, evidence, label) {
     const reasons = [];
     if (label?.type) reasons.push(`Manuellt facit: ${label.type}`);
+    if (engine.heatPump.is) reasons.push(engine.heatPump.reason);
     if (engine.transientSpike) reasons.push("Enstaka topp: påverkar inte akutlistan");
     else if (engine.sustained) reasons.push(`Bestående nivå i ${engine.persistenceDays} dagar (${engine.trailingElevated} avläsningar)`);
     if (engine.baseline > 0 && Math.abs(engine.relativeRise) >= 0.25) {
@@ -253,7 +258,44 @@
       latestRise: 0, recentShare: 0, trailingElevated: 0, persistenceDays: 0,
       sustained: false, peak: 0, transientSpike: false, volatility: 0,
       normalizedSlope: 0, staleReadDays: 0, staleContact: false,
+      heatPump: { is: false, reason: "" },
     };
+  }
+
+  function detectHeatPumpSeasonality(points) {
+    if (!Array.isArray(points) || points.length < 4) return { is: false, reason: "" };
+    const usable = points.filter((point) => point.date instanceof Date && Number.isFinite(point.current));
+    if (usable.length < 4 || usable.some((point) => point.current >= 40)) return { is: false, reason: "" };
+
+    const coldMonths = new Set([9, 10, 11, 0, 1, 2, 3]);
+    const warmMonths = new Set([4, 5, 6, 7, 8]);
+    const cold = usable.filter((point) => coldMonths.has(point.date.getMonth())).map((point) => point.current);
+    const warm = usable.filter((point) => warmMonths.has(point.date.getMonth())).map((point) => point.current);
+    if (cold.length >= 2 && warm.length >= 2) {
+      const coldLevel = median(cold);
+      const warmLevel = median(warm);
+      if (coldLevel > 12 && warmLevel < 28 && coldLevel >= warmLevel * 1.45 && coldLevel - warmLevel >= 5) {
+        return {
+          is: true,
+          reason: `Värmepanna/säsong: vinter ${round(coldLevel)} mot sommar ${round(warmLevel)}`,
+        };
+      }
+    }
+
+    const first = usable[0];
+    const last = usable[usable.length - 1];
+    const spanDays = calendarDaysBetween(first.date, last.date);
+    const values = usable.map((point) => point.current);
+    const gentleRise = values.every((value, index) => index === 0 || value <= values[index - 1] * 1.8 + 5);
+    if (spanDays >= 120
+      && warmMonths.has(first.date.getMonth())
+      && coldMonths.has(last.date.getMonth())
+      && gentleRise
+      && last.current > 15
+      && last.current >= first.current * 1.3) {
+      return { is: true, reason: `Värmepanna/säsong: gradvis ${round(first.current)} → ${round(last.current)}` };
+    }
+    return { is: false, reason: "" };
   }
 
   function validDate(value) {
@@ -316,5 +358,5 @@
     return Math.max(min, Math.min(max, value));
   }
 
-  return { analyzeSeries, rankMeter };
+  return { analyzeSeries, rankMeter, detectHeatPumpSeasonality };
 }));
