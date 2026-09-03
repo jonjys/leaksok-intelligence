@@ -38,7 +38,7 @@ const context = {
 };
 vm.createContext(context);
 const source = fs.readFileSync(require.resolve("../src/app.js"), "utf8");
-vm.runInContext(`${source}\n;globalThis.__engine = { state, scoreMeter, detectSharedSignals, addressForCopy, labelSummary, readingTimeline };`, context);
+vm.runInContext(`${source}\n;globalThis.__engine = { state, scoreMeter, detectSharedSignals, addressForCopy, labelSummary, readingTimeline, dedupePoints, parseNumber, parseDate, dateFromFile, calendarDaysBetween, median, localDate };`, context);
 
 function meter(serial, address, values, averages, maxes, info = "") {
   const start = new Date("2026-07-01T06:00:00");
@@ -193,5 +193,36 @@ const learnedHeating = context.__engine.scoreMeter({
 assert.equal(learnedHeating.profile.heatingSeason.cycles, 2);
 assert.equal(learnedHeating.profile.repeatedPattern, true);
 assert.equal(learnedHeating.category, "seasonal");
+
+assert.equal(context.__engine.parseNumber("1 234,56"), 1234.56);
+assert.equal(context.__engine.parseNumber("1.234,56"), 1234.56);
+assert.equal(context.__engine.parseNumber("1,234.56"), 1234.56);
+assert.equal(context.__engine.parseNumber("−12,5"), -12.5);
+assert.equal(context.__engine.parseNumber(""), null);
+
+const swedishDate = context.__engine.parseDate("27.10.2026 06:30");
+assert.deepEqual(
+  [swedishDate.getFullYear(), swedishDate.getMonth() + 1, swedishDate.getDate(), swedishDate.getHours(), swedishDate.getMinutes()],
+  [2026, 10, 27, 6, 30]
+);
+assert.equal(context.__engine.localDate(context.__engine.parseDate("2026-10-27")), "2026-10-27");
+assert.equal(context.__engine.localDate(context.__engine.dateFromFile({ name: "export_2026-10-27.xlsx", lastModified: 0 })), "2026-10-27");
+assert.equal(context.__engine.localDate(context.__engine.parseDate(45292)), "2024-01-01");
+
+const dailyMinimum = context.__engine.dedupePoints([
+  { date: new Date(2026, 9, 25, 23, 40), current: 18, source: "late.xlsx" },
+  { date: new Date(2026, 9, 25, 6, 0), current: 9, source: "early.xlsx" },
+  { date: new Date(2026, 9, 26, 6, 0), current: 14, source: "next.xlsx" },
+]);
+assert.deepEqual(Array.from(dailyMinimum, (point) => point.current), [9, 14]);
+
+const dailyTimeline = context.__engine.readingTimeline([
+  { date: new Date(2026, 9, 25, 12), readAt: new Date(2026, 9, 25, 8), current: 20 },
+  { date: new Date(2026, 9, 25, 15), readAt: new Date(2026, 9, 25, 9), current: 7 },
+]);
+assert.equal(dailyTimeline.points.length, 1);
+assert.equal(dailyTimeline.points[0].current, 7);
+assert.equal(context.__engine.calendarDaysBetween(new Date(2026, 9, 24, 12), new Date(2026, 9, 26, 12)), 2);
+assert.equal(context.__engine.median([1, 3, 7, 9]), 5);
 
 console.log("app engine tests: ok");
