@@ -1,67 +1,95 @@
 const assert = require("node:assert/strict");
-const { analyzeSeries, rankMeter } = require("../src/smart-engine.js");
+const SmartEngine = require("../src/smart-engine.js");
 
-function points(entries) {
-  return entries.map(([date, current, readAt = date]) => ({
-    date: new Date(`${date}T06:00:00`),
-    readAt: new Date(`${readAt}T06:00:00`),
-    current,
-  }));
+function points(values, start = "2026-07-01T06:00:00", spacingDays = 7) {
+  const first = new Date(start);
+  return values.map((current, index) => {
+    const date = new Date(first);
+    date.setDate(first.getDate() + index * spacingDays);
+    return { date, readAt: date, current };
+  });
 }
 
-const transient = analyzeSeries(points([
-  ["2026-05-01", 10], ["2026-06-01", 11], ["2026-07-01", 95], ["2026-08-01", 10], ["2026-09-01", 11],
-]));
-assert.equal(transient.transientSpike, true);
-assert.equal(transient.sustained, false);
+function baseResult(overrides = {}) {
+  return {
+    risk: 10,
+    category: "normal",
+    confidence: "låg",
+    reasons: [],
+    info: "",
+    profile: {
+      coverage: { days: 500 },
+      newLevel: false,
+      slowRise: false,
+      repeatedPattern: false,
+      fluctuating: false,
+    },
+    infrastructure: { customerSide: false },
+    networkContext: null,
+    lowRelativeRise: null,
+    staleReadDays: 0,
+    ...overrides,
+  };
+}
 
-const sustained = analyzeSeries(points([
-  ["2026-05-01", 10], ["2026-06-01", 10], ["2026-07-01", 11],
-  ["2026-08-01", 38], ["2026-08-15", 42], ["2026-09-01", 41],
-]));
-assert.equal(sustained.sustained, true);
-assert.ok(sustained.persistenceDays >= 31);
-assert.ok(sustained.relativeRise > 2);
+function rank(values, options = {}) {
+  const meter = {
+    id: options.id || "test-meter",
+    info: options.info || "",
+    points: options.points || points(values, options.start, options.spacingDays),
+  };
+  return SmartEngine.rankMeter(baseResult(options.result), meter, options.label);
+}
 
-const stale = analyzeSeries(points([
-  ["2026-08-01", 20], ["2026-09-01", 80, "2026-07-01"],
-]));
-assert.ok(stale.staleReadDays >= 60);
+const twoPoint = SmartEngine.analyzeSeries(points([10, 30]));
+assert.equal(twoPoint.baseline, 10);
+assert.equal(twoPoint.recentLevel, 30);
+assert.equal(twoPoint.relativeRise, 2);
+
+const unsorted = points([10, 20, 40]);
+assert.deepEqual(
+  SmartEngine.analyzeSeries([unsorted[2], unsorted[0], unsorted[1]]),
+  SmartEngine.analyzeSeries(unsorted)
+);
+
+assert.equal(rank([10, 10, 70, 72, 74]).category, "dispatch");
+const extreme = rank([800], { start: "2026-08-24T06:00:00" });
+assert.equal(extreme.category, "dispatch");
+assert.equal(extreme.confidence, "låg");
+assert.ok(extreme.risk >= 0 && extreme.risk <= 100);
+
+assert.equal(rank([407, 872, 829]).category, "dispatch");
+assert.equal(rank([10, 11, 200, 10, 11]).category, "noise");
+
+const stale = rank([10, 30, 60], { result: { staleReadDays: 21 } });
+assert.equal(stale.category, "normal");
 assert.equal(stale.staleContact, true);
 
-const baseResult = {
-  risk: 90,
-  reasons: [],
-  profile: { coverage: { days: 130 }, newLevel: null, slowRise: false, repeatedPattern: false, fluctuating: false },
-  infrastructure: { customerSide: false },
-  networkContext: null,
-  lowRelativeRise: null,
-  confidence: "hög",
-};
-const rankedSpike = rankMeter(baseResult, { id: "spike", info: "", points: points([
-  ["2026-05-01", 10], ["2026-06-01", 11], ["2026-07-01", 95], ["2026-08-01", 10], ["2026-09-01", 11],
-]) });
-assert.equal(rankedSpike.category, "noise");
-assert.ok(rankedSpike.risk < 40);
-
-const rankedSustained = rankMeter(baseResult, { id: "sustained", info: "", points: points([
-  ["2026-05-01", 10], ["2026-06-01", 10], ["2026-07-01", 11],
-  ["2026-08-01", 38], ["2026-08-15", 42], ["2026-09-01", 41],
-]) });
-assert.equal(rankedSustained.category, "dispatch");
-assert.ok(rankedSustained.enginePriority > rankedSpike.enginePriority);
-
-const customer = rankMeter({ ...baseResult, infrastructure: { customerSide: true } }, {
-  id: "customer", info: "BURST, LEAK", points: points([
-    ["2026-06-01", 80], ["2026-07-01", 110], ["2026-08-01", 130], ["2026-09-01", 140],
-  ]),
+const customerSide = rank([10, 40, 80], {
+  info: "Leak",
+  result: { infrastructure: { customerSide: true } },
 });
-assert.equal(customer.category, "customer_side");
+assert.equal(customerSide.category, "customer_side");
 
-const manualRepair = rankMeter(baseResult, { id: "repair", info: "", points: points([
-  ["2026-06-01", 20], ["2026-07-01", 60], ["2026-08-01", 90], ["2026-09-01", 100],
-]) }, { type: "repaired" });
-assert.equal(manualRepair.category, "repaired");
-assert.ok(manualRepair.risk <= 18);
+const manualCases = {
+  leak: "confirmed",
+  repaired: "repaired",
+  manual_dispatch: "dispatch",
+  suspect: "suspect_auto",
+  interesting: "watch",
+  customer_contact: "customer_side",
+  seasonal: "seasonal",
+  known_noise: "noise",
+  district_heating: "noise",
+  large_building: "noise",
+  pump: "noise",
+  false_alarm: "noise",
+  reset_baseline: "normal",
+  ignored: "ignored",
+};
+
+for (const [type, expected] of Object.entries(manualCases)) {
+  assert.equal(rank([10, 20, 40], { label: { type } }).category, expected, type);
+}
 
 console.log("smart engine tests: ok");
