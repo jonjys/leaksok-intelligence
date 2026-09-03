@@ -176,29 +176,14 @@
   function makeRowsSelectOnClick() {
     document.querySelectorAll("#rows tr").forEach((row) => {
       if (row.dataset.rowClickReady === "true") return;
-      const checkbox = row.querySelector(".row-select");
-      if (!checkbox) return;
+      if (!row.querySelector(".row-select")) return;
       row.dataset.rowClickReady = "true";
-      row.addEventListener("dblclick", (event) => {
-        if (event.target.closest("button, select, input, a")) return;
-        checkbox.checked = !checkbox.checked;
-        checkbox.dispatchEvent(new Event("change", { bubbles: true }));
-      });
     });
   }
 
   function simplifySortSelect() {
     const select = document.getElementById("sort");
     if (!select || select.dataset.smartSort === "true") return;
-    const current = select.value;
-    select.innerHTML = [
-      ["risk", "Motorprioritet"],
-      ["persistence", "Beständig längst"],
-      ["robustRise", "Robust ökning"],
-      ["current", "Senaste värde"],
-      ["confidence", "Säkerhet"],
-    ].map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
-    select.value = [...select.options].some((option) => option.value === current) ? current : "risk";
     select.dataset.smartSort = "true";
   }
 

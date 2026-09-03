@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="./src/chart-workspace.css">
   <link rel="stylesheet" href="./src/office-demo.css">
   <link rel="stylesheet" href="./src/map-pro.css">
+  <link rel="stylesheet" href="./src/workspace-v3.css">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -41,15 +42,14 @@
           <nav class="list-tabs" id="listTabs" aria-label="Listor">
           <button type="button" data-filter="all">Alla mätare <b>0</b></button>
           <button type="button" data-filter="dispatch">Åk ut <b>0</b></button>
-          <button type="button" data-filter="suspect_auto">Misstänk <b>0</b></button>
-          <button type="button" data-filter="watch">Bevaka <b>0</b></button>
+          <button type="button" data-filter="suspect">Misstänkt / bevaka <b>0</b></button>
           <button type="button" data-filter="customer_side">Efter mätare <b>0</b></button>
           <button type="button" data-filter="confirmed">Aktiva läckor <b>0</b></button>
           <button type="button" data-filter="repaired">Lagad <b>0</b></button>
           <details class="more-lists" id="moreLists">
             <summary>Fler listor <b id="moreListCount">0</b></summary>
             <div class="more-list-buttons">
-              <button type="button" data-filter="seasonal">Säsong <b>0</b></button>
+              <button type="button" data-filter="seasonal">Värmepanna / säsong <b>0</b></button>
               <button type="button" data-filter="noise">Falsklarm/störning <b>0</b></button>
               <button type="button" data-filter="ignored">Ignorera <b>0</b></button>
               <button type="button" data-filter="stale_contact">Utan avläsning <b>0</b></button>
@@ -109,9 +109,8 @@
               <option value="dispatch">Trolig läcka - åk ut</option>
               <option value="customer_side">Efter mätare</option>
               <option value="confirmed">Aktiva läckor</option>
-              <option value="watch">Bevaka</option>
-              <option value="suspect_auto">Misstänk</option>
-              <option value="seasonal">Säsong</option>
+              <option value="suspect">Misstänkt / bevaka</option>
+              <option value="seasonal">Värmepanna / säsong</option>
               <option value="learning">Under inlärning</option>
               <option value="repaired">Lagad / verifierad</option>
               <option value="noise">Falsklarm / störning</option>
@@ -120,12 +119,28 @@
             </select>
             <select id="sort">
               <option value="risk">Risk högst först</option>
+              <option value="name">Namn A–Ö</option>
+              <option value="lastRead">Senast avläst</option>
+              <option value="area">Ort A–Ö och namn</option>
               <option value="p">P% högst först</option>
               <option value="lastJump">Senaste hopp högst först</option>
-              <option value="current">Senaste E högst först</option>
-              <option value="max">Max G högst först</option>
+              <option value="current">Högst aktuellt värde</option>
+              <option value="max">Högsta uppmätta värde</option>
+              <option value="persistence">Längst beständig nivå</option>
               <option value="confidence">Säkerhet högst först</option>
             </select>
+            <select id="areaFilter" aria-label="Filtrera på ort">
+              <option value="all">Alla orter</option>
+            </select>
+            <select id="excludeFilter" aria-label="Göm mätare">
+              <option value="none">Göm inget</option>
+              <option value="customer_side">Göm Efter mätare</option>
+              <option value="seasonal">Göm Värmepanna / säsong</option>
+              <option value="repaired">Göm Lagad</option>
+              <option value="ignored">Göm Ignorerade</option>
+            </select>
+            <button type="button" class="secondary select-all-matches" id="selectAllMatches">Markera alla</button>
+            <button type="button" class="secondary clear-all-selection" id="clearAllSelection" hidden>Avmarkera</button>
             <div class="pager-controls" id="pagerControls">
               <label>Visa
                 <select id="pageSize">
@@ -143,12 +158,11 @@
             <span id="bulkCount">0 träffar</span>
             <select id="bulkType">
               <option value="manual_dispatch">Åk ut</option>
-              <option value="suspect">Misstänk</option>
-              <option value="interesting">Bevaka</option>
+              <option value="suspect">Misstänkt / bevaka</option>
               <option value="leak">Konstaterad läcka → Aktiva läckor</option>
               <option value="customer_contact">Kontakta FÄ / Efter mätare</option>
               <option value="repaired">Lagad</option>
-              <option value="seasonal">Säsong</option>
+              <option value="seasonal">Värmepanna / säsong</option>
               <option value="known_noise">Tillfällig topp</option>
               <option value="reset_baseline">Nollställ och följ nya värden</option>
               <option value="ignored">Ignorera</option>
@@ -161,12 +175,12 @@
               <table>
                 <thead>
                   <tr>
-                    <th>Välj</th>
-                    <th>Beslut</th>
-                    <th>Adress</th>
-                    <th>E/F/P</th>
-                    <th>Trend</th>
-                    <th>Historik</th>
+                    <th><button type="button" class="table-sort" data-sort-table="select">Välj</button></th>
+                    <th><button type="button" class="table-sort" data-sort-table="risk">AI-prio</button></th>
+                    <th><button type="button" class="table-sort" data-sort-table="name">Adress</button></th>
+                    <th><button type="button" class="table-sort" data-sort-table="p">E/F/P</button></th>
+                    <th><button type="button" class="table-sort" data-sort-table="lastJump">Trend</button></th>
+                    <th><button type="button" class="table-sort" data-sort-table="lastRead">Senast avläst</button></th>
                     <th>Varför</th>
                     <th>Facit</th>
                   </tr>
