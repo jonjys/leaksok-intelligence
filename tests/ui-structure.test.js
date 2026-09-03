@@ -11,6 +11,7 @@ assert.match(field, /scrollWheelZoom:\s*false/);
 assert.doesNotMatch(workspace, /stopImmediatePropagation/);
 assert.match(workspace, /Öppna helskärmskarta/);
 assert.match(workspace, /Tillbaka till fältläge/);
+assert.match(workspace, /if \(isMobile\(\)\) return "list"/);
 assert.match(officeCss, /body\[data-work-view="map"\] \.meter-preview[\s\S]*position:\s*fixed/);
 assert.match(officeCss, /height:\s*100dvh/);
 assert.match(officeCss, /body\[data-work-view="list"\] #search/);
