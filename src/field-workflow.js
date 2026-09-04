@@ -1578,9 +1578,10 @@
         <text x="${x(middleIndex)}" y="${height - 3}" class="signal-date" text-anchor="middle">${escapeHtml(localDate(points[middleIndex].date))}</text>
         <text x="${right}" y="${height - 3}" class="signal-date" text-anchor="end">${escapeHtml(localDate(points.at(-1).date))}</text>
       </svg>`;
-    const sameMeter = host.dataset.meterId === String(meter.id);
+    const sameMeter = host.dataset.meterId === String(meter.id) && host.dataset.pointCount === String(allPoints.length);
     if (!sameMeter || !host.querySelector(".signal-range-start")) {
       host.dataset.meterId = meter.id;
+      host.dataset.pointCount = String(allPoints.length);
       host.innerHTML = `
         <div class="signal-chart-topline">${topline}</div>
         <div class="signal-chart-stage">${svg}</div>
