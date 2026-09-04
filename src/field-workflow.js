@@ -58,6 +58,7 @@
   let contextMeterId = "";
   let previewChartRenderVersion = 0;
   let previewChartResizeObserver = null;
+  let detailChartRenderVersion = 0;
 
   Object.assign(categoryText, {
     confirmed: "HITTAD LÄCKA",
@@ -1490,6 +1491,92 @@
     };
   }
 
+  function renderLeakSignalChart(container, meter, compact = false) {
+    if (!container || !meter?.points?.length) return;
+    container.classList.add("signal-chart-ready");
+    let host = container.querySelector(".leak-signal-chart");
+    if (!host) {
+      host = document.createElement("div");
+      host.className = "leak-signal-chart";
+      container.appendChild(host);
+    }
+
+    const points = meter.points;
+    const values = points.map((point) => Number(point.current) || 0);
+    const averages = points.map((point) => Number(point.average) || 0);
+    const trend = rollingAverage(values);
+    const maxValue = Math.max(120, ...values, ...averages, ...points.map((point) => Number(point.max) || 0));
+    const chartMax = Math.ceil((maxValue * 1.08) / 20) * 20;
+    const width = compact ? 640 : 900;
+    const height = compact ? 360 : 500;
+    const left = compact ? 48 : 62;
+    const right = width - 26;
+    const top = 42;
+    const bottom = compact ? 252 : 350;
+    const pulseTop = bottom + 42;
+    const pulseBottom = height - 22;
+    const pulseMid = (pulseTop + pulseBottom) / 2;
+    const times = points.map((point, index) => point.date instanceof Date && !Number.isNaN(point.date.getTime()) ? point.date.getTime() : index);
+    const minTime = Math.min(...times);
+    const maxTime = Math.max(...times);
+    const span = Math.max(1, maxTime - minTime);
+    const x = (index) => left + ((times[index] - minTime) / span) * (right - left);
+    const y = (value) => bottom - (Math.max(0, value) / chartMax) * (bottom - top);
+    const path = (series) => series.map((value, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(" ");
+    const areaPath = `${path(values)} L${x(values.length - 1).toFixed(1)},${bottom} L${x(0).toFixed(1)},${bottom} Z`;
+    const gradientId = `signal-fill-${container.id || "chart"}`;
+    const yGrid = Array.from({ length: 5 }, (_, index) => {
+      const value = Math.round((chartMax / 4) * index);
+      const py = y(value);
+      return `<line x1="${left}" y1="${py}" x2="${right}" y2="${py}" class="signal-grid"/><text x="${left - 12}" y="${py + 4}" class="signal-axis" text-anchor="end">${value}</text>`;
+    }).join("");
+    const xGrid = Array.from({ length: 7 }, (_, index) => {
+      const px = left + ((right - left) / 6) * index;
+      return `<line x1="${px}" y1="${top}" x2="${px}" y2="${bottom}" class="signal-grid vertical"/>`;
+    }).join("");
+    const dots = values.map((value, index) => `<circle cx="${x(index)}" cy="${y(value)}" r="${index === values.length - 1 ? 6 : 3}" class="signal-dot${index === values.length - 1 ? " latest" : ""}"><title>${escapeHtml(localDate(points[index].date))}: brus ${round(value)}, snitt ${round(averages[index])}</title></circle>`).join("");
+    const slot = (right - left) / Math.max(1, values.length);
+    const barWidth = Math.max(3, Math.min(18, slot * .56));
+    const pulseBars = values.map((value, index) => {
+      if (!index) return "";
+      const previous = values[index - 1];
+      const pulse = clamp(((value - previous) / Math.max(Math.abs(previous), 10)) * 100, -100, 100);
+      const magnitude = Math.max(2, Math.abs(pulse) * ((pulseBottom - pulseTop) / 2) / 100);
+      const py = pulse >= 0 ? pulseMid - magnitude : pulseMid;
+      const colorClass = pulse >= 25 ? "critical" : pulse >= 8 ? "rising" : pulse <= -8 ? "falling" : "stable";
+      return `<rect x="${x(index) - barWidth / 2}" y="${py}" width="${barWidth}" height="${magnitude}" rx="2" class="signal-pulse ${colorClass}"><title>${escapeHtml(localDate(points[index].date))}: förändring ${pulse >= 0 ? "+" : ""}${Math.round(pulse)}%</title></rect>`;
+    }).join("");
+    const middleIndex = Math.floor((points.length - 1) / 2);
+    const latest = values.at(-1);
+    const change = points.length > 1 ? ((latest / Math.max(values.at(-2), 1)) - 1) * 100 : 0;
+
+    host.innerHTML = `
+      <div class="signal-chart-topline">
+        <span><i class="signal-key current"></i>Brusnivå</span>
+        <span><i class="signal-key trend"></i>Robust trend</span>
+        <span><i class="signal-key average"></i>Snitt</span>
+        <strong>NU ${round(latest)} · ${change >= 0 ? "+" : ""}${Math.round(change)}%</strong>
+      </div>
+      <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Brusnivå, robust trend och läckpuls för ${escapeAttr(meter.address || meter.id)}">
+        <defs><linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0ea5e9" stop-opacity=".28"/><stop offset="1" stop-color="#0ea5e9" stop-opacity=".02"/></linearGradient></defs>
+        <rect x="${left}" y="${top}" width="${right - left}" height="${bottom - top}" class="signal-plot-bg"/>
+        ${xGrid}${yGrid}
+        <line x1="${left}" y1="${y(100)}" x2="${right}" y2="${y(100)}" class="signal-threshold critical"/>
+        <line x1="${left}" y1="${y(50)}" x2="${right}" y2="${y(50)}" class="signal-threshold watch"/>
+        <path d="${areaPath}" fill="url(#${gradientId})"/>
+        <path d="${path(averages)}" class="signal-line average"/>
+        <path d="${path(trend)}" class="signal-line trend"/>
+        <path d="${path(values)}" class="signal-line current"/>
+        ${dots}
+        <text x="${left}" y="${pulseTop - 12}" class="signal-pulse-label">LÄCKPULS · förändring mellan avläsningar</text>
+        <line x1="${left}" y1="${pulseMid}" x2="${right}" y2="${pulseMid}" class="signal-pulse-zero"/>
+        ${pulseBars}
+        <text x="${left}" y="${height - 3}" class="signal-date">${escapeHtml(localDate(points[0].date))}</text>
+        <text x="${x(middleIndex)}" y="${height - 3}" class="signal-date" text-anchor="middle">${escapeHtml(localDate(points[middleIndex].date))}</text>
+        <text x="${right}" y="${height - 3}" class="signal-date" text-anchor="end">${escapeHtml(localDate(points.at(-1).date))}</text>
+      </svg>`;
+  }
+
   function renderSelectedPreview() {
     const box = document.getElementById("meterPreview");
     const canvas = document.getElementById("selectedChart");
@@ -1538,18 +1625,7 @@
         }
         return;
       }
-      canvas.removeAttribute("width");
-      canvas.removeAttribute("height");
-      state.previewChart = new Chart(canvas, {
-        type: "line",
-        data: { labels, datasets: chartDatasets(meter, staleDays) },
-        options: chartOptions(labels, meter),
-      });
-      requestAnimationFrame(() => {
-        if (chartVersion !== previewChartRenderVersion || !state.previewChart) return;
-        state.previewChart.resize();
-        state.previewChart.update("none");
-      });
+      renderLeakSignalChart(container, meter, true);
     };
     requestAnimationFrame(() => requestAnimationFrame(createChartAfterLayout));
     renderMapInspector(meter);
@@ -1577,20 +1653,14 @@
       <p><b>Miljö:</b> fjärrvärme=${meter.infrastructure.districtHeating ? "ja" : "nej"}, undercentral/höghus=${meter.infrastructure.largeSubstation ? "ja" : "nej"}, efter mätaren=${meter.infrastructure.customerSide ? "ja" : "nej"}, sommarvattenmätare=${meter.infrastructure.summerWaterMeter ? "ja" : "nej"}${meter.networkContext?.sharedSignal ? `, gemensam signal på ${meter.networkContext.meterCount} mätare` : ""}.</p>
       ${meter.label ? `<p><b>Facit:</b> ${escapeHtml(labelTypes[meter.label.type] || meter.label.type)} · ${escapeHtml(labelSummary(meter.label))}</p>` : ""}
     `;
-    const ctx = document.getElementById("detailChart");
     if (state.chart) state.chart.destroy();
-    const labels = meter.points.map((p) => localDate(p.date));
-    state.chart = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [
-          ...chartDatasets(meter, staleDays),
-        ],
-      },
-      options: chartOptions(labels, meter),
-    });
+    state.chart = null;
+    const detailVersion = ++detailChartRenderVersion;
     els.detailDialog.showModal();
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (detailVersion !== detailChartRenderVersion || !els.detailDialog.open) return;
+      renderLeakSignalChart(document.querySelector("#detailDialog .chart-box"), meter, false);
+    }));
   };
 
   window.labelMeter = function labelMeterField(id, type) {
