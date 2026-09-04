@@ -59,6 +59,7 @@
   let previewChartRenderVersion = 0;
   let previewChartResizeObserver = null;
   let detailChartRenderVersion = 0;
+  const signalRanges = new Map();
 
   Object.assign(categoryText, {
     confirmed: "HITTAD LÄCKA",
@@ -1501,7 +1502,11 @@
       container.appendChild(host);
     }
 
-    const points = meter.points;
+    const allPoints = meter.points;
+    const rangeKey = `${container.id || "signal"}:${meter.id}`;
+    const maxStart = Math.max(0, allPoints.length - 2);
+    const startIndex = clamp(Number(signalRanges.get(rangeKey)) || 0, 0, maxStart);
+    const points = allPoints.slice(startIndex);
     const values = points.map((point) => Number(point.current) || 0);
     const averages = points.map((point) => Number(point.average) || 0);
     const trend = rollingAverage(values);
@@ -1550,14 +1555,12 @@
     const latest = values.at(-1);
     const change = points.length > 1 ? ((latest / Math.max(values.at(-2), 1)) - 1) * 100 : 0;
 
-    host.innerHTML = `
-      <div class="signal-chart-topline">
+    const topline = `
         <span><i class="signal-key current"></i>Brusnivå</span>
         <span><i class="signal-key trend"></i>Robust trend</span>
         <span><i class="signal-key average"></i>Snitt</span>
-        <strong>NU ${round(latest)} · ${change >= 0 ? "+" : ""}${Math.round(change)}%</strong>
-      </div>
-      <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Brusnivå, robust trend och läckpuls för ${escapeAttr(meter.address || meter.id)}">
+        <strong>NU ${round(latest)} · ${change >= 0 ? "+" : ""}${Math.round(change)}%</strong>`;
+    const svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Brusnivå, robust trend och läckpuls för ${escapeAttr(meter.address || meter.id)}">
         <defs><linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0ea5e9" stop-opacity=".28"/><stop offset="1" stop-color="#0ea5e9" stop-opacity=".02"/></linearGradient></defs>
         <rect x="${left}" y="${top}" width="${right - left}" height="${bottom - top}" class="signal-plot-bg"/>
         ${xGrid}${yGrid}
@@ -1575,6 +1578,55 @@
         <text x="${x(middleIndex)}" y="${height - 3}" class="signal-date" text-anchor="middle">${escapeHtml(localDate(points[middleIndex].date))}</text>
         <text x="${right}" y="${height - 3}" class="signal-date" text-anchor="end">${escapeHtml(localDate(points.at(-1).date))}</text>
       </svg>`;
+    const sameMeter = host.dataset.meterId === String(meter.id) && host.dataset.pointCount === String(allPoints.length);
+    if (!sameMeter || !host.querySelector(".signal-range-start")) {
+      host.dataset.meterId = meter.id;
+      host.dataset.pointCount = String(allPoints.length);
+      host.innerHTML = `
+        <div class="signal-chart-topline">${topline}</div>
+        <div class="signal-chart-stage">${svg}</div>
+        <div class="signal-range-panel">
+          <div class="signal-range-labels"><b>Dra vänster punkt för kortare period</b><span class="signal-range-dates"></span></div>
+          <div class="signal-range-track"><input class="signal-range-start" type="range" min="0" max="${maxStart}" step="1" value="${startIndex}" aria-label="Startdatum för grafen"><i class="signal-range-end" aria-hidden="true"></i></div>
+          <div class="signal-range-presets" aria-label="Snabbval för tidsperiod">
+            <button type="button" data-signal-days="all">Allt</button>
+            <button type="button" data-signal-days="90">90 dagar</button>
+            <button type="button" data-signal-days="30">30 dagar</button>
+            <button type="button" data-signal-days="10points">Senaste 10</button>
+          </div>
+        </div>`;
+      const input = host.querySelector(".signal-range-start");
+      input.addEventListener("input", () => {
+        signalRanges.set(rangeKey, Number(input.value));
+        renderLeakSignalChart(container, meter, compact);
+      });
+      host.querySelectorAll("[data-signal-days]").forEach((button) => button.addEventListener("click", () => {
+        const preset = button.dataset.signalDays;
+        let nextStart = 0;
+        if (preset === "10points") nextStart = Math.max(0, allPoints.length - 10);
+        else if (preset !== "all") {
+          const cutoff = allPoints.at(-1).date.getTime() - Number(preset) * 86400000;
+          const found = allPoints.findIndex((point) => point.date.getTime() >= cutoff);
+          nextStart = found < 0 ? 0 : found;
+        }
+        signalRanges.set(rangeKey, clamp(nextStart, 0, maxStart));
+        renderLeakSignalChart(container, meter, compact);
+      }));
+    } else {
+      host.querySelector(".signal-chart-topline").innerHTML = topline;
+      host.querySelector(".signal-chart-stage").innerHTML = svg;
+    }
+    const rangeInput = host.querySelector(".signal-range-start");
+    const rangePercent = maxStart ? (startIndex / maxStart) * 100 : 0;
+    rangeInput.max = String(maxStart);
+    rangeInput.value = String(startIndex);
+    rangeInput.style.setProperty("--range-start", `${rangePercent}%`);
+    rangeInput.disabled = maxStart === 0;
+    host.querySelector(".signal-range-dates").textContent = `${localDate(points[0].date)} → ${localDate(points.at(-1).date)} · ${points.length} avläsningar`;
+    host.querySelectorAll("[data-signal-days]").forEach((button) => {
+      button.classList.toggle("active", (button.dataset.signalDays === "all" && startIndex === 0)
+        || (button.dataset.signalDays === "10points" && startIndex === Math.max(0, allPoints.length - 10)));
+    });
   }
 
   function renderSelectedPreview() {
