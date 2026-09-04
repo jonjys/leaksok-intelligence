@@ -7,6 +7,7 @@ const officeCss = fs.readFileSync(require.resolve("../src/office-demo.css"), "ut
 const mapProCss = fs.readFileSync(require.resolve("../src/map-pro.css"), "utf8");
 const workspaceV3Css = fs.readFileSync(require.resolve("../src/workspace-v3.css"), "utf8");
 const layoutPolish = fs.readFileSync(require.resolve("../src/layout-polish.js"), "utf8");
+const app = fs.readFileSync(require.resolve("../src/app.js"), "utf8");
 const html = fs.readFileSync(require.resolve("../index.html"), "utf8");
 
 assert.match(field, /doubleClickZoom:\s*true/);
@@ -34,6 +35,9 @@ assert.match(field, /excludeFilter/);
 assert.match(field, /requestAnimationFrame\(\(\) => requestAnimationFrame\(createChartAfterLayout\)\)/);
 assert.match(field, /const rows = meter \? selectedMeterList\(\) : \[\]/);
 assert.match(field, /Ingen vald mätare/);
+assert.match(app, /if \(\/\\\.csv\$\/i\.test\(file\.name\)\)/);
+assert.match(app, /rows = parseCsvRows\(await file\.text\(\)\)/);
+assert.doesNotMatch(app, /if \(typeof XLSX === "undefined"\) \{\s*els\.importStatus/);
 assert.doesNotMatch(workspace, /stopImmediatePropagation/);
 assert.match(workspace, /Öppna helskärmskarta/);
 assert.match(workspace, /Tillbaka till fältläge/);
