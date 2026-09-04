@@ -286,11 +286,6 @@ async function handleFiles(files) {
     els.importStatus.textContent = "Ingen Excel- eller CSV-fil vald.";
     return;
   }
-  if (typeof XLSX === "undefined") {
-    els.importStatus.textContent = "Excel-läsaren kunde inte laddas. Kontrollera internetanslutningen och ladda om sidan.";
-    return;
-  }
-
   els.importStatus.textContent = `Läser ${excelFiles.length} filer...`;
   let imported = 0;
   const errors = [];
@@ -314,10 +309,18 @@ async function handleFiles(files) {
 }
 
 async function parseWorkbook(file) {
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+  let rows;
+  if (/\.csv$/i.test(file.name)) {
+    rows = parseCsvRows(await file.text());
+  } else {
+    if (typeof XLSX === "undefined") {
+      throw new Error("Excel-läsaren kunde inte laddas; använd CSV eller ladda om sidan");
+    }
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+  }
   const headerIndex = findHeaderIndex(rows);
   if (headerIndex < 0) return { exportDate: dateFromFile(file), rows: [] };
 
@@ -365,6 +368,45 @@ async function parseWorkbook(file) {
     });
   }
   return { exportDate, rows: parsed };
+}
+
+function parseCsvRows(text) {
+  const source = String(text || "").replace(/^\uFEFF/, "");
+  const firstLine = source.split(/\r?\n/, 1)[0] || "";
+  const candidates = [",", ";", "\t"];
+  const separator = candidates
+    .map((value) => ({ value, count: firstLine.split(value).length - 1 }))
+    .sort((a, b) => b.count - a.count)[0].value;
+  const rows = [];
+  let row = [];
+  let value = "";
+  let quoted = false;
+
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index];
+    if (char === '"') {
+      if (quoted && source[index + 1] === '"') {
+        value += '"';
+        index++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === separator && !quoted) {
+      row.push(value);
+      value = "";
+    } else if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && source[index + 1] === "\n") index++;
+      row.push(value);
+      if (row.some((cell) => cell !== "")) rows.push(row);
+      row = [];
+      value = "";
+    } else {
+      value += char;
+    }
+  }
+  row.push(value);
+  if (row.some((cell) => cell !== "")) rows.push(row);
+  return rows;
 }
 
 function findHeaderIndex(rows) {
