@@ -56,6 +56,8 @@
   let ignoreNextMapClick = false;
   let lastFilteredRows = [];
   let contextMeterId = "";
+  let previewChartRenderVersion = 0;
+  let previewChartResizeObserver = null;
 
   Object.assign(categoryText, {
     confirmed: "HITTAD LÄCKA",
@@ -1251,11 +1253,11 @@
     const measurement = document.getElementById("mapMeasurement");
     if (!list || !title || !eyebrow || !count || !actions || !measurement) return;
 
-    const rows = meter ? selectedMeterList() : overviewMapMeters();
-    eyebrow.textContent = meter ? "MARKERADE MÄTARE" : "MÄTARE I KARTVYN";
+    const rows = meter ? selectedMeterList() : [];
+    eyebrow.textContent = "MARKERADE MÄTARE";
     title.textContent = meter
       ? (rows.length > 1 ? `${rows.length} markerade` : "Vald mätare")
-      : `${mapFilterLabel()} · prioriterad kö`;
+      : "Ingen vald mätare";
     count.textContent = String(rows.length);
     actions.hidden = !meter;
 
@@ -1273,7 +1275,7 @@
     }
 
     if (!rows.length) {
-      list.innerHTML = `<p class="map-inspector-empty">Inga mätare matchar sökningen och kartfiltret.</p>`;
+      list.innerHTML = `<p class="map-inspector-empty">Klicka på en rad eller kartpunkt för att visa mätaren och grafen här.</p>`;
       return;
     }
     list.innerHTML = rows.slice(0, 100).map((row) => mapMeterCard(row, row.id === selectedPreviewId)).join("");
@@ -1493,6 +1495,9 @@
     const canvas = document.getElementById("selectedChart");
     if (!box || !canvas) return;
     const meter = state.meters.find((item) => item.id === selectedPreviewId);
+    const chartVersion = ++previewChartRenderVersion;
+    if (previewChartResizeObserver) previewChartResizeObserver.disconnect();
+    previewChartResizeObserver = null;
     box.hidden = state.meters.length === 0;
     box.classList.toggle("overview-map", !meter);
     if (!meter) {
@@ -1516,12 +1521,37 @@
     document.getElementById("previewTitle").textContent = meter.address || meter.id;
     document.getElementById("previewMeta").textContent = `${categoryText[meter.category]} · risk ${meter.risk} · ${dates.firstDate} till ${dates.lastDate}${staleDays >= 14 ? ` · tappad kontakt ${staleDays} dagar` : ""}${selectedCount > 1 ? ` · ${selectedCount} mätare på kartan` : ""}`;
     if (state.previewChart) state.previewChart.destroy();
+    state.previewChart = null;
     const labels = meter.points.map((point) => localDate(point.date));
-    state.previewChart = new Chart(canvas, {
-      type: "line",
-      data: { labels, datasets: chartDatasets(meter, staleDays) },
-      options: chartOptions(labels, meter),
-    });
+    const createChartAfterLayout = () => {
+      if (chartVersion !== previewChartRenderVersion || selectedPreviewId !== meter.id) return;
+      const container = canvas.closest(".preview-chart");
+      if (!container || container.getBoundingClientRect().width < 20 || container.getBoundingClientRect().height < 20) {
+        if (container && typeof ResizeObserver === "function") {
+          previewChartResizeObserver = new ResizeObserver(() => {
+            if (container.getBoundingClientRect().width < 20 || container.getBoundingClientRect().height < 20) return;
+            previewChartResizeObserver.disconnect();
+            previewChartResizeObserver = null;
+            requestAnimationFrame(createChartAfterLayout);
+          });
+          previewChartResizeObserver.observe(container);
+        }
+        return;
+      }
+      canvas.removeAttribute("width");
+      canvas.removeAttribute("height");
+      state.previewChart = new Chart(canvas, {
+        type: "line",
+        data: { labels, datasets: chartDatasets(meter, staleDays) },
+        options: chartOptions(labels, meter),
+      });
+      requestAnimationFrame(() => {
+        if (chartVersion !== previewChartRenderVersion || !state.previewChart) return;
+        state.previewChart.resize();
+        state.previewChart.update("none");
+      });
+    };
+    requestAnimationFrame(() => requestAnimationFrame(createChartAfterLayout));
     renderMapInspector(meter);
     renderSelectedMap().catch((error) => {
       setMapStatus(error.message || "Kartan kunde inte uppdateras.");
