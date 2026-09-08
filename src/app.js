@@ -245,15 +245,20 @@ async function persistState() {
 }
 
 function hydrateFiles(files) {
-  return files.map((file) => ({
-    ...file,
-    exportDate: new Date(file.exportDate),
-    rows: (file.rows || []).map((row) => ({
-      ...row,
-      exportDate: new Date(row.exportDate),
-      readAt: new Date(row.readAt),
-    })),
-  })).filter((file) => !Number.isNaN(file.exportDate.getTime()));
+  return files.map((file) => {
+    const storedDate = new Date(file.exportDate);
+    const filenameDate = dateFromFile({ name: file.name || "", lastModified: Number.isNaN(storedDate.getTime()) ? Date.now() : storedDate.getTime() });
+    const exportDate = !Number.isNaN(filenameDate.getTime()) ? filenameDate : storedDate;
+    return {
+      ...file,
+      exportDate,
+      rows: (file.rows || []).map((row) => ({
+        ...row,
+        exportDate,
+        readAt: new Date(row.readAt),
+      })),
+    };
+  }).filter((file) => !Number.isNaN(file.exportDate.getTime()));
 }
 
 async function hashCode(value) {

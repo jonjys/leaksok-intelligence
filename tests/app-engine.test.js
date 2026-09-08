@@ -38,7 +38,7 @@ const context = {
 };
 vm.createContext(context);
 const source = fs.readFileSync(require.resolve("../src/app.js"), "utf8");
-vm.runInContext(`${source}\n;globalThis.__engine = { state, scoreMeter, detectSharedSignals, addressForCopy, labelSummary, readingTimeline, dedupePoints, parseNumber, parseDate, dateFromFile, calendarDaysBetween, median, localDate };`, context);
+vm.runInContext(`${source}\n;globalThis.__engine = { state, scoreMeter, detectSharedSignals, addressForCopy, labelSummary, readingTimeline, hydrateFiles, dedupePoints, parseNumber, parseDate, dateFromFile, calendarDaysBetween, median, localDate };`, context);
 
 function meter(serial, address, values, averages, maxes, info = "") {
   const start = new Date("2026-07-01T06:00:00");
@@ -207,6 +207,14 @@ assert.deepEqual(
 );
 assert.equal(context.__engine.localDate(context.__engine.parseDate("2026-10-27")), "2026-10-27");
 assert.equal(context.__engine.localDate(context.__engine.dateFromFile({ name: "export_2026-10-27.xlsx", lastModified: 0 })), "2026-10-27");
+
+const healed = context.__engine.hydrateFiles([{
+  name: "Filtrerade mätare 2026-09-08 06-27.xlsx",
+  exportDate: "2026-08-27T12:29:00",
+  rows: [{ id: "x", exportDate: "2026-08-27T12:29:00", readAt: "2026-09-08T04:00:00", current: 1 }]
+}]);
+assert.equal(context.__engine.localDate(healed[0].exportDate), "2026-09-08");
+assert.equal(context.__engine.localDate(healed[0].rows[0].exportDate), "2026-09-08");
 assert.equal(context.__engine.localDate(context.__engine.parseDate(45292)), "2024-01-01");
 
 const dailyMinimum = context.__engine.dedupePoints([
@@ -226,3 +234,4 @@ assert.equal(context.__engine.calendarDaysBetween(new Date(2026, 9, 24, 12), new
 assert.equal(context.__engine.median([1, 3, 7, 9]), 5);
 
 console.log("app engine tests: ok");
+
