@@ -1,5 +1,13 @@
 # Läcksök Intelligence
 
+## Delad karta och historik
+
+Översiktskartan hålls låg. Välj en kartpunkt eller tabellrad: kartan och grafen får varsin lika stor halva på datorn. **Översikt** avmarkerar och ger mer plats åt listan. På telefon visas graf och en mindre karta under varandra. Grafen förstoras med klick eller Enter.
+
+Grafens **Jämför** visar senaste avläsningen mot föregående eller en avläsning 7/30/90/365 dagar tillbaka. Det faktiska jämförelsedatumet visas alltid. Saknas en avläsning nära det önskade datumet visas det tydligt; inga värden interpoleras. Ett tidigare nollvärde ger ingen påhittad procent. Dessa jämförelser ändrar inte manuellt facit eller motorns klassificering.
+
+Verifiering: `node tests/history-comparison.test.js` och `node tests/chart-render.test.js` samt befintliga motor- och flödestester.
+
 ## Gömda mätare och bedömning (2026-09-08)
 
 - Högerklicka en markerad rad eller kartkort och välj **Göm markerade**, eller använd knappen vid massval. Mätarna försvinner från ordinarie listor och kartöversikten. **Gömda** visar dem; **Visa markerade igen** återställer synligheten. Facit, reparationsdatum och historik bevaras. Synligheten sparas med den lokala profilen.

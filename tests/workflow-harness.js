@@ -12,14 +12,14 @@ module.exports = function harness() {
     document:{getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},
       querySelectorAll(){return [];},querySelector(){return null;},addEventListener(){}},
     localStorage:{getItem:k=>stored.get(k)||null,setItem:(k,v)=>stored.set(k,v)},
-    LeakIntelligence:require('../src/intelligence.js'),MeterVisibility:require('../src/meter-visibility.js'),
+    LeakIntelligence:require('../src/intelligence.js'),MeterVisibility:require('../src/meter-visibility.js'),LeakHistory:require('../src/history-comparison.js'),
     XLSX:{read:table=>({Sheets:{data:table},SheetNames:['data']}),utils:{sheet_to_json:x=>x}},
     confirm:()=>true,prompt:()=>'',requestAnimationFrame(){},setTimeout(){},clearTimeout(){}};
   vm.createContext(context);
   const app = fs.readFileSync(require.resolve('../src/app.js'),'utf8').replace(/bootstrap\(\);\s*$/, '');
   vm.runInContext(app + '\nglobalThis.testApp={state,parseWorkbook,analyze,readingTimeline};',context);
   const field=fs.readFileSync(require.resolve('../src/field-workflow.js'),'utf8').replace(/  analyze\(\);\s*\}\(\)\);\s*$/, `
-    window.testWorkflow={matchingRows,matchesFilter,setMetersHidden,renderListTabs,quickAssignMeters};
+    window.testWorkflow={matchingRows,matchesFilter,setMetersHidden,renderListTabs,quickAssignMeters,renderLeakSignalChart};
   }());`);
   vm.runInContext(field,context);
   vm.runInContext(fs.readFileSync(require.resolve('../src/smart-engine.js'),'utf8'),context);

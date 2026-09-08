@@ -1538,24 +1538,30 @@
     }
 
     const timeline = readingTimeline(meter.points);
-    const allPoints = timeline.points.map(point => ({ ...point, date: point.readingDate }));
+    const allPoints = timeline.points.filter(point => point.current !== null && point.current !== "" && Number.isFinite(Number(point.current)) && Number(point.current) >= 0).map(point => ({ ...point, date: point.readingDate }));
     if (!allPoints.length) return;
     const rangeKey = `${container.id || "signal"}:${meter.id}`;
     const maxStart = Math.max(0, allPoints.length - 2);
     const startIndex = clamp(Number(signalRanges.get(rangeKey)) || 0, 0, maxStart);
     const points = allPoints.slice(startIndex);
+    const comparisonPeriod = host.dataset.comparisonPeriod || "previous";
+    const comparison = LeakHistory.compare(allPoints, comparisonPeriod);
     const values = points.map((point) => Number(point.current) || 0);
     const averages = points.map((point) => Number(point.average) || 0);
-    const trend = values.map((_, index) => median(values.slice(Math.max(0, index - 4), index + 1)));
-    const maxValue = Math.max(10, ...values, ...averages);
+    const trend = values.map((_, index) => {
+      let start = index;
+      while (start > Math.max(0, index - 4) && points[start].date - points[start - 1].date <= 14 * 86400000) start -= 1;
+      return median(values.slice(start, index + 1));
+    });
+    const maxValue = Math.max(10, ...values, comparison.reference?.value || 0);
     const tickStep = maxValue < 30 ? 5 : maxValue < 100 ? 20 : maxValue < 300 ? 50 : 100;
     const chartMax = Math.ceil((maxValue * 1.08) / tickStep) * tickStep;
-    const width = compact ? 640 : 900;
-    const height = compact ? 360 : 500;
+    const width = Math.max(320, Math.round(container.getBoundingClientRect().width - 24));
+    const height = compact ? 220 : 440;
     const left = compact ? 48 : 62;
     const right = width - 26;
-    const top = 42;
-    const bottom = compact ? 252 : 350;
+    const top = 28;
+    const bottom = compact ? height - 28 : 310;
     const pulseTop = bottom + 42;
     const pulseBottom = height - 22;
     const pulseMid = (pulseTop + pulseBottom) / 2;
@@ -1579,7 +1585,7 @@
       const px = left + ((right - left) / 6) * index;
       return `<line x1="${px}" y1="${top}" x2="${px}" y2="${bottom}" class="signal-grid vertical"/>`;
     }).join("");
-    const dots = values.map((value, index) => `<circle cx="${x(index)}" cy="${y(value)}" r="${index === values.length - 1 ? 6 : 3}" class="signal-dot${index === values.length - 1 ? " latest" : ""}"><title>${escapeHtml(localDate(points[index].date))}: brus ${round(value)}, snitt ${round(averages[index])}</title></circle>`).join("");
+    const dots = values.map((value, index) => `<circle cx="${x(index)}" cy="${y(value)}" r="${index === values.length - 1 ? 5 : (values.length > 45 ? 1.5 : 3)}" class="signal-dot${index === values.length - 1 ? " latest" : ""}"><title>${escapeHtml(localDate(points[index].date))}: brus ${round(value)}, snitt ${round(averages[index])}</title></circle>`).join("");
     const slot = (right - left) / Math.max(1, values.length);
     const barWidth = Math.max(3, Math.min(18, slot * .56));
     const pulseBars = values.map((value, index) => {
@@ -1594,28 +1600,31 @@
     }).join("");
     const middleIndex = Math.floor((points.length - 1) / 2);
     const latest = values.at(-1);
-    const change = points.length > 1 ? ((latest / Math.max(values.at(-2), 1)) - 1) * 100 : 0;
+    const changeText = comparison.percent === null ? "—" : `${comparison.percent >= 0 ? "+" : ""}${Math.round(comparison.percent)}%`;
+    const comparisonText = comparison.reference
+      ? `${round(comparison.reference.value)} den ${localDate(new Date(comparison.reference.time))}`
+      : "Avläsning saknas för jämförelsen";
+    const comparisonLine = comparison.reference ? `<line x1="${left}" y1="${y(comparison.reference.value)}" x2="${right}" y2="${y(comparison.reference.value)}" class="signal-reference"><title>Jämförelse: ${escapeHtml(comparisonText)}</title></line>` : "";
 
     const topline = `
         <span><i class="signal-key current"></i>Brusnivå</span>
         <span><i class="signal-key trend"></i>Mediantrend</span>
-        <span><i class="signal-key average"></i>Snitt</span>
-        <strong>NU ${round(latest)} · ${change >= 0 ? "+" : ""}${Math.round(change)}%</strong>`;
-    const svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Brusnivå, robust trend och läckpuls för ${escapeAttr(meter.address || meter.id)}">
+        <span><i class="signal-key reference"></i>Jämförelse</span>
+        <strong>${round(latest)} <small>senast</small></strong>`;
+    const summary = `<span><b>${changeText}</b> <small>${comparison.reference ? `mot ${escapeHtml(comparisonText)}` : comparisonText}</small></span><small>Avläst ${localDate(points.at(-1).date)}</small>`;
+    const svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Brusnivå och historisk jämförelse för ${escapeAttr(meter.address || meter.id)}">
         <defs><linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0ea5e9" stop-opacity=".28"/><stop offset="1" stop-color="#0ea5e9" stop-opacity=".02"/></linearGradient></defs>
         <rect x="${left}" y="${top}" width="${right - left}" height="${bottom - top}" class="signal-plot-bg"/>
         ${xGrid}${yGrid}
         ${gap}
-        ${chartMax >= 100 ? `<line x1="${left}" y1="${y(100)}" x2="${right}" y2="${y(100)}" class="signal-threshold critical"/>` : ""}
-        ${chartMax >= 50 ? `<line x1="${left}" y1="${y(50)}" x2="${right}" y2="${y(50)}" class="signal-threshold watch"/>` : ""}
         <path d="${areaPath}" fill="url(#${gradientId})"/>
-        <path d="${path(averages)}" class="signal-line average"/>
+        ${comparisonLine}
         <path d="${path(trend)}" class="signal-line trend"/>
         <path d="${path(values)}" class="signal-line current"/>
         ${dots}
-        <text x="${left}" y="${pulseTop - 12}" class="signal-pulse-label">FÖRÄNDRING · staplar begränsade till ±100%</text>
+        ${!compact ? `<text x="${left}" y="${pulseTop - 12}" class="signal-pulse-label">FÖRÄNDRING · staplar begränsade till ±100%</text>
         <line x1="${left}" y1="${pulseMid}" x2="${right}" y2="${pulseMid}" class="signal-pulse-zero"/>
-        ${pulseBars}
+        ${pulseBars}` : ""}
         <text x="${left}" y="${height - 3}" class="signal-date">${escapeHtml(localDate(points[0].date))}</text>
         ${points.length > 2 && x(middleIndex) - left > 95 && right - x(middleIndex) > 95 ? `<text x="${x(middleIndex)}" y="${height - 3}" class="signal-date" text-anchor="middle">${escapeHtml(localDate(points[middleIndex].date))}</text>` : ""}
         <text x="${right}" y="${height - 3}" class="signal-date" text-anchor="end">${escapeHtml(localDate(timeline.endDate))}</text>
@@ -1626,9 +1635,11 @@
       host.dataset.pointCount = String(allPoints.length);
       host.innerHTML = `
         <div class="signal-chart-topline">${topline}</div>
+        <div class="signal-comparison-summary" aria-live="polite">${summary}</div>
         <div class="signal-chart-stage" ${compact ? 'role="button" tabindex="0" aria-label="Förstora graf"' : ''}>${svg}</div>
         <div class="signal-range-panel">
-          <div class="signal-range-labels"><b>Dra vänster punkt för kortare period</b><span class="signal-range-dates"></span></div>
+          <label class="signal-comparison-control">Jämför <select class="signal-comparison-period" aria-label="Jämför med tidigare avläsning"><option value="previous">Föregående</option><option value="7">7 dagar bakåt</option><option value="30">30 dagar bakåt</option><option value="90">90 dagar bakåt</option><option value="365">1 år bakåt</option></select></label>
+          <div class="signal-range-labels"><span class="signal-range-dates"></span></div>
           <div class="signal-range-track"><input class="signal-range-start" type="range" min="0" max="${maxStart}" step="1" value="${startIndex}" aria-label="Startdatum för grafen"><i class="signal-range-end" aria-hidden="true"></i></div>
           <div class="signal-range-presets" aria-label="Snabbval för tidsperiod">
             <button type="button" data-signal-days="all">Allt</button>
@@ -1638,6 +1649,12 @@
           </div>
         </div>`;
       const input = host.querySelector(".signal-range-start");
+      const comparisonSelect = host.querySelector(".signal-comparison-period");
+      comparisonSelect.value = comparisonPeriod;
+      comparisonSelect.addEventListener("change", () => {
+        host.dataset.comparisonPeriod = comparisonSelect.value;
+        renderLeakSignalChart(container, meter, compact);
+      });
       if (compact) {
         const stage = host.querySelector(".signal-chart-stage");
         stage.addEventListener("click", () => window.openDetail(meter.id));
@@ -1663,6 +1680,7 @@
       }));
     } else {
       host.querySelector(".signal-chart-topline").innerHTML = topline;
+      host.querySelector(".signal-comparison-summary").innerHTML = summary;
       host.querySelector(".signal-chart-stage").innerHTML = svg;
     }
     const rangeInput = host.querySelector(".signal-range-start");
@@ -1688,13 +1706,16 @@
     previewChartResizeObserver = null;
     box.hidden = state.meters.length === 0;
     box.classList.toggle("overview-map", !meter);
+    document.body.dataset.meterSelected = String(Boolean(meter));
+    const column = box.closest(".content-column");
+    if (column) column.dataset.meterSelected = String(Boolean(meter));
     if (!meter) {
       if (state.previewChart) state.previewChart.destroy();
       state.previewChart = null;
       const rows = overviewMapMeters();
-      document.getElementById("previewTitle").textContent = "Operativ karta";
+      document.getElementById("previewTitle").textContent = "Översikt";
       document.getElementById("previewMeta").textContent = rows.length
-        ? `${mapFilterLabel()}: ${rows.length} mätare på kartan · klicka en plupp för graf och åtgärder`
+        ? `${mapFilterLabel()} · välj en mätare i kartan eller listan för att jämföra historiken`
         : `${mapFilterLabel()}: inga mätare i kartfiltret`;
       renderMapInspector(null);
       renderSelectedMap().catch((error) => {
@@ -1727,6 +1748,18 @@
         return;
       }
       renderLeakSignalChart(container, meter, true);
+      if (typeof ResizeObserver === "function") {
+        let lastWidth = Math.round(container.getBoundingClientRect().width);
+        previewChartResizeObserver = new ResizeObserver(() => {
+          const nextWidth = Math.round(container.getBoundingClientRect().width);
+          if (nextWidth < 20 || Math.abs(nextWidth - lastWidth) < 2) return;
+          lastWidth = nextWidth;
+          requestAnimationFrame(() => {
+            if (chartVersion === previewChartRenderVersion) renderLeakSignalChart(container, meter, true);
+          });
+        });
+        previewChartResizeObserver.observe(container);
+      }
     };
     requestAnimationFrame(() => requestAnimationFrame(createChartAfterLayout));
     renderMapInspector(meter);
