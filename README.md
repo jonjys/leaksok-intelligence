@@ -1,5 +1,16 @@
 # Läcksök Intelligence
 
+## Gömda mätare och bedömning (2026-09-08)
+
+- Högerklicka en markerad rad eller kartkort och välj **Göm markerade**, eller använd knappen vid massval. Mätarna försvinner från ordinarie listor och kartöversikten. **Gömda** visar dem; **Visa markerade igen** återställer synligheten. Facit, reparationsdatum och historik bevaras. Synligheten sparas med den lokala profilen.
+- **Visa bara Efter mätare** är ett visningsfilter, ingen omklassificering. Byte av lista återställer detta filter.
+- Motorn använder unika avläsningsdagar. Upprepade exporter av samma avläsning ökar inte beständigheten. Grafernas tidsskala följer avläsningsdatum och visar luckan fram till sista exporten.
+- **Nollställ** bedömer endast avläsningar efter nollställningstidpunkten. Efter minst tre nya avläsningsdagar kan automatiken varna igen. **Lagad** och **Konstaterad läcka** är manuella beslut.
+- Vid kort historik kan upprepat hög nivå mot Excel-snitt F ge **Misstänk**, men detta är inte bevis för läckage. Låga nivåer med bestående procentökning kan också ge Misstänk.
+- Bedömningen är en lokal regel- och statistikmotor, inte en ansluten språkmodell. Poängen är prioritering, inte en kalibrerad sannolikhet. Inga Excel-filer skickas till en AI-leverantör.
+
+Regression: `node tests/visibility.test.js`, `node tests/smart-engine.test.js` och befintliga tester. `tests/exports-regression.js` läser JSON med `{name, table}` per arbetsbok från stdin för att kontrollera originalexporternas parser och fullständiga motor. Råa mätarfiler ingår inte i repo:t.
+
 Fristående prototyp för att analysera Kamstrup Leak Detector-exporter.
 
 Målet är inte en snygg Excel-visare. Målet är en smart läckdomare:

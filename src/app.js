@@ -363,7 +363,8 @@ async function parseWorkbook(file) {
       current,
       average: average ?? current,
       max: max ?? current,
-      info: [row[col.info], row[col.activeEvents], row[col.closedEvents]].map(cleanText).filter(Boolean).join(" · "),
+      info: [row[col.info], row[col.activeEvents]].map(cleanText).filter(Boolean).join(" · "),
+      closedEvents: cleanText(row[col.closedEvents]),
       source: file.name,
     });
   }
@@ -461,7 +462,7 @@ function dateFromFile(file) {
 
 function analyze() {
   const byId = new Map();
-  for (const file of state.files) {
+  for (const file of [...state.files].sort((a, b) => new Date(a.exportDate) - new Date(b.exportDate))) {
     for (const row of file.rows) {
       if (!byId.has(row.id)) {
         byId.set(row.id, {
@@ -520,7 +521,7 @@ function scoreMeter(meter, networkContext = null) {
   const firstChange = first.current ? (last.current / first.current) - 1 : 0;
   const lastJump = prev && prev.current ? (last.current / prev.current) - 1 : 0;
   const maxSeen = Math.max(...points.map((p) => p.max || p.current));
-  const label = state.labels[meter.id];
+  const label = state.labels[meter.id]?.type ? state.labels[meter.id] : null;
   const infrastructure = infrastructureProfile(meter);
   const profile = patternProfile(points, infrastructure);
   const shortHistory = profile.coverage.days < 30 || points.length < 3;
@@ -862,7 +863,7 @@ function renderSummary() {
 }
 
 function renderLabels() {
-  const entries = Object.entries(state.labels);
+  const entries = Object.entries(state.labels).filter(([, label]) => label?.type);
   if (!entries.length) {
     els.labels.innerHTML = `<p class="small">Inga facit sparade ännu.</p>`;
     return;

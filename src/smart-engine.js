@@ -7,7 +7,8 @@
     const previousScoreMeter = scoreMeter;
     scoreMeter = function scoreMeterSmart(meter, networkContext) {
       const result = previousScoreMeter(meter, networkContext);
-      const label = typeof state !== "undefined" ? state.labels[meter.id] : result.label;
+      const storedLabel = typeof state !== "undefined" ? state.labels[meter.id] : result.label;
+      const label = storedLabel?.type ? storedLabel : null;
       return api.rankMeter(result, meter, label);
     };
 
@@ -36,14 +37,24 @@
   };
 
   function analyzeSeries(points, context = {}) {
-    const ordered = (Array.isArray(points) ? points : [])
+    const exports = (Array.isArray(points) ? points : [])
       .map((point) => ({
         date: validDate(point.date || point.readAt),
         readAt: validDate(point.readAt || point.date),
-        current: Number(point.current),
+        current: point.current == null || point.current === "" ? NaN : Number(point.current),
       }))
-      .filter((point) => point.date && Number.isFinite(point.current))
+      .filter((point) => point.date && Number.isFinite(point.current) && point.current >= 0)
       .sort((a, b) => a.date - b.date);
+    const days = new Map();
+    for (const point of exports) {
+      const date = point.readAt && point.readAt <= point.date ? point.readAt : point.date;
+      const key = date.toISOString().slice(0, 10);
+      const previous = days.get(key);
+      if (!previous || point.current < previous.current || (point.current === previous.current && point.date > previous.exportDate)) {
+        days.set(key, { ...point, date, exportDate: point.date });
+      }
+    }
+    const ordered = [...days.values()].sort((a, b) => a.date - b.date);
 
     if (!ordered.length) return emptyAnalysis();
     const values = ordered.map((point) => point.current);
@@ -86,9 +97,8 @@
     const transientSpike = isolatedPeak && (droppedAfterPeak || trailingElevated <= 1);
     const volatility = coefficientOfVariation(recentValues);
     const normalizedSlope = normalizedLinearSlope(values.slice(-Math.min(8, values.length)), Math.max(1, baseline));
-    const staleReadDays = Number.isFinite(context.staleReadDays)
-      ? context.staleReadDays
-      : readAgeDays(ordered[ordered.length - 1]);
+    const staleReadDays = Math.max(context.staleReadDays || 0,
+      calendarDaysBetween(ordered.at(-1).date, exports.at(-1).date));
     const staleContact = staleReadDays >= 14;
     const heatPump = detectHeatPumpSeasonality(ordered);
 
@@ -115,13 +125,20 @@
   }
 
   function rankMeter(result, meter, label) {
-    const info = String(meter.info || result.info || "");
+    const resetDate = label?.type === "reset_baseline"
+      ? validDate(label.resetAfter || label.at || label.notedDate) : null;
+    const points = resetDate ? meter.points.filter(p => validDate(p.readAt || p.date) > resetDate) : meter.points;
+    const info = String(meter.info ?? result.info ?? "");
     const customerSide = Boolean(result.infrastructure?.customerSide);
     const burst = /burst|rorbrott|rörbrott/i.test(info);
     const leakCode = /leak|lacka|läcka/i.test(info);
     const dryCode = /dry|torr/i.test(info);
-    const profile = result.profile || {};
-    const engine = analyzeSeries(meter.points, { staleReadDays: result.staleReadDays });
+    const profile = resetDate ? { coverage: result.profile?.coverage } : (result.profile || {});
+    const engine = analyzeSeries(points, { staleReadDays: result.staleReadDays });
+    const reference = Number(result.last?.average);
+    const referenceRise = !resetDate && reference > 0 ? engine.recentLevel / reference - 1 : 0;
+    const referenceSignal = engine.points >= 2 && engine.latest >= reference * 2
+      && referenceRise >= 1 && engine.recentLevel >= 15 && !engine.transientSpike && !engine.staleContact;
     const evidence = [];
     let score = 8;
 
@@ -143,10 +160,11 @@
     }
     if (profile.newLevel) { score += 18; evidence.push("ny stabil nivå"); }
     if (profile.slowRise && engine.normalizedSlope > 0.04) { score += 10; evidence.push("långsam stigande trend"); }
-    if (result.lowRelativeRise?.persistent) { score += 10; evidence.push("ihållande procentökning"); }
-    if (result.networkContext?.sharedSignal) { score += 8; evidence.push("samma rörelse på närliggande mätare"); }
+    if (!resetDate && result.lowRelativeRise?.persistent) { score += 10; evidence.push("ihållande procentökning"); }
+    if (!resetDate && result.networkContext?.sharedSignal) { score += 8; evidence.push("samma rörelse på närliggande mätare"); }
     if (burst && !customerSide) { score += 28; evidence.push("BURST/rörbrott i Excel"); }
     else if (leakCode && !customerSide) { score += 14; evidence.push("LEAK i Excel"); }
+    if (referenceSignal) { score += 12; evidence.push("Upprepat hög nivå mot Excel-snitt F; historik behövs för bekräftelse"); }
 
     if (engine.transientSpike) { score -= 42; evidence.push("enstaka topp nedvägd"); }
     if (engine.heatPump.is) { score -= 38; evidence.push(engine.heatPump.reason); }
@@ -176,9 +194,14 @@
       dryCode,
       engine,
       profile,
+      referenceSignal,
     });
 
-    const manual = applyManualLabel(category, score, label);
+    if (resetDate && engine.points >= 3) {
+      evidence.push("Bedömt enbart på nya avläsningar efter nollställning");
+    }
+    const manual = applyManualLabel(category, score,
+      resetDate && engine.points >= 3 ? null : label);
     category = manual.category;
     score = manual.score;
     const confidence = engine.staleContact || engine.points < 3
@@ -206,16 +229,19 @@
 
   function classifyAutomatic(context) {
     const { score, hardEvidence, shortHistory, customerSide, burst, leakCode, dryCode, engine, profile } = context;
-    if (engine.staleContact) return "normal";
     if (customerSide || (leakCode && /customer|kund/i.test(String(profile.environment || "")))) return "customer_side";
+    if (engine.staleContact) return "normal";
     if (engine.heatPump.is && !burst && !leakCode) return "seasonal";
     if (engine.transientSpike) return "noise";
     if (profile.repeatedPattern && !engine.sustained) return "seasonal";
     if (dryCode && !leakCode) return "normal";
     if (engine.recentLevel >= 250) return "dispatch";
+    if (engine.points < 2) return shortHistory ? "learning" : "normal";
     const corroboratedHighLevel = engine.trailingElevated >= 2 && engine.recentLevel >= 60 && engine.relativeRise >= 0.5;
     if (score >= 72 && hardEvidence >= 2 && (engine.sustained || burst || corroboratedHighLevel) && (engine.recentLevel >= 15 || burst)) return "dispatch";
     if (score >= 44 && hardEvidence >= 2 && (engine.trailingElevated >= 2 || profile.newLevel || profile.slowRise)) return "suspect_auto";
+    if (engine.trailingElevated >= 2 && engine.persistenceDays >= 1 && engine.relativeRise >= 1 && engine.recentLevel >= 8) return "suspect_auto";
+    if (context.referenceSignal) return "suspect_auto";
     if (shortHistory) return "learning";
     return "normal";
   }

@@ -96,13 +96,14 @@
     learning: "Under inlärning",
     stale_contact: "Utan avläsning",
     noise: "Falsklarm/störning",
+    hidden: "Gömda",
   };
   document.querySelectorAll('#filter option[value="normal"]').forEach((option) => option.remove());
 
   const originalScoreMeter = scoreMeter;
   scoreMeter = function scoreMeterWithFieldLists(meter, networkContext) {
     const result = originalScoreMeter(meter, networkContext);
-    const label = state.labels[meter.id];
+    const label = state.labels[meter.id]?.type ? state.labels[meter.id] : null;
     const shortHistory = result.profile?.coverage?.days < 365 || meter.points.length < 5;
     const staleReadDays = result.staleReadDays ?? calendarDaysBetween(
       result.last?.readAt || result.last?.date || new Date(),
@@ -217,6 +218,8 @@
   }
 
   function matchesFilter(row, filter) {
+    if (!MeterVisibility.visible(state.labels[row.id], filter)) return false;
+    if (filter === "hidden") return true;
     if (filter === "all") return true;
     if (filter === "suspect") return ["suspect_auto", "watch"].includes(row.category);
     if (filter === "learning") return ["learning", "new_high", "new_unknown"].includes(row.category);
@@ -277,7 +280,7 @@
     const rows = state.meters
       .filter((row) => matchesFilter(row, filter))
       .filter((row) => area === "all" || normalize(meterTown(row)) === area)
-      .filter((row) => excluded === "none" || !matchesFilter(row, excluded))
+      .filter((row) => excluded === "none" || row.category === excluded)
       .filter((row) => !searchTerms.length || matches(row, searchTerms));
     rows.sort((a, b) => compareRows(a, b, sort));
     return rows;
@@ -293,6 +296,11 @@
     if (show) count.textContent = selectedCount > 0 ? `${selectedCount} markerade` : `${rows.length} träffar`;
     const save = document.getElementById("bulkSave");
     if (save) save.textContent = selectedCount > 0 ? `Flytta ${selectedCount} markerade` : `Flytta ${rows.length} träffar`;
+    const hide = document.getElementById("hideSelected");
+    if (hide) {
+      hide.disabled = selectedCount === 0;
+      hide.textContent = els.filter.value === "hidden" ? "Visa markerade igen" : "Göm markerade";
+    }
   }
 
   function updateSelectionControls() {
@@ -317,7 +325,7 @@
     const today = localDate(new Date());
     for (const meter of meters) {
       if (type === "auto") {
-        delete state.labels[meter.id];
+        state.labels[meter.id] = MeterVisibility.update({}, MeterVisibility.hidden(state.labels[meter.id]));
         continue;
       }
       const existing = state.labels[meter.id] || {};
@@ -332,6 +340,7 @@
       };
       if (type === "leak") next.confirmedDate = existing.confirmedDate || today;
       if (type === "repaired") next.repairedDate = existing.repairedDate || today;
+      if (type === "reset_baseline") next.resetAfter = now;
       if (bulkDefaults[type]?.length) next.noiseTags = [...new Set([...(existing.noiseTags || []), ...bulkDefaults[type]])];
       state.labels[meter.id] = next;
     }
@@ -358,6 +367,7 @@
       <div class="context-menu-head"><span>SNABBVAL</span><b id="contextMeterName">Mätare</b></div>
       <button type="button" data-context-action="show">Visa graf</button>
       <button type="button" data-context-action="toggle">Avmarkera</button>
+      <button type="button" data-context-action="visibility">Göm markerade</button>
       <label for="contextGroupSelect">Lägg i grupp</label>
       <select id="contextGroupSelect">
         <option value="suspect">Misstänkt / bevaka</option>
@@ -393,6 +403,10 @@
         const ids = selectedMeters.has(contextMeterId) ? [...selectedMeters] : [contextMeterId];
         quickAssignMeters(ids, document.getElementById("contextGroupSelect")?.value || "suspect");
       }
+      if (action === "visibility") {
+        const ids = selectedMeters.has(contextMeterId) ? [...selectedMeters] : [contextMeterId];
+        setMetersHidden(ids, !MeterVisibility.hidden(state.labels[contextMeterId]));
+      }
     });
     return menu;
   }
@@ -412,12 +426,14 @@
     if (name) name.textContent = shortMapLabel(meter);
     const toggle = menu.querySelector('[data-context-action="toggle"]');
     if (toggle) toggle.textContent = selectedMeters.has(id) ? "Avmarkera" : "Markera";
+    menu.querySelector('[data-context-action="visibility"]').textContent = MeterVisibility.hidden(state.labels[id])
+      ? `Visa ${selectedMeters.size} igen` : `Göm ${selectedMeters.size} markerade`;
     const currentType = state.labels[id]?.type;
     const select = document.getElementById("contextGroupSelect");
     if (select) select.value = [...select.options].some((option) => option.value === currentType) ? currentType : "suspect";
     menu.hidden = false;
-    const width = 270;
-    const height = 330;
+    const width = menu.offsetWidth || 290;
+    const height = menu.offsetHeight || 410;
     menu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - width - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(clientY, window.innerHeight - height - 8))}px`;
   }
@@ -431,6 +447,21 @@
   function pageSize() {
     return Number(document.getElementById("pageSize")?.value || 50);
   }
+
+  function setMetersHidden(ids, hidden) {
+    for (const id of ids) state.labels[id] = MeterVisibility.update(state.labels[id], hidden);
+    selectedMeters.clear();
+    selectedPreviewId = "";
+    currentPage = 1;
+    closeMeterContextMenu();
+    saveLabels();
+    render();
+    els.importStatus.textContent = hidden ? `${ids.length} mätare flyttade till Gömda. Facit och historik finns kvar.` : `${ids.length} mätare visas igen.`;
+  }
+
+  document.getElementById("hideSelected")?.addEventListener("click", () => {
+    if (selectedMeters.size) setMetersHidden([...selectedMeters], els.filter.value !== "hidden");
+  });
 
   function renderPager(totalRows) {
     const size = pageSize();
@@ -461,19 +492,20 @@
   };
 
   renderSummary = function renderFieldSummary() {
+    const visibleMeters = state.meters.filter(m => !MeterVisibility.hidden(state.labels[m.id]));
     const counts = {
-      meters: state.meters.length,
-      dispatch: state.meters.filter((meter) => meter.category === "dispatch").length,
-      watch: state.meters.filter((meter) => meter.category === "watch").length,
-      suspect: state.meters.filter((meter) => meter.category === "suspect_auto").length,
-      customer: state.meters.filter((meter) => meter.category === "customer_side").length,
-      confirmed: state.meters.filter((meter) => meter.category === "confirmed").length,
-      repaired: state.meters.filter((meter) => meter.category === "repaired").length,
-      seasonal: state.meters.filter((meter) => meter.category === "seasonal").length,
-      noise: state.meters.filter((meter) => meter.category === "noise").length,
-      ignored: state.meters.filter((meter) => meter.category === "ignored").length,
-      stale: state.meters.filter((meter) => meter.staleContact || meter.staleReadDays >= 14).length,
-      short: state.meters.filter((meter) => ["learning", "new_high", "new_unknown"].includes(meter.category)).length,
+      meters: visibleMeters.length,
+      dispatch: visibleMeters.filter((meter) => meter.category === "dispatch").length,
+      watch: visibleMeters.filter((meter) => meter.category === "watch").length,
+      suspect: visibleMeters.filter((meter) => meter.category === "suspect_auto").length,
+      customer: visibleMeters.filter((meter) => meter.category === "customer_side").length,
+      confirmed: visibleMeters.filter((meter) => meter.category === "confirmed").length,
+      repaired: visibleMeters.filter((meter) => meter.category === "repaired").length,
+      seasonal: visibleMeters.filter((meter) => meter.category === "seasonal").length,
+      noise: visibleMeters.filter((meter) => meter.category === "noise").length,
+      ignored: visibleMeters.filter((meter) => meter.category === "ignored").length,
+      stale: visibleMeters.filter((meter) => meter.staleContact || meter.staleReadDays >= 14).length,
+      short: visibleMeters.filter((meter) => ["learning", "new_high", "new_unknown"].includes(meter.category)).length,
     };
     els.summary.innerHTML = `
       <div><b>${counts.meters}</b><span>mätare</span></div>
@@ -502,10 +534,13 @@
       seasonal: counts.seasonal, confirmed: counts.confirmed, repaired: counts.repaired, ignored: counts.ignored, stale_contact: counts.stale, learning: counts.short, noise: counts.noise,
     };
     const secondary = ["seasonal", "noise", "ignored", "stale_contact", "learning"];
+    Object.keys(values).forEach(key => { values[key] = state.meters.filter(m => matchesFilter(m, key)).length; });
+    values.hidden = state.meters.filter(m => MeterVisibility.hidden(state.labels[m.id])).length;
     const moreCount = secondary.reduce((sum, key) => sum + (values[key] || 0), 0);
     tabs.querySelectorAll("button[data-filter]").forEach((button) => {
       const filter = button.dataset.filter;
       button.classList.toggle("active", filter === active);
+      button.setAttribute("aria-pressed", String(filter === active));
       button.innerHTML = `${listLabels[filter] || filter} <b>${values[filter] || 0}</b>`;
     });
     const more = document.getElementById("moreLists");
@@ -1086,13 +1121,13 @@
       attributionControl: true,
       preferCanvas: true,
       doubleClickZoom: true,
-      touchZoom: true,
-      scrollWheelZoom: window.innerWidth > 760,
+      touchZoom: window.innerWidth > 760,
+      scrollWheelZoom: false,
       wheelDebounceTime: 110,
       wheelPxPerZoomLevel: 240,
       zoomDelta: 1,
       zoomSnap: 1,
-      dragging: true,
+      dragging: window.innerWidth > 760,
       boxZoom: true,
       minZoom: 11,
       maxBounds: BOTKYRKA_BOUNDS,
@@ -1502,16 +1537,19 @@
       container.appendChild(host);
     }
 
-    const allPoints = meter.points;
+    const timeline = readingTimeline(meter.points);
+    const allPoints = timeline.points.map(point => ({ ...point, date: point.readingDate }));
+    if (!allPoints.length) return;
     const rangeKey = `${container.id || "signal"}:${meter.id}`;
     const maxStart = Math.max(0, allPoints.length - 2);
     const startIndex = clamp(Number(signalRanges.get(rangeKey)) || 0, 0, maxStart);
     const points = allPoints.slice(startIndex);
     const values = points.map((point) => Number(point.current) || 0);
     const averages = points.map((point) => Number(point.average) || 0);
-    const trend = rollingAverage(values);
-    const maxValue = Math.max(120, ...values, ...averages, ...points.map((point) => Number(point.max) || 0));
-    const chartMax = Math.ceil((maxValue * 1.08) / 20) * 20;
+    const trend = values.map((_, index) => median(values.slice(Math.max(0, index - 4), index + 1)));
+    const maxValue = Math.max(10, ...values, ...averages);
+    const tickStep = maxValue < 30 ? 5 : maxValue < 100 ? 20 : maxValue < 300 ? 50 : 100;
+    const chartMax = Math.ceil((maxValue * 1.08) / tickStep) * tickStep;
     const width = compact ? 640 : 900;
     const height = compact ? 360 : 500;
     const left = compact ? 48 : 62;
@@ -1523,12 +1561,14 @@
     const pulseMid = (pulseTop + pulseBottom) / 2;
     const times = points.map((point, index) => point.date instanceof Date && !Number.isNaN(point.date.getTime()) ? point.date.getTime() : index);
     const minTime = Math.min(...times);
-    const maxTime = Math.max(...times);
+    const maxTime = Math.max(...times, timeline.endDate.getTime());
     const span = Math.max(1, maxTime - minTime);
     const x = (index) => left + ((times[index] - minTime) / span) * (right - left);
     const y = (value) => bottom - (Math.max(0, value) / chartMax) * (bottom - top);
-    const path = (series) => series.map((value, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(" ");
-    const areaPath = `${path(values)} L${x(values.length - 1).toFixed(1)},${bottom} L${x(0).toFixed(1)},${bottom} Z`;
+    const path = (series) => series.map((value, index) => `${index && times[index] - times[index - 1] <= 14 * 86400000 ? "L" : "M"}${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(" ");
+    const areaPath = times.some((time, i) => i && time - times[i - 1] > 14 * 86400000) ? "" : `${path(values)} L${x(values.length - 1).toFixed(1)},${bottom} L${x(0).toFixed(1)},${bottom} Z`;
+    const gapX = x(values.length - 1);
+    const gap = timeline.gapDays >= 2 ? `<rect x="${gapX}" y="${top}" width="${right - gapX}" height="${bottom - top}" fill="#e2e8f0" opacity=".7"/><text x="${right - 5}" y="${top + 18}" text-anchor="end" class="signal-date">Inga nya värden · ${timeline.gapDays} dagar</text>` : "";
     const gradientId = `signal-fill-${container.id || "chart"}`;
     const yGrid = Array.from({ length: 5 }, (_, index) => {
       const value = Math.round((chartMax / 4) * index);
@@ -1545,11 +1585,12 @@
     const pulseBars = values.map((value, index) => {
       if (!index) return "";
       const previous = values[index - 1];
-      const pulse = clamp(((value - previous) / Math.max(Math.abs(previous), 10)) * 100, -100, 100);
+      const actualPulse = previous > 0 ? ((value - previous) / previous) * 100 : null;
+      const pulse = clamp(actualPulse ?? (value > 0 ? 100 : 0), -100, 100);
       const magnitude = Math.max(2, Math.abs(pulse) * ((pulseBottom - pulseTop) / 2) / 100);
       const py = pulse >= 0 ? pulseMid - magnitude : pulseMid;
       const colorClass = pulse >= 25 ? "critical" : pulse >= 8 ? "rising" : pulse <= -8 ? "falling" : "stable";
-      return `<rect x="${x(index) - barWidth / 2}" y="${py}" width="${barWidth}" height="${magnitude}" rx="2" class="signal-pulse ${colorClass}"><title>${escapeHtml(localDate(points[index].date))}: förändring ${pulse >= 0 ? "+" : ""}${Math.round(pulse)}%</title></rect>`;
+      return `<rect x="${x(index) - barWidth / 2}" y="${py}" width="${barWidth}" height="${magnitude}" rx="2" class="signal-pulse ${colorClass}"><title>${escapeHtml(localDate(points[index].date))}: ${actualPulse === null ? "föregående värde 0 – procent saknas" : `förändring ${actualPulse >= 0 ? "+" : ""}${Math.round(actualPulse)}%`}</title></rect>`;
     }).join("");
     const middleIndex = Math.floor((points.length - 1) / 2);
     const latest = values.at(-1);
@@ -1557,26 +1598,27 @@
 
     const topline = `
         <span><i class="signal-key current"></i>Brusnivå</span>
-        <span><i class="signal-key trend"></i>Robust trend</span>
+        <span><i class="signal-key trend"></i>Mediantrend</span>
         <span><i class="signal-key average"></i>Snitt</span>
         <strong>NU ${round(latest)} · ${change >= 0 ? "+" : ""}${Math.round(change)}%</strong>`;
     const svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Brusnivå, robust trend och läckpuls för ${escapeAttr(meter.address || meter.id)}">
         <defs><linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0ea5e9" stop-opacity=".28"/><stop offset="1" stop-color="#0ea5e9" stop-opacity=".02"/></linearGradient></defs>
         <rect x="${left}" y="${top}" width="${right - left}" height="${bottom - top}" class="signal-plot-bg"/>
         ${xGrid}${yGrid}
-        <line x1="${left}" y1="${y(100)}" x2="${right}" y2="${y(100)}" class="signal-threshold critical"/>
-        <line x1="${left}" y1="${y(50)}" x2="${right}" y2="${y(50)}" class="signal-threshold watch"/>
+        ${gap}
+        ${chartMax >= 100 ? `<line x1="${left}" y1="${y(100)}" x2="${right}" y2="${y(100)}" class="signal-threshold critical"/>` : ""}
+        ${chartMax >= 50 ? `<line x1="${left}" y1="${y(50)}" x2="${right}" y2="${y(50)}" class="signal-threshold watch"/>` : ""}
         <path d="${areaPath}" fill="url(#${gradientId})"/>
         <path d="${path(averages)}" class="signal-line average"/>
         <path d="${path(trend)}" class="signal-line trend"/>
         <path d="${path(values)}" class="signal-line current"/>
         ${dots}
-        <text x="${left}" y="${pulseTop - 12}" class="signal-pulse-label">LÄCKPULS · förändring mellan avläsningar</text>
+        <text x="${left}" y="${pulseTop - 12}" class="signal-pulse-label">FÖRÄNDRING · staplar begränsade till ±100%</text>
         <line x1="${left}" y1="${pulseMid}" x2="${right}" y2="${pulseMid}" class="signal-pulse-zero"/>
         ${pulseBars}
         <text x="${left}" y="${height - 3}" class="signal-date">${escapeHtml(localDate(points[0].date))}</text>
-        <text x="${x(middleIndex)}" y="${height - 3}" class="signal-date" text-anchor="middle">${escapeHtml(localDate(points[middleIndex].date))}</text>
-        <text x="${right}" y="${height - 3}" class="signal-date" text-anchor="end">${escapeHtml(localDate(points.at(-1).date))}</text>
+        ${points.length > 2 && x(middleIndex) - left > 95 && right - x(middleIndex) > 95 ? `<text x="${x(middleIndex)}" y="${height - 3}" class="signal-date" text-anchor="middle">${escapeHtml(localDate(points[middleIndex].date))}</text>` : ""}
+        <text x="${right}" y="${height - 3}" class="signal-date" text-anchor="end">${escapeHtml(localDate(timeline.endDate))}</text>
       </svg>`;
     const sameMeter = host.dataset.meterId === String(meter.id) && host.dataset.pointCount === String(allPoints.length);
     if (!sameMeter || !host.querySelector(".signal-range-start")) {
@@ -1584,7 +1626,7 @@
       host.dataset.pointCount = String(allPoints.length);
       host.innerHTML = `
         <div class="signal-chart-topline">${topline}</div>
-        <div class="signal-chart-stage">${svg}</div>
+        <div class="signal-chart-stage" ${compact ? 'role="button" tabindex="0" aria-label="Förstora graf"' : ''}>${svg}</div>
         <div class="signal-range-panel">
           <div class="signal-range-labels"><b>Dra vänster punkt för kortare period</b><span class="signal-range-dates"></span></div>
           <div class="signal-range-track"><input class="signal-range-start" type="range" min="0" max="${maxStart}" step="1" value="${startIndex}" aria-label="Startdatum för grafen"><i class="signal-range-end" aria-hidden="true"></i></div>
@@ -1596,6 +1638,13 @@
           </div>
         </div>`;
       const input = host.querySelector(".signal-range-start");
+      if (compact) {
+        const stage = host.querySelector(".signal-chart-stage");
+        stage.addEventListener("click", () => window.openDetail(meter.id));
+        stage.addEventListener("keydown", event => {
+          if (["Enter", " "].includes(event.key)) { event.preventDefault(); window.openDetail(meter.id); }
+        });
+      }
       input.addEventListener("input", () => {
         signalRanges.set(rangeKey, Number(input.value));
         renderLeakSignalChart(container, meter, compact);
@@ -1782,6 +1831,7 @@
         next.noiseTags = [...document.querySelectorAll('input[name="noiseTag"]:checked')].map((input) => input.value);
       }
     }
+    if (type === "reset_baseline") next.resetAfter = next.at;
     state.labels[id] = next;
     saveLabels();
     document.getElementById("feedbackDialog").close();
@@ -1835,6 +1885,8 @@
     const button = event.target.closest?.("button[data-filter]");
     if (!button) return;
     els.filter.value = button.dataset.filter;
+    const showCategory = document.getElementById("excludeFilter");
+    if (showCategory) showCategory.value = "none";
     selectedMeters.clear();
     selectedPreviewId = "";
     clearSelectionRectangle();
@@ -1941,7 +1993,7 @@
     const type = document.getElementById("bulkType").value;
     const rows = selectedMeters.size > 0
       ? state.meters.filter((meter) => selectedMeters.has(meter.id))
-      : state.meters.filter((meter) => matches(meter, searchTerms));
+      : matchingRows();
     if (!rows.length) return;
     const now = new Date().toISOString();
     for (const meter of rows) {
@@ -1956,6 +2008,7 @@
         at: now,
         source: "fältfacit bulk",
       };
+      if (type === "reset_baseline") state.labels[meter.id].resetAfter = now;
     }
     selectedMeters.clear();
     selectedPreviewId = "";

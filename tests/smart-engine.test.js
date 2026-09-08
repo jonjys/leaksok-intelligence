@@ -106,3 +106,18 @@ for (const [type, expected] of Object.entries(manualCases)) {
 }
 
 console.log("smart engine tests: ok");
+
+const repeated = Array.from({length:12},(_,i)=>({
+  date:new Date(Date.UTC(2026,8,1+i)),readAt:new Date('2026-09-01T06:00:00Z'),current:80
+}));
+assert.equal(SmartEngine.analyzeSeries(repeated).points,1);
+assert.equal(SmartEngine.analyzeSeries(repeated).sustained,false);
+assert.equal(SmartEngine.analyzeSeries(repeated).persistenceDays,0);
+assert.equal(rank([], {points:repeated}).category,'learning');
+assert.equal(SmartEngine.analyzeSeries([{date:'2026-09-01',current:null}]).points,0);
+assert.equal(rank([3,3,8,9],{spacingDays:1}).category,'suspect_auto');
+const resetLabel={type:'reset_baseline',resetAfter:'2026-06-30T23:59:59Z'};
+assert.equal(rank([10,10,70,72,74],{label:resetLabel}).category,'dispatch');
+assert.equal(rank([10,10,70,72,74],{label:{...resetLabel,resetAfter:'2027-01-01'}}).category,'normal');
+assert.equal(rank([10,20,40],{info:'LEAK',result:{staleReadDays:30,infrastructure:{customerSide:true}}}).category,'customer_side');
+console.log('Deduplication, low-level rise and reset regressions: ok');

@@ -2,7 +2,7 @@
   const compactBulkOptions = [
     ["manual_dispatch", "Akut / åk ut"],
     ["suspect", "Misstänk / bevaka"],
-    ["leak", "Aktiv läcka"],
+    ["leak", "Konstaterad läcka"],
     ["customer_contact", "Efter mätare / kontakta FÄ"],
     ["repaired", "Lagad / klar"],
     ["known_noise", "Störning / säsong / topp"],
@@ -30,7 +30,9 @@
     if (!select) return;
     const wanted = optionHtml();
     if (select.dataset.polished !== "true" || select.innerHTML !== wanted) {
+      const selected = select.value;
       select.innerHTML = wanted;
+      if (compactBulkOptions.some(([value]) => value === selected)) select.value = selected;
       select.dataset.polished = "true";
     }
   }
@@ -42,13 +44,12 @@
       if (listNames[filter]) button.innerHTML = `${listNames[filter]} <b>${count}</b>`;
     });
     document.querySelectorAll('#listTabs button[data-filter="watch"], #listTabs button[data-filter="seasonal"], #listTabs button[data-filter="noise"], #listTabs button[data-filter="ignored"], #listTabs button[data-filter="stale_contact"], #listTabs button[data-filter="learning"]').forEach((button) => {
-      button.hidden = true;
+      button.hidden = false;
     });
     const more = document.getElementById("moreLists");
     if (more) {
-      more.open = false;
       const summary = more.querySelector("summary");
-      if (summary) summary.innerHTML = "Info / fler listor";
+      if (summary) summary.textContent = "Fler listor";
     }
   }
 
@@ -329,7 +330,7 @@
     makeChartsClickable();
     patchChartDefaults();
     ensureMapModeButton();
-    ensureContextMenu();
+    // The field workflow owns the single shared context menu (table and map).
     makeRowsSelectOnClick();
     renderEngineKpis();
     compactRowReasons();
