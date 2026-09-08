@@ -100,6 +100,14 @@
   };
   document.querySelectorAll('#filter option[value="normal"]').forEach((option) => option.remove());
 
+  const originalHandleFiles = handleFiles;
+  handleFiles = async function handleFilesAndResetChartRanges(files) {
+    signalRanges.clear();
+    const result = await originalHandleFiles(files);
+    signalRanges.clear();
+    return result;
+  };
+
   const originalScoreMeter = scoreMeter;
   scoreMeter = function scoreMeterWithFieldLists(meter, networkContext) {
     const result = originalScoreMeter(meter, networkContext);
@@ -1541,6 +1549,8 @@
     const allPoints = timeline.points.filter(point => point.current !== null && point.current !== "" && Number.isFinite(Number(point.current)) && Number(point.current) >= 0).map(point => ({ ...point, date: point.readingDate }));
     if (!allPoints.length) return;
     const rangeKey = `${container.id || "signal"}:${meter.id}`;
+    const timelineSignature = `${allPoints.length}:${localDate(allPoints[0].date)}:${localDate(allPoints.at(-1).date)}:${round(allPoints.at(-1).current)}:${timeline.endDate ? localDate(timeline.endDate) : ""}`;
+    if (host.dataset.timelineSignature && host.dataset.timelineSignature !== timelineSignature) signalRanges.delete(rangeKey);
     const maxStart = Math.max(0, allPoints.length - 2);
     const startIndex = clamp(Number(signalRanges.get(rangeKey)) || 0, 0, maxStart);
     const points = allPoints.slice(startIndex);
@@ -1633,6 +1643,7 @@
     if (!sameMeter || !host.querySelector(".signal-range-start")) {
       host.dataset.meterId = meter.id;
       host.dataset.pointCount = String(allPoints.length);
+      host.dataset.timelineSignature = timelineSignature;
       host.innerHTML = `
         <div class="signal-chart-topline">${topline}</div>
         <div class="signal-comparison-summary" aria-live="polite">${summary}</div>
@@ -1679,6 +1690,7 @@
         renderLeakSignalChart(container, meter, compact);
       }));
     } else {
+      host.dataset.timelineSignature = timelineSignature;
       host.querySelector(".signal-chart-topline").innerHTML = topline;
       host.querySelector(".signal-comparison-summary").innerHTML = summary;
       host.querySelector(".signal-chart-stage").innerHTML = svg;

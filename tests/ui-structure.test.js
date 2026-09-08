@@ -55,7 +55,7 @@ assert.match(officeCss, /body\[data-work-view="list"\] #search/);
 assert.match(mapProCss, /grid-template-columns:\s*252px minmax\(0, 1fr\)/);
 assert.match(mapProCss, /\.map-toolbar[\s\S]*right:\s*13px !important;[\s\S]*left:\s*auto !important;/);
 assert.match(mapProCss, /\.map-inspector/);
-assert.match(workspaceV3Css, /clamp\(200px, 27dvh, 270px\)/);
+assert.match(workspaceV3Css, /clamp\(145px, 20dvh, 210px\)/);
 assert.match(workspaceV3Css, /\.workspace \{ grid-row: 5 !important;/);
 assert.match(workspaceV3Css, /\.meter-context-menu/);
 assert.match(workspaceV3Css, /#rows tr\[data-meter-row\]\.row-selected/);

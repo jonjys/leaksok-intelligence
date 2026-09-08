@@ -1,6 +1,7 @@
 // Read-only integration check: Python extraction JSON on stdin, production JS parser and scoring.
 const assert=require('node:assert/strict');
 const {app,context}=require('./workflow-harness')();
+function formatDate(date){ const d=new Date(date); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 let input='';
 process.stdin.on('data',chunk=>input+=chunk);
 process.stdin.on('end',async()=>{
@@ -8,6 +9,8 @@ process.stdin.on('end',async()=>{
     const sources=JSON.parse(input);
     for(const source of sources) {
       const parsed=await app.parseWorkbook({name:source.name,arrayBuffer:async()=>source.table});
+      const expectedDate=(source.name.match(/(\d{4}-\d{2}-\d{2})/)||[])[1];
+      if(expectedDate) assert.equal(formatDate(parsed.exportDate),expectedDate,`${source.name} exportdatum ska tas från filnamn`);
       app.state.files.push({...parsed,name:source.name});
       console.log(source.name,parsed.rows.length+' användbara mätarrader');
     }

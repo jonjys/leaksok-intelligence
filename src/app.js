@@ -341,7 +341,7 @@ async function parseWorkbook(file) {
     throw new Error("Kamstrup-kolumnerna Serienummer/Adress/Senaste värde saknas");
   }
 
-  const exportDate = findExportDate(rows) || dateFromFile(file);
+  const exportDate = dateFromFile(file) || findExportDate(rows);
   const parsed = [];
   for (let r = headerIndex + 1; r < rows.length; r++) {
     const row = rows[r] || [];
