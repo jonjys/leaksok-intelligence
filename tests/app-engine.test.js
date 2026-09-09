@@ -82,10 +82,16 @@ const alhagsvagen = context.__engine.scoreMeter(meter(
 assert.equal(alhagsvagen.category, "repaired");
 assert.ok(!alhagsvagen.reasons.some((reason) => reason.includes("Infokod LEAK")));
 
-const customerSide = context.__engine.scoreMeter(meter(
+const leakSignal = context.__engine.scoreMeter(meter(
   "99900001", "TESTVÄGEN 1 TUMBA 14730", [7, 8, 9], [7, 8, 9], [12, 13, 14], "Leak"
 ));
-assert.equal(customerSide.category, "normal");
+assert.notEqual(leakSignal.category, "customer_side");
+assert.equal(leakSignal.infrastructure.customerSide, false);
+assert.ok(leakSignal.reasons.some((reason) => reason.includes("Infokod LEAK")));
+
+const customerSide = context.__engine.scoreMeter(meter(
+  "99900003", "TESTVÄGEN 3 TUMBA 14730", [7, 8, 9], [7, 8, 9], [12, 13, 14], "LEAK EFTER MÄTAREN"
+));
 assert.equal(customerSide.infrastructure.customerSide, true);
 assert.ok(customerSide.reasons.some((reason) => reason.includes("kundsida")));
 
