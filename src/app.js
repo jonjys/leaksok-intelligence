@@ -50,9 +50,9 @@ const categoryText = {
   dispatch: "TROLIG LÄCKA - ÅK UT",
   leak_likely: "TROLIG LÄCKA - ÅK UT",
   watch: "BEVAKA",
-  learning: "UNDER INLÄRNING",
-  new_high: "UNDER INLÄRNING",
-  new_unknown: "UNDER INLÄRNING",
+  learning: "NY MÄTARE",
+  new_high: "NY MÄTARE",
+  new_unknown: "NY MÄTARE",
   seasonal: "SÄSONG / KÄND",
   repaired: "LAGAD",
   noise: "PUMP / STÖRNING",
@@ -529,7 +529,7 @@ function scoreMeter(meter, networkContext = null) {
   const label = state.labels[meter.id]?.type ? state.labels[meter.id] : null;
   const infrastructure = infrastructureProfile(meter);
   const profile = patternProfile(points, infrastructure);
-  const shortHistory = profile.coverage.days < 30 || points.length < 3;
+  const newMeter = profile.coverage.points <= 1 || profile.coverage.days <= 1;
   const lowRelativeRise = LeakIntelligence.detectLowRelativeRise(points);
   const freshAnomaly = Boolean(
     profile.newLevel
@@ -603,9 +603,9 @@ function scoreMeter(meter, networkContext = null) {
     reasons.push(`Samma kurvrörelse på ${networkContext.meterCount} mätare vid ${networkContext.place} - möjlig gemensam servis före mätarna`);
   }
 
-  if (shortHistory) {
+  if (newMeter) {
     risk -= 10;
-    reasons.push(`Kort historik: ${profile.coverage.days} observerade dagar`);
+    reasons.push(`Ny mätare: ${profile.coverage.points} avläsning`);
   }
   if (profile.coverage.seasons < 2) {
     reasons.push("Har inte sett tillräckligt många säsonger");
@@ -627,8 +627,8 @@ function scoreMeter(meter, networkContext = null) {
   else if ((label?.type === "repaired" && (!freshAnomaly || repairAge < 7)) || profile.repairedDrop) category = "repaired";
   else if ((label?.type === "seasonal" && !freshAnomaly) || (profile.repeatedPattern && !freshAnomaly)) category = "seasonal";
   else if ((["known_noise", "pump", "false_alarm"].includes(label?.type) && !freshAnomaly) || ((profile.fluctuating || infrastructure.districtHeating || infrastructure.largeSubstation || infrastructure.summerWaterMeter) && !freshAnomaly)) category = "noise";
-  else if (shortHistory && risk >= 58 && !infrastructure.customerSide) category = "dispatch";
-  else if (shortHistory) category = "learning";
+  else if (newMeter && risk >= 58 && !infrastructure.customerSide) category = "dispatch";
+  else if (newMeter) category = "learning";
   else if (lowRelativeRise && last.current < 15 && !profile.slowRise && !/burst|rörbrott|leak|läcka/i.test(meter.info)) category = "watch";
   else if (risk >= 58 && !infrastructure.customerSide) category = "dispatch";
   else if (infrastructure.customerSide && risk >= 38) category = "watch";
@@ -698,7 +698,7 @@ function infrastructureProfile(meter) {
     text.includes("NORSBORG")
     && ["BALDERS VÄG", "LOKES VÄG", "ODENS VÄG", "TORS VÄG", "THORS VÄG"].some((name) => text.includes(name))
   );
-  const customerSide = /\bLEAK\b|LÄCKA EFTER|KUNDSIDA|EFTER MÄTAREN/i.test(meter.info || "");
+  const customerSide = /LÄCKA\s+EFTER|KUNDSIDA|KUNDENS\s+SIDA|EFTER\s+MÄTAR(?:E|EN)|CUSTOMER(?:\s+SIDE)?|AFTER\s+(?:THE\s+)?METER/i.test(meter.info || "");
   const summerWaterMeter = /SOMMARVATTEN|SOMMAR\s*VATTEN|\bDRY\b|TORR/i.test(meter.info || "");
   return { districtHeating, largeSubstation, customerSide, summerWaterMeter };
 }
@@ -855,7 +855,6 @@ function renderSummary() {
     dispatch: state.meters.filter((m) => m.category === "dispatch").length,
     watch: state.meters.filter((m) => m.category === "watch").length,
     seasonal: state.meters.filter((m) => ["seasonal", "noise", "repaired"].includes(m.category)).length,
-    short: state.meters.filter((m) => ["learning", "new_high", "new_unknown"].includes(m.category)).length,
   };
   els.summary.innerHTML = `
     <div><b>${counts.files}</b><span>filer</span></div>
@@ -863,7 +862,6 @@ function renderSummary() {
     <div><b>${counts.dispatch}</b><span>åk ut</span></div>
     <div><b>${counts.watch}</b><span>bevaka</span></div>
     <div><b>${counts.seasonal}</b><span>säsong/känd</span></div>
-    <div><b>${counts.short}</b><span>under inlärning</span></div>
   `;
 }
 
