@@ -68,6 +68,7 @@
     noise: "FALSKLARM / STÖRNING",
     ignored: "IGNORERAD",
     suspect_auto: "MISSTÄNK",
+    learning: "NY MÄTARE",
   });
   Object.assign(labelTypes, workflowTypes);
   Object.keys(feedbackButtons).forEach((key) => { delete feedbackButtons[key]; });
@@ -93,7 +94,6 @@
     customer_side: "Efter mätare",
     repaired: "Lagad",
     ignored: "Ignorera",
-    learning: "Under inlärning",
     stale_contact: "Utan avläsning",
     noise: "Falsklarm/störning",
     hidden: "Gömda",
@@ -112,7 +112,8 @@
   scoreMeter = function scoreMeterWithFieldLists(meter, networkContext) {
     const result = originalScoreMeter(meter, networkContext);
     const label = state.labels[meter.id]?.type ? state.labels[meter.id] : null;
-    const shortHistory = result.profile?.coverage?.days < 365 || meter.points.length < 5;
+    const observedPoints = readingTimeline(meter.points).points;
+    const newMeter = observedPoints.length <= 1 || (result.profile?.coverage?.days ?? 0) <= 1;
     const staleReadDays = result.staleReadDays ?? calendarDaysBetween(
       result.last?.readAt || result.last?.date || new Date(),
       result.last?.date || new Date()
@@ -178,11 +179,16 @@
       if (result.risk >= 58 && !result.infrastructure?.customerSide) result.category = "dispatch";
       else if (result.risk >= 38 || result.lowRelativeRise) result.category = "watch";
       else if (result.infrastructure?.customerSide) result.category = "normal";
-      else if (shortHistory) result.category = "learning";
+      else if (newMeter) result.category = "learning";
       else result.category = "normal";
     }
-    if (!label && shortHistory && result.category === "normal" && !customerSide && !staleContact) {
+    if (!label && newMeter && result.category === "normal" && !customerSide && !staleContact) {
       result.category = "learning";
+    }
+    if (!label && !newMeter && ["learning", "new_high", "new_unknown"].includes(result.category)) {
+      if (result.risk >= 58 && !customerSide) result.category = "dispatch";
+      else if (result.risk >= 38 || result.lowRelativeRise) result.category = "suspect_auto";
+      else result.category = "normal";
     }
     if (!label && result.category === "watch") result.category = "suspect_auto";
     return result;
@@ -288,7 +294,7 @@
     const rows = state.meters
       .filter((row) => matchesFilter(row, filter))
       .filter((row) => area === "all" || normalize(meterTown(row)) === area)
-      .filter((row) => excluded === "none" || row.category === excluded)
+      .filter((row) => excluded === "none" || filter === "hidden" || !matchesFilter(row, excluded))
       .filter((row) => !searchTerms.length || matches(row, searchTerms));
     rows.sort((a, b) => compareRows(a, b, sort));
     return rows;
@@ -513,7 +519,6 @@
       noise: visibleMeters.filter((meter) => meter.category === "noise").length,
       ignored: visibleMeters.filter((meter) => meter.category === "ignored").length,
       stale: visibleMeters.filter((meter) => meter.staleContact || meter.staleReadDays >= 14).length,
-      short: visibleMeters.filter((meter) => ["learning", "new_high", "new_unknown"].includes(meter.category)).length,
     };
     els.summary.innerHTML = `
       <div><b>${counts.meters}</b><span>mätare</span></div>
@@ -539,9 +544,9 @@
     const active = els.filter.value;
     const values = {
       all: state.meters.length, dispatch: counts.dispatch, suspect: counts.suspect + counts.watch, customer_side: counts.customer,
-      seasonal: counts.seasonal, confirmed: counts.confirmed, repaired: counts.repaired, ignored: counts.ignored, stale_contact: counts.stale, learning: counts.short, noise: counts.noise,
+      seasonal: counts.seasonal, confirmed: counts.confirmed, repaired: counts.repaired, ignored: counts.ignored, stale_contact: counts.stale, noise: counts.noise,
     };
-    const secondary = ["seasonal", "noise", "ignored", "stale_contact", "learning"];
+    const secondary = ["seasonal", "noise", "ignored", "stale_contact"];
     Object.keys(values).forEach(key => { values[key] = state.meters.filter(m => matchesFilter(m, key)).length; });
     values.hidden = state.meters.filter(m => MeterVisibility.hidden(state.labels[m.id])).length;
     const moreCount = secondary.reduce((sum, key) => sum + (values[key] || 0), 0);
@@ -1940,8 +1945,8 @@
     const button = event.target.closest?.("button[data-filter]");
     if (!button) return;
     els.filter.value = button.dataset.filter;
-    const showCategory = document.getElementById("excludeFilter");
-    if (showCategory) showCategory.value = "none";
+    const excludeFilter = document.getElementById("excludeFilter");
+    if (excludeFilter) excludeFilter.value = "none";
     selectedMeters.clear();
     selectedPreviewId = "";
     clearSelectionRectangle();
