@@ -48,7 +48,7 @@
   let previewUserLatLng = null;
   let previewMapPoints = [];
   let previewMapEntries = [];
-  let previewMapStyle = "street";
+  let previewMapStyle = "satellite";
   let mapCategoryFilter = "all";
   let mapToolMode = "";
   let selectionStart = null;
@@ -67,9 +67,16 @@
     seasonal: "VÄRMEPANNA / SÄSONG",
     noise: "FALSKLARM / STÖRNING",
     ignored: "IGNORERAD",
-    suspect_auto: "MISSTÄNK",
+    dispatch: "AI TROR: ÅK UT",
+    suspect_auto: "AI TROR: BEVAKA",
     learning: "NY MÄTARE",
   });
+
+  function decisionText(meter) {
+    if (meter?.category === "confirmed") return "HITTAD LÄCKA";
+    if (meter?.category === "dispatch" && meter?.label?.type === "manual_dispatch") return "ÅK UT · MANUELL";
+    return categoryText[meter?.category] || meter?.category || "";
+  }
   Object.assign(labelTypes, workflowTypes);
   Object.keys(feedbackButtons).forEach((key) => { delete feedbackButtons[key]; });
   Object.assign(feedbackButtons, {
@@ -596,7 +603,7 @@
           </label>
         </td>
         <td data-label="Beslut" class="decision-cell">
-          <span class="pill ${r.category}">${categoryText[r.category]}</span>
+          <span class="pill ${r.category}">${decisionText(r)}</span>
           <div class="score">${r.risk}</div>
           <div class="small">säkerhet: ${r.confidence}</div>
         </td>
@@ -1280,7 +1287,7 @@
   }
 
   function mapMeterCard(meter, selected) {
-    const status = categoryText[meter.category] || meter.category;
+    const status = decisionText(meter);
     const current = round(meter.last?.current);
     const persistence = meter.engine?.persistenceDays || 0;
     return `
@@ -1404,7 +1411,7 @@
       });
       marker.bindPopup(`
         <b>${escapeHtml(meter.address || meter.id)}</b><br>
-        ${escapeHtml(categoryText[meter.category] || meter.category)} · risk ${meter.risk}<br>
+        ${escapeHtml(decisionText(meter))} · underlagsstyrka ${meter.risk}<br>
         <button type="button" onclick="openMeterNavigation('${escapeAttr(meter.id)}', event)">Kör hit</button>
       `);
       marker.on("click", () => {
@@ -1581,20 +1588,22 @@
     const y = value => bottom - Math.max(0, value) / chartMax * (bottom - top);
     // A gap is a lack of observations, never a flat line or invented zero.
     const segments = [];
-    const gapRegions = [];
+    const gapConnectors = [];
     points.forEach((point, i) => {
       if (!i || times[i] - times[i - 1] > 14 * 86400000) {
         segments.push([]);
-        if (i) gapRegions.push([x(i - 1), x(i), "Ingen avläsning i underlaget"]);
+        if (i) gapConnectors.push([i - 1, i, "Datalucka mellan avläsningar"]);
       }
       segments.at(-1).push(i);
     });
-    if (timeline.gapDays >= 2) gapRegions.push([x(values.length - 1), right, `Inga nya värden · ${timeline.gapDays} dagar`]);
     const path = indices => indices.map((i,j) => `${j ? "L" : "M"}${x(i).toFixed(1)},${y(values[i]).toFixed(1)}`).join(" ");
     const gradientId = `signal-fill-${container.id || "chart"}`;
     const areas = segments.filter(indices => indices.length > 1).map(indices => `<path d="${path(indices)} L${x(indices.at(-1))},${bottom} L${x(indices[0])},${bottom} Z" fill="url(#${gradientId})"/>`).join("");
     const lines = segments.map(indices => `<path d="${path(indices)}" class="signal-line current"/>`).join("");
-    const gaps = gapRegions.map(([from,to,label]) => `<g><title>${label}</title><rect x="${from}" y="${top}" width="${Math.max(0,to-from)}" height="${bottom-top}" fill="#f1f4f7"/>${to-from > 120 ? `<text x="${(from+to)/2}" y="${top+18}" text-anchor="middle" class="signal-gap-label">${label}</text>` : ""}</g>`).join("");
+    const gaps = gapConnectors.map(([fromIndex,toIndex,label]) => `<path d="M${x(fromIndex).toFixed(1)},${y(values[fromIndex]).toFixed(1)} L${x(toIndex).toFixed(1)},${y(values[toIndex]).toFixed(1)}" class="signal-gap-connector"><title>${label}</title></path>`).join("");
+    const staleLabel = timeline.gapDays >= 14
+      ? `<text x="${right}" y="${top + 13}" text-anchor="end" class="signal-gap-label">Senaste avläsning ${timeline.lastReadingDate}</text>`
+      : "";
     const yGrid = Array.from({length: Math.round(chartMax / tickStep) + 1}, (_,i) => {
       const value = tickStep * i;
       return `<line x1="${left}" y1="${y(value)}" x2="${right}" y2="${y(value)}" class="signal-grid"/><text x="${left-9}" y="${y(value)+4}" class="signal-axis" text-anchor="end">${round(value)}</text>`;
@@ -1618,7 +1627,7 @@
     const svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Brusnivå och historisk jämförelse för ${escapeAttr(meter.address || meter.id)}">
       <defs><linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0babc7" stop-opacity=".16"/><stop offset="1" stop-color="#0babc7" stop-opacity=".01"/></linearGradient></defs>
       <rect x="${left}" y="${top}" width="${right-left}" height="${bottom-top}" class="signal-plot-bg"/>
-      ${gaps}${yGrid}${xGrid}${areas}${comparisonLine}${lines}${dots}
+      ${yGrid}${xGrid}${areas}${gaps}${comparisonLine}${lines}${dots}${staleLabel}
       <line class="signal-cursor" y1="${top}" y2="${bottom}" visibility="hidden"/>
     </svg>`;
     const sameMeter = host.dataset.meterId === String(meter.id) && host.dataset.pointCount === String(allPoints.length) && host.dataset.timelineSignature === timelineSignature;
@@ -1753,7 +1762,7 @@
     const staleDays = meter.staleReadDays || 0;
     const selectedCount = selectedMeterList().length;
     document.getElementById("previewTitle").textContent = meter.address || meter.id;
-    document.getElementById("previewMeta").textContent = `${categoryText[meter.category]} · risk ${meter.risk} · ${dates.firstDate} till ${dates.lastDate}${staleDays >= 14 ? ` · tappad kontakt ${staleDays} dagar` : ""}${selectedCount > 1 ? ` · ${selectedCount} mätare på kartan` : ""}`;
+    document.getElementById("previewMeta").textContent = `${decisionText(meter)} · underlagsstyrka ${meter.risk} · ${dates.firstDate} till ${dates.lastDate}${staleDays >= 14 ? ` · tappad kontakt ${staleDays} dagar` : ""}${selectedCount > 1 ? ` · ${selectedCount} mätare på kartan` : ""}`;
     if (state.previewChart) state.previewChart.destroy();
     state.previewChart = null;
     const labels = meter.points.map((point) => localDate(point.date));
@@ -1799,7 +1808,7 @@
     const { firstDate, lastDate, lastReadDate } = meterDates(meter);
     const staleDays = meter.staleReadDays || 0;
     els.detailTitle.textContent = meter.address || meter.id;
-    els.detailMeta.textContent = `${meter.serial || meter.id} · ${meter.area || "ÖVRIGT"} · ${firstDate} till ${lastDate} · risk ${meter.risk} · ${categoryText[meter.category]}`;
+    els.detailMeta.textContent = `${meter.serial || meter.id} · ${meter.area || "ÖVRIGT"} · ${firstDate} till ${lastDate} · underlagsstyrka ${meter.risk} · ${decisionText(meter)}`;
     els.detailText.innerHTML = `
       <div class="detail-actions">
         <button class="secondary" onclick="copyAddress('${escapeAttr(meter.id)}', event)">Kopiera adress</button>
