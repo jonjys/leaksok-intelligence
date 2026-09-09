@@ -21,6 +21,6 @@ assert.equal(workflow.matchingRows().length,0);
 elements.get('filter').value='all';
 elements.get('excludeFilter').value='customer_side';
 assert.equal(workflow.matchingRows().length,1);
-assert.equal(workflow.matchingRows()[0].id,'b');
+assert.equal(workflow.matchingRows()[0].id,'a');
 assert.equal(app.state.labels.a.type,'leak');
 console.log('visibility workflow tests: ok');

@@ -49,7 +49,6 @@
               <button type="button" data-filter="noise">Falsklarm/störning <b>0</b></button>
               <button type="button" data-filter="ignored">Ignorera <b>0</b></button>
               <button type="button" data-filter="stale_contact">Utan avläsning <b>0</b></button>
-              <button type="button" data-filter="learning">Under inlärning <b>0</b></button>
             </div>
           </details>
           </nav>
@@ -107,7 +106,6 @@
               <option value="confirmed">Aktiva läckor</option>
               <option value="suspect">Misstänkt / bevaka</option>
               <option value="seasonal">Värmepanna / säsong</option>
-              <option value="learning">Under inlärning</option>
               <option value="repaired">Lagad / verifierad</option>
               <option value="noise">Falsklarm / störning</option>
               <option value="ignored">Ignorerade</option>
@@ -129,12 +127,13 @@
             <select id="areaFilter" aria-label="Filtrera på ort">
               <option value="all">Alla orter</option>
             </select>
-            <select id="excludeFilter" aria-label="Visa kategori">
-              <option value="none">Visa alla i listan</option>
-              <option value="customer_side">Visa bara Efter mätare</option>
-              <option value="seasonal">Visa bara Säsong</option>
-              <option value="repaired">Visa bara Lagade</option>
-              <option value="ignored">Visa bara Ignorerade</option>
+            <select id="excludeFilter" aria-label="Göm mätare">
+              <option value="none">Göm inget</option>
+              <option value="customer_side">Göm Efter mätare</option>
+              <option value="seasonal">Göm Värmepanna / säsong</option>
+              <option value="repaired">Göm Lagade</option>
+              <option value="ignored">Göm Ignorerade</option>
+              <option value="learning">Göm nya mätare</option>
             </select>
             <button type="button" class="secondary select-all-matches" id="selectAllMatches">Markera alla</button>
             <button type="button" class="secondary clear-all-selection" id="clearAllSelection" hidden>Avmarkera</button>

@@ -58,6 +58,21 @@ assert.equal(extreme.category, "dispatch");
 assert.equal(extreme.confidence, "låg");
 assert.ok(extreme.risk >= 0 && extreme.risk <= 100);
 
+const establishedNormal = rank([10, 10, 10], {
+  spacingDays: 10,
+  result: { profile: { coverage: { days: 20 }, newLevel: false, slowRise: false, repeatedPattern: false, fluctuating: false } },
+});
+assert.equal(establishedNormal.category, "normal");
+
+const establishedRise = rank([6, 18, 42], {
+  spacingDays: 7,
+  info: "LEAK",
+  result: { profile: { coverage: { days: 14 }, newLevel: false, slowRise: false, repeatedPattern: false, fluctuating: false } },
+});
+assert.equal(establishedRise.category, "suspect_auto");
+assert.equal(establishedRise.engine.persistenceDays, 7);
+assert.ok(establishedRise.engine.relativeRise >= 4);
+
 assert.equal(rank([407, 872, 829]).category, "dispatch");
 assert.equal(rank([10, 11, 200, 10, 11]).category, "noise");
 
