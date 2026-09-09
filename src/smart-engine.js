@@ -97,6 +97,13 @@
     const transientSpike = isolatedPeak && (droppedAfterPeak || trailingElevated <= 1);
     const volatility = coefficientOfVariation(recentValues);
     const normalizedSlope = normalizedLinearSlope(values.slice(-Math.min(8, values.length)), Math.max(1, baseline));
+    const recentFloor = percentile(recentValues, 0.25);
+    const fallingNow = values.length >= 3
+      && (latest < recentLevel * 0.68 || normalizedSlope < -0.12);
+    const stableElevated = sustained
+      && recentFloor >= threshold
+      && volatility <= 0.5
+      && !fallingNow;
     const staleReadDays = Math.max(context.staleReadDays || 0,
       calendarDaysBetween(ordered.at(-1).date, exports.at(-1).date));
     const staleContact = staleReadDays >= 14;
@@ -118,6 +125,9 @@
       transientSpike,
       volatility,
       normalizedSlope,
+      recentFloor,
+      fallingNow,
+      stableElevated,
       staleReadDays,
       staleContact,
       heatPump,
@@ -151,9 +161,9 @@
     else if (engine.relativeRise >= 1) { score += 19; evidence.push("tydlig robust ökning"); }
     else if (engine.relativeRise >= 0.5) { score += 11; evidence.push("robust ökning"); }
 
-    if (engine.sustained) {
+    if (engine.stableElevated) {
       score += 28;
-      evidence.push(`bestående ${engine.persistenceDays} dagar`);
+      evidence.push(`stabilt bestående ${engine.persistenceDays} dagar`);
     } else if (engine.trailingElevated >= 2) {
       score += 8;
       evidence.push(`${engine.trailingElevated} förhöjda avläsningar`);
@@ -167,6 +177,8 @@
     if (referenceSignal) { score += 12; evidence.push("Upprepat hög nivå mot Excel-snitt F; historik behövs för bekräftelse"); }
 
     if (engine.transientSpike) { score -= 42; evidence.push("enstaka topp nedvägd"); }
+    if (engine.fallingNow && !burst) { score -= 28; evidence.push("senaste nivån faller tydligt"); }
+    if (engine.volatility > 0.5 && !engine.stableElevated && !burst) { score -= 18; evidence.push("ojämn signal kräver kontroll"); }
     if (engine.heatPump.is) { score -= 38; evidence.push(engine.heatPump.reason); }
     if (profile.repeatedPattern) { score -= 32; evidence.push("återkommande säsongsmönster"); }
     if (profile.fluctuating && !engine.sustained) { score -= 16; evidence.push("fladdrig signal"); }
@@ -175,7 +187,7 @@
     score = clamp(Math.round(score), 0, 100);
 
     const hardEvidence = [
-      engine.sustained,
+      engine.stableElevated,
       engine.relativeRise >= 0.5,
       engine.recentLevel >= 30,
       Boolean(profile.newLevel),
@@ -204,9 +216,10 @@
       resetDate && engine.points >= 3 ? null : label);
     category = manual.category;
     score = manual.score;
+    if (!label && category === "suspect_auto") score = Math.max(score, 44);
     const confidence = engine.staleContact || engine.points < 3
       ? "låg"
-      : hardEvidence >= 3 && engine.sustained ? "hög"
+      : score >= 85 && hardEvidence >= 3 && engine.stableElevated ? "hög"
         : hardEvidence >= 2 ? "medel" : "låg";
     const reasons = compactReasons(result.reasons, engine, evidence, label);
     const enginePriority = (CATEGORY_WEIGHT[category] || 0)
@@ -235,13 +248,20 @@
     if (engine.transientSpike) return "noise";
     if (profile.repeatedPattern && !engine.sustained) return "seasonal";
     if (dryCode && !leakCode) return "normal";
-    if (engine.recentLevel >= 250) return "dispatch";
-    if (engine.points < 2) return newMeter ? "learning" : "normal";
-    const corroboratedHighLevel = engine.trailingElevated >= 2 && engine.recentLevel >= 60 && engine.relativeRise >= 0.5;
-    if (score >= 72 && hardEvidence >= 2 && (engine.sustained || burst || corroboratedHighLevel) && (engine.recentLevel >= 15 || burst)) return "dispatch";
+    if (engine.points < 2) return engine.latest >= 100 || burst ? "suspect_auto" : (newMeter ? "learning" : "normal");
+    const verifiedPattern = engine.stableElevated
+      && engine.persistenceDays >= 14
+      && engine.trailingElevated >= 3
+      && engine.recentFloor >= 30;
+    const networkBackedPattern = engine.stableElevated
+      && engine.persistenceDays >= 7
+      && Boolean(context.profile?.newLevel || context.referenceSignal)
+      && hardEvidence >= 3;
+    if (score >= 82 && hardEvidence >= 3 && (verifiedPattern || networkBackedPattern || burst)) return "dispatch";
     if (score >= 44 && hardEvidence >= 2 && (engine.trailingElevated >= 2 || profile.newLevel || profile.slowRise)) return "suspect_auto";
     if (engine.trailingElevated >= 2 && engine.persistenceDays >= 1 && engine.relativeRise >= 1 && engine.recentLevel >= 8) return "suspect_auto";
     if (context.referenceSignal) return "suspect_auto";
+    if (engine.recentLevel >= 60 || (leakCode && engine.recentLevel >= 30)) return "suspect_auto";
     if (newMeter) return "learning";
     return "normal";
   }
@@ -283,7 +303,8 @@
       points: 0, baseline: 0, recentLevel: 0, latest: 0, threshold: 0, relativeRise: 0,
       latestRise: 0, recentShare: 0, trailingElevated: 0, persistenceDays: 0,
       sustained: false, peak: 0, transientSpike: false, volatility: 0,
-      normalizedSlope: 0, staleReadDays: 0, staleContact: false,
+      normalizedSlope: 0, recentFloor: 0, fallingNow: false, stableElevated: false,
+      staleReadDays: 0, staleContact: false,
       heatPump: { is: false, reason: "" },
     };
   }
@@ -345,6 +366,16 @@
     const sorted = [...values].sort((a, b) => a - b);
     const middle = Math.floor(sorted.length / 2);
     return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+
+  function percentile(values, ratio) {
+    if (!values.length) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const position = (sorted.length - 1) * ratio;
+    const lower = Math.floor(position);
+    const upper = Math.ceil(position);
+    if (lower === upper) return sorted[lower];
+    return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
   }
 
   function average(values) {
