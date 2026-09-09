@@ -54,7 +54,7 @@ assert.deepEqual(
 
 assert.equal(rank([10, 10, 70, 72, 74]).category, "dispatch");
 const extreme = rank([800], { start: "2026-08-24T06:00:00" });
-assert.equal(extreme.category, "dispatch");
+assert.equal(extreme.category, "suspect_auto");
 assert.equal(extreme.confidence, "låg");
 assert.ok(extreme.risk >= 0 && extreme.risk <= 100);
 
@@ -73,8 +73,19 @@ assert.equal(establishedRise.category, "suspect_auto");
 assert.equal(establishedRise.engine.persistenceDays, 7);
 assert.ok(establishedRise.engine.relativeRise >= 4);
 
-assert.equal(rank([407, 872, 829]).category, "dispatch");
+assert.equal(rank([407, 872, 829]).category, "suspect_auto");
 assert.equal(rank([10, 11, 200, 10, 11]).category, "noise");
+
+// A Stallbacken-like series can be loud but is too uneven and currently falling
+// to be called a probable leak automatically. Keep it visible for review.
+const fluctuatingFall = rank([12, 8, 10, 150, 250, 130, 210, 180, 215, 50, 170, 20, 130, 145, 170, 200, 90, 175, 40, 160, 130, 145, 66], {
+  spacingDays: 10,
+  info: "LEAK",
+  result: { profile: { coverage: { days: 220 }, newLevel: true, slowRise: false, repeatedPattern: false, fluctuating: true } },
+});
+assert.equal(fluctuatingFall.category, "suspect_auto");
+assert.equal(fluctuatingFall.engine.fallingNow, true);
+assert.notEqual(fluctuatingFall.confidence, "hög");
 
 const stale = rank([10, 30, 60], { result: { staleReadDays: 21 } });
 assert.equal(stale.category, "normal");
