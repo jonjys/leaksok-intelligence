@@ -183,11 +183,11 @@
       Boolean(result.networkContext?.sharedSignal),
       Boolean(burst || leakCode),
     ].filter(Boolean).length;
-    const shortHistory = (profile.coverage?.days || 0) < 365 || engine.points < 5;
+    const newMeter = engine.points <= 1 || (profile.coverage?.days || 0) <= 1;
     let category = classifyAutomatic({
       score,
       hardEvidence,
-      shortHistory,
+      newMeter,
       customerSide,
       burst,
       leakCode,
@@ -228,7 +228,7 @@
   }
 
   function classifyAutomatic(context) {
-    const { score, hardEvidence, shortHistory, customerSide, burst, leakCode, dryCode, engine, profile } = context;
+    const { score, hardEvidence, newMeter, customerSide, burst, leakCode, dryCode, engine, profile } = context;
     if (customerSide || (leakCode && /customer|kund/i.test(String(profile.environment || "")))) return "customer_side";
     if (engine.staleContact) return "normal";
     if (engine.heatPump.is && !burst && !leakCode) return "seasonal";
@@ -236,13 +236,13 @@
     if (profile.repeatedPattern && !engine.sustained) return "seasonal";
     if (dryCode && !leakCode) return "normal";
     if (engine.recentLevel >= 250) return "dispatch";
-    if (engine.points < 2) return shortHistory ? "learning" : "normal";
+    if (engine.points < 2) return newMeter ? "learning" : "normal";
     const corroboratedHighLevel = engine.trailingElevated >= 2 && engine.recentLevel >= 60 && engine.relativeRise >= 0.5;
     if (score >= 72 && hardEvidence >= 2 && (engine.sustained || burst || corroboratedHighLevel) && (engine.recentLevel >= 15 || burst)) return "dispatch";
     if (score >= 44 && hardEvidence >= 2 && (engine.trailingElevated >= 2 || profile.newLevel || profile.slowRise)) return "suspect_auto";
     if (engine.trailingElevated >= 2 && engine.persistenceDays >= 1 && engine.relativeRise >= 1 && engine.recentLevel >= 8) return "suspect_auto";
     if (context.referenceSignal) return "suspect_auto";
-    if (shortHistory) return "learning";
+    if (newMeter) return "learning";
     return "normal";
   }
 
