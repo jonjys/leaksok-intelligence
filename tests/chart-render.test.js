@@ -20,7 +20,7 @@ const meter = {id:'test',address:'Testmätare',points:[
 workflow.renderLeakSignalChart(container,meter,true);
 assert.doesNotMatch(host.innerHTML,/NaN|Infinity/);
 assert.match(host.innerHTML,/2026-09-07/);
-assert.match(host.innerHTML,/Inga nya värden · 3 dagar/);
+assert.doesNotMatch(host.innerHTML,/fill="#f1f4f7"/);
 assert.match(host.innerHTML,/<b>—<\/b>/); // Previous zero must never produce +700%.
 assert.match(host.innerHTML,/aria-label="Förstora graf"/);
 assert.match(host.innerHTML,/viewBox="0 0 616 218"/);
@@ -37,7 +37,9 @@ workflow.renderLeakSignalChart(container, {...meter,id:'sparse',points:[
  {date:new Date('2026-09-09'),readAt:new Date('2026-09-09'),current:112},
 ]}, false);
 assert.match(host.innerHTML, /preserveAspectRatio="xMidYMid meet"/);
-assert.match(host.innerHTML, /Ingen avläsning i underlaget/);
+assert.match(host.innerHTML, /Datalucka mellan avläsningar/);
+assert.match(host.innerHTML, /signal-gap-connector/);
+assert.doesNotMatch(host.innerHTML, /fill="#f1f4f7"/);
 assert.doesNotMatch(host.innerHTML, /signal-pulse|Mediantrend|NaN|Infinity/);
 assert.equal((host.innerHTML.match(/class="signal-line current"/g)||[]).length,3);
 workflow.renderLeakSignalChart(container,{...meter,id:'single',points:[{date:new Date('2026-09-09'),current:42}]},false);
