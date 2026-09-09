@@ -37,6 +37,10 @@ assert.match(field, /requestAnimationFrame\(\(\) => requestAnimationFrame\(creat
 assert.match(field, /const rows = meter \? selectedMeterList\(\) : \[\]/);
 assert.match(field, /Ingen vald mätare/);
 assert.match(field, /function renderLeakSignalChart/);
+assert.match(field, /let previewMapStyle = "satellite"/);
+assert.match(field, /dispatch: "AI TROR: ÅK UT"/);
+assert.match(field, /suspect_auto: "AI TROR: BEVAKA"/);
+assert.match(field, /signal-gap-connector/);
 assert.match(field, /signal-range-start/);
 assert.match(field, /data-signal-days="90"/);
 assert.match(field, /signalRanges\.set\(rangeKey/);
