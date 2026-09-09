@@ -586,7 +586,7 @@
       <tr data-meter-row="${escapeAttr(r.id)}" class="${selectedMeters.has(r.id) ? "row-selected" : ""}" tabindex="0">
         <td data-label="Välj" class="select-cell">
           <label class="row-check">
-            <input type="checkbox" class="row-select" data-id="${escapeAttr(r.id)}" ${selectedMeters.has(r.id) ? "checked" : ""}>
+            <input type="checkbox" class="row-select" aria-label="Markera ${escapeAttr(r.address || r.id)}" data-id="${escapeAttr(r.id)}" ${selectedMeters.has(r.id) ? "checked" : ""}>
             <span>Välj</span>
           </label>
         </td>
@@ -610,7 +610,7 @@
         </td>
         <td data-label="Historik" class="history-cell">
           <svg class="spark" viewBox="0 0 160 42" onclick="openDetail('${escapeAttr(r.id)}')">${sparkPath(r.points)}</svg>
-          <div class="small">${r.points.length} punkter · ${r.profile.coverage.days} dagar · ${r.profile.coverage.months} månader · ${r.profile.coverage.seasons} säsonger</div>
+          <div class="small">${readingTimeline(r.points).points.length} avläsningar · senast ${readingTimeline(r.points).lastReadingDate}</div>
         </td>
         <td data-label="Varför" class="reason-cell">
           <ul class="reasons">${r.reasons.slice(0, 5).map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
@@ -1556,90 +1556,67 @@
     const points = allPoints.slice(startIndex);
     const comparisonPeriod = host.dataset.comparisonPeriod || "previous";
     const comparison = LeakHistory.compare(allPoints, comparisonPeriod);
-    const values = points.map((point) => Number(point.current) || 0);
-    const averages = points.map((point) => Number(point.average) || 0);
-    const trend = values.map((_, index) => {
-      let start = index;
-      while (start > Math.max(0, index - 4) && points[start].date - points[start - 1].date <= 14 * 86400000) start -= 1;
-      return median(values.slice(start, index + 1));
-    });
+    const values = points.map(point => Number(point.current));
     const maxValue = Math.max(10, ...values, comparison.reference?.value || 0);
-    const tickStep = maxValue < 30 ? 5 : maxValue < 100 ? 20 : maxValue < 300 ? 50 : 100;
-    const chartMax = Math.ceil((maxValue * 1.08) / tickStep) * tickStep;
-    const width = Math.max(320, Math.round(container.getBoundingClientRect().width - 24));
-    const height = compact ? 220 : 440;
-    const left = compact ? 48 : 62;
-    const right = width - 26;
-    const top = 28;
-    const bottom = compact ? height - 28 : 310;
-    const pulseTop = bottom + 42;
-    const pulseBottom = height - 22;
-    const pulseMid = (pulseTop + pulseBottom) / 2;
-    const times = points.map((point, index) => point.date instanceof Date && !Number.isNaN(point.date.getTime()) ? point.date.getTime() : index);
-    const minTime = Math.min(...times);
-    const maxTime = Math.max(...times, timeline.endDate.getTime());
-    const span = Math.max(1, maxTime - minTime);
-    const x = (index) => left + ((times[index] - minTime) / span) * (right - left);
-    const y = (value) => bottom - (Math.max(0, value) / chartMax) * (bottom - top);
-    const path = (series) => series.map((value, index) => `${index && times[index] - times[index - 1] <= 14 * 86400000 ? "L" : "M"}${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(" ");
-    const areaPath = times.some((time, i) => i && time - times[i - 1] > 14 * 86400000) ? "" : `${path(values)} L${x(values.length - 1).toFixed(1)},${bottom} L${x(0).toFixed(1)},${bottom} Z`;
-    const gapX = x(values.length - 1);
-    const gap = timeline.gapDays >= 2 ? `<rect x="${gapX}" y="${top}" width="${right - gapX}" height="${bottom - top}" fill="#e2e8f0" opacity=".7"/><text x="${right - 5}" y="${top + 18}" text-anchor="end" class="signal-date">Inga nya värden · ${timeline.gapDays} dagar</text>` : "";
+    const roughStep = maxValue * 1.1 / 4;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+    const tickStep = [1, 2, 5, 10].map(n => n * magnitude).find(n => n >= roughStep);
+    const chartMax = Math.ceil(maxValue * 1.08 / tickStep) * tickStep;
+    const stageBounds = host.querySelector(".signal-chart-stage")?.getBoundingClientRect?.();
+    const containerBounds = container.getBoundingClientRect();
+    const width = Math.max(240, Math.round(stageBounds?.width || containerBounds.width - 24));
+    const height = Math.max(120, Math.round(stageBounds?.height || containerBounds.height - (compact ? 122 : 175)));
+    const left = 44, right = width - 18, top = 16, bottom = height - 30;
+    const times = points.map(point => point.date.getTime());
+    const minTime = times[0];
+    const maxTime = Math.max(times.at(-1), timeline.endDate.getTime());
+    const span = Math.max(86400000, maxTime - minTime);
+    const timeX = time => maxTime === minTime ? (left+right)/2 : left + (time - minTime) / span * (right - left);
+    const x = index => timeX(times[index]);
+    const y = value => bottom - Math.max(0, value) / chartMax * (bottom - top);
+    // A gap is a lack of observations, never a flat line or invented zero.
+    const segments = [];
+    const gapRegions = [];
+    points.forEach((point, i) => {
+      if (!i || times[i] - times[i - 1] > 14 * 86400000) {
+        segments.push([]);
+        if (i) gapRegions.push([x(i - 1), x(i), "Ingen avläsning i underlaget"]);
+      }
+      segments.at(-1).push(i);
+    });
+    if (timeline.gapDays >= 2) gapRegions.push([x(values.length - 1), right, `Inga nya värden · ${timeline.gapDays} dagar`]);
+    const path = indices => indices.map((i,j) => `${j ? "L" : "M"}${x(i).toFixed(1)},${y(values[i]).toFixed(1)}`).join(" ");
     const gradientId = `signal-fill-${container.id || "chart"}`;
-    const yGrid = Array.from({ length: 5 }, (_, index) => {
-      const value = Math.round((chartMax / 4) * index);
-      const py = y(value);
-      return `<line x1="${left}" y1="${py}" x2="${right}" y2="${py}" class="signal-grid"/><text x="${left - 12}" y="${py + 4}" class="signal-axis" text-anchor="end">${value}</text>`;
+    const areas = segments.filter(indices => indices.length > 1).map(indices => `<path d="${path(indices)} L${x(indices.at(-1))},${bottom} L${x(indices[0])},${bottom} Z" fill="url(#${gradientId})"/>`).join("");
+    const lines = segments.map(indices => `<path d="${path(indices)}" class="signal-line current"/>`).join("");
+    const gaps = gapRegions.map(([from,to,label]) => `<g><title>${label}</title><rect x="${from}" y="${top}" width="${Math.max(0,to-from)}" height="${bottom-top}" fill="#f1f4f7"/>${to-from > 120 ? `<text x="${(from+to)/2}" y="${top+18}" text-anchor="middle" class="signal-gap-label">${label}</text>` : ""}</g>`).join("");
+    const yGrid = Array.from({length: Math.round(chartMax / tickStep) + 1}, (_,i) => {
+      const value = tickStep * i;
+      return `<line x1="${left}" y1="${y(value)}" x2="${right}" y2="${y(value)}" class="signal-grid"/><text x="${left-9}" y="${y(value)+4}" class="signal-axis" text-anchor="end">${round(value)}</text>`;
     }).join("");
-    const xGrid = Array.from({ length: 7 }, (_, index) => {
-      const px = left + ((right - left) / 6) * index;
-      return `<line x1="${px}" y1="${top}" x2="${px}" y2="${bottom}" class="signal-grid vertical"/>`;
+    const tickCount = maxTime === minTime ? 1 : Math.max(2, Math.min(7, Math.floor((right-left)/115) + 1));
+    const dateFormat = new Intl.DateTimeFormat("sv-SE", {day:"numeric",month:"short", ...(span > 180 * 86400000 ? {year:"2-digit"} : {})});
+    const xGrid = Array.from({length:tickCount}, (_,i) => {
+      const time = minTime + (maxTime-minTime) * i / Math.max(1,tickCount-1);
+      const px = timeX(time);
+      return `<line x1="${px}" y1="${top}" x2="${px}" y2="${bottom}" class="signal-grid vertical"/><text x="${px}" y="${height-8}" class="signal-date" text-anchor="${!i ? "start" : i === tickCount-1 ? "end" : "middle"}">${escapeHtml(dateFormat.format(new Date(time)))}</text>`;
     }).join("");
-    const dots = values.map((value, index) => `<circle cx="${x(index)}" cy="${y(value)}" r="${index === values.length - 1 ? 5 : (values.length > 45 ? 1.5 : 3)}" class="signal-dot${index === values.length - 1 ? " latest" : ""}"><title>${escapeHtml(localDate(points[index].date))}: brus ${round(value)}, snitt ${round(averages[index])}</title></circle>`).join("");
-    const slot = (right - left) / Math.max(1, values.length);
-    const barWidth = Math.max(3, Math.min(18, slot * .56));
-    const pulseBars = values.map((value, index) => {
-      if (!index) return "";
-      const previous = values[index - 1];
-      const actualPulse = previous > 0 ? ((value - previous) / previous) * 100 : null;
-      const pulse = clamp(actualPulse ?? (value > 0 ? 100 : 0), -100, 100);
-      const magnitude = Math.max(2, Math.abs(pulse) * ((pulseBottom - pulseTop) / 2) / 100);
-      const py = pulse >= 0 ? pulseMid - magnitude : pulseMid;
-      const colorClass = pulse >= 25 ? "critical" : pulse >= 8 ? "rising" : pulse <= -8 ? "falling" : "stable";
-      return `<rect x="${x(index) - barWidth / 2}" y="${py}" width="${barWidth}" height="${magnitude}" rx="2" class="signal-pulse ${colorClass}"><title>${escapeHtml(localDate(points[index].date))}: ${actualPulse === null ? "föregående värde 0 – procent saknas" : `förändring ${actualPulse >= 0 ? "+" : ""}${Math.round(actualPulse)}%`}</title></rect>`;
-    }).join("");
-    const middleIndex = Math.floor((points.length - 1) / 2);
+    const dots = values.map((value,i) => `<circle cx="${x(i)}" cy="${y(value)}" r="${i === values.length-1 ? 4 : values.length > 90 ? 1 : 2}" class="signal-dot${i === values.length-1 ? " latest" : ""}"><title>${localDate(points[i].date)} · Brus ${round(value)}</title></circle>`).join("");
     const latest = values.at(-1);
     const changeText = comparison.percent === null ? "—" : `${comparison.percent >= 0 ? "+" : ""}${Math.round(comparison.percent)}%`;
     const comparisonText = comparison.reference
       ? `${round(comparison.reference.value)} den ${localDate(new Date(comparison.reference.time))}`
       : "Avläsning saknas för jämförelsen";
     const comparisonLine = comparison.reference ? `<line x1="${left}" y1="${y(comparison.reference.value)}" x2="${right}" y2="${y(comparison.reference.value)}" class="signal-reference"><title>Jämförelse: ${escapeHtml(comparisonText)}</title></line>` : "";
-
-    const topline = `
-        <span><i class="signal-key current"></i>Brusnivå</span>
-        <span><i class="signal-key trend"></i>Mediantrend</span>
-        <span><i class="signal-key reference"></i>Jämförelse</span>
-        <strong>${round(latest)} <small>senast</small></strong>`;
+    const topline = `<span><i class="signal-key"></i>Brusnivå</span><span><i class="signal-key reference"></i>Jämförelse</span><strong>${round(latest)} <small>senast</small></strong>`;
     const summary = `<span><b>${changeText}</b> <small>${comparison.reference ? `mot ${escapeHtml(comparisonText)}` : comparisonText}</small></span><small>Avläst ${localDate(points.at(-1).date)}</small>`;
-    const svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Brusnivå och historisk jämförelse för ${escapeAttr(meter.address || meter.id)}">
-        <defs><linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0ea5e9" stop-opacity=".28"/><stop offset="1" stop-color="#0ea5e9" stop-opacity=".02"/></linearGradient></defs>
-        <rect x="${left}" y="${top}" width="${right - left}" height="${bottom - top}" class="signal-plot-bg"/>
-        ${xGrid}${yGrid}
-        ${gap}
-        <path d="${areaPath}" fill="url(#${gradientId})"/>
-        ${comparisonLine}
-        <path d="${path(trend)}" class="signal-line trend"/>
-        <path d="${path(values)}" class="signal-line current"/>
-        ${dots}
-        ${!compact ? `<text x="${left}" y="${pulseTop - 12}" class="signal-pulse-label">FÖRÄNDRING · staplar begränsade till ±100%</text>
-        <line x1="${left}" y1="${pulseMid}" x2="${right}" y2="${pulseMid}" class="signal-pulse-zero"/>
-        ${pulseBars}` : ""}
-        <text x="${left}" y="${height - 3}" class="signal-date">${escapeHtml(localDate(points[0].date))}</text>
-        ${points.length > 2 && x(middleIndex) - left > 95 && right - x(middleIndex) > 95 ? `<text x="${x(middleIndex)}" y="${height - 3}" class="signal-date" text-anchor="middle">${escapeHtml(localDate(points[middleIndex].date))}</text>` : ""}
-        <text x="${right}" y="${height - 3}" class="signal-date" text-anchor="end">${escapeHtml(localDate(timeline.endDate))}</text>
-      </svg>`;
-    const sameMeter = host.dataset.meterId === String(meter.id) && host.dataset.pointCount === String(allPoints.length);
+    const svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Brusnivå och historisk jämförelse för ${escapeAttr(meter.address || meter.id)}">
+      <defs><linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0babc7" stop-opacity=".16"/><stop offset="1" stop-color="#0babc7" stop-opacity=".01"/></linearGradient></defs>
+      <rect x="${left}" y="${top}" width="${right-left}" height="${bottom-top}" class="signal-plot-bg"/>
+      ${gaps}${yGrid}${xGrid}${areas}${comparisonLine}${lines}${dots}
+      <line class="signal-cursor" y1="${top}" y2="${bottom}" visibility="hidden"/>
+    </svg>`;
+    const sameMeter = host.dataset.meterId === String(meter.id) && host.dataset.pointCount === String(allPoints.length) && host.dataset.timelineSignature === timelineSignature;
     if (!sameMeter || !host.querySelector(".signal-range-start")) {
       host.dataset.meterId = meter.id;
       host.dataset.pointCount = String(allPoints.length);
@@ -1695,6 +1672,37 @@
       host.querySelector(".signal-comparison-summary").innerHTML = summary;
       host.querySelector(".signal-chart-stage").innerHTML = svg;
     }
+    const stage = host.querySelector(".signal-chart-stage");
+    host.dataset.plotSize = `${width}:${height}`;
+    if (typeof ResizeObserver === "function" && !host.signalObserver) {
+      host.signalObserver = new ResizeObserver(() => {
+        if (!host.isConnected) { host.signalObserver.disconnect(); return; }
+        const rect = host.querySelector(".signal-chart-stage").getBoundingClientRect();
+        if (rect.width < 20 || rect.height < 20 || `${Math.round(rect.width)}:${Math.round(rect.height)}` === host.dataset.plotSize) return;
+        requestAnimationFrame(() => renderLeakSignalChart(container, host.signalMeter, compact));
+      });
+      host.signalObserver.observe(container);
+    }
+    host.signalMeter = meter;
+    // Tooltip follows actual dates, including when the imported observations are sparse.
+    stage.onpointermove = event => {
+      if (event.pointerType === "touch") return;
+      const rect = stage.getBoundingClientRect();
+      const px = (event.clientX - rect.left) * width / rect.width;
+      let index = 0;
+      for (let i=1; i<times.length; i++) if (Math.abs(x(i)-px) < Math.abs(x(index)-px)) index=i;
+      let tooltip = stage.querySelector(".signal-hover");
+      if (!tooltip) { tooltip = document.createElement("div"); tooltip.className="signal-hover"; stage.appendChild(tooltip); }
+      tooltip.textContent = `${localDate(points[index].date)} · Brus ${round(values[index])}`;
+      tooltip.style.left = `${Math.max(4, Math.min(rect.width-180, event.clientX-rect.left+12))}px`;
+      tooltip.style.top = "6px";
+      const cursor = stage.querySelector(".signal-cursor");
+      cursor.setAttribute("x1",x(index)); cursor.setAttribute("x2",x(index)); cursor.setAttribute("visibility","visible");
+    };
+    stage.onpointerleave = () => {
+      stage.querySelector(".signal-hover")?.remove();
+      stage.querySelector(".signal-cursor")?.setAttribute("visibility","hidden");
+    };
     const rangeInput = host.querySelector(".signal-range-start");
     const rangePercent = maxStart ? (startIndex / maxStart) * 100 : 0;
     rangeInput.max = String(maxStart);
@@ -1793,11 +1801,13 @@
         <button class="secondary" onclick="openMeterNavigation('${escapeAttr(meter.id)}', event)">Kör hit</button>
         ${feedbackActions(meter.id)}
       </div>
+      <details class="detail-analysis"><summary>Visa analys och underlag</summary>
       <p><b>Period:</b> första fil ${firstDate} · sista fil ${lastDate} · senaste mätaravläsning ${lastReadDate}${staleDays >= 14 ? ` · tappad/gammal kontakt ${staleDays} dagar` : ""}</p>
       <p><b>Motivering:</b> ${meter.reasons.map(escapeHtml).join(" · ")}</p>
       <p><b>Mönster:</b> värme=${meter.profile.heating ? "ja" : "nej"}, årsupprepning=${meter.profile.annualRepeat ? `${meter.profile.annualRepeat.months} jämförda månader` : "nej"}, fladdrig=${meter.profile.fluctuating ? "ja" : "nej"}, ny nivå=${meter.profile.newLevel ? "ja" : "nej"}.</p>
       <p><b>Miljö:</b> fjärrvärme=${meter.infrastructure.districtHeating ? "ja" : "nej"}, undercentral/höghus=${meter.infrastructure.largeSubstation ? "ja" : "nej"}, efter mätaren=${meter.infrastructure.customerSide ? "ja" : "nej"}, sommarvattenmätare=${meter.infrastructure.summerWaterMeter ? "ja" : "nej"}${meter.networkContext?.sharedSignal ? `, gemensam signal på ${meter.networkContext.meterCount} mätare` : ""}.</p>
       ${meter.label ? `<p><b>Facit:</b> ${escapeHtml(labelTypes[meter.label.type] || meter.label.type)} · ${escapeHtml(labelSummary(meter.label))}</p>` : ""}
+      </details>
     `;
     if (state.chart) state.chart.destroy();
     state.chart = null;

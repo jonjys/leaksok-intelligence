@@ -100,7 +100,7 @@
       openButton.id = "openMobileMap";
       openButton.type = "button";
       openButton.className = "secondary mobile-map-open";
-      openButton.textContent = "Öppna helskärmskarta";
+      openButton.textContent = "Visa karta";
       openButton.addEventListener("click", () => setWorkView("map", true));
       controls.appendChild(openButton);
     }
@@ -111,7 +111,7 @@
       closeButton.id = "closeMobileMap";
       closeButton.type = "button";
       closeButton.className = "secondary mobile-map-close";
-      closeButton.textContent = "Tillbaka till fältläge";
+      closeButton.textContent = "Visa lista";
       closeButton.addEventListener("click", () => setWorkView("list", true));
       toolbar.appendChild(closeButton);
     }
@@ -119,6 +119,7 @@
 
   function setWorkView(view, persist) {
     const next = view === "list" ? "list" : "map";
+    const viewChanged = document.body.dataset.workView !== next;
     document.body.dataset.workView = next;
     document.body.dataset.mobileMapOpen = String(isMobile() && next === "map");
     if (isMobile() && next === "map") {
@@ -130,7 +131,7 @@
       button.setAttribute("aria-pressed", String(button.dataset.workView === next));
     });
     if (persist) saveView(next);
-    if (next === "map") {
+    if (next === "map" && viewChanged) {
       setTimeout(() => window.dispatchEvent(new Event("resize")), 40);
       scheduleMapFilter(false);
     }
@@ -171,7 +172,7 @@
     const pageSize = document.getElementById("pageSize");
     let wanted = "dispatch";
     try { wanted = localStorage.getItem(MOBILE_FILTER_KEY) || wanted; } catch {}
-    const validFilters = new Set(["all", "dispatch", "suspect_auto", "watch", "customer_side", "confirmed", "repaired", "seasonal", "noise", "ignored", "stale_contact", "learning"]);
+    const validFilters = new Set(["all", "dispatch", "suspect", "hidden", "suspect_auto", "watch", "customer_side", "confirmed", "repaired", "seasonal", "noise", "ignored", "stale_contact", "learning"]);
     if (filter && validFilters.has(wanted)) filter.value = wanted;
     if (pageSize) pageSize.value = "25";
     if (typeof render === "function") render();
@@ -250,3 +251,4 @@
   });
   setTimeout(polish, 0);
 }());
+

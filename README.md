@@ -100,3 +100,11 @@ Den här mappen är helt fristående från övriga projekt.
 Vänstermenyn visar de viktigaste arbetslistorna först: `Alla mätare`, `Åk ut`, `Misstänk`, `Bevaka`, `Efter mätare`, `Aktiva läckor` och `Lagad`. Mindre använda listor ligger hopfällda under `Fler listor`.
 
 `Flytta till` visar fältbeslut i första ledet. Störningsorsaker hålls inne i facitdialogen, så rullgardinen inte blir en lång blandning av beslut och orsakstyper. Markerade mätare visas samtidigt i kartan med tydligare pluppar.
+
+### Layout och historikgrafer (9 september 2026)
+
+Arbetsvyn använder `styles.css` för grundkomponenter och `workspace-v3.css` som enda layoutlager. De äldre layout- och presentationsfilerna laddas inte längre av sidan. Karta/lista, filter och sidval delar samma arbetsyta; en vald mätare öppnar karta och graf bredvid varandra på dator och staplat på telefon.
+
+Grafen ritas med verkliga avläsningsdatum och uppmätta SVG-dimensioner. Luckor över 14 dagar visas som saknat underlag i både minigraf och detaljgraf. Inga mätvärden interpoleras över sådana luckor. Grå yta efter sista avläsningen visar hur länge nya värden saknas fram till sista exportdatumet. Förändringstal jämför observerade värden; tidigare nollvärde ger ingen påhittad procentsats. Diagrammet zoomar inte vid vanlig scroll.
+
+Kontroll: `TZ=UTC node tests/chart-render.test.js`, `node tests/ui-structure.test.js` och den befintliga import-/motorsviten.

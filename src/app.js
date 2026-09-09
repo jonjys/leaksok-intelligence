@@ -971,31 +971,25 @@ function readingTimeline(points) {
 
 function sparkPath(points) {
   const timeline = readingTimeline(points);
-  if (!timeline.points.length) return "";
-  const values = timeline.points.map((point) => point.current);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  const startTime = timeline.points[0].readingDate.getTime();
-  const endTime = timeline.hasGap
-    ? timeline.endDate.getTime()
-    : timeline.points[timeline.points.length - 1].readingDate.getTime();
-  const duration = Math.max(1, endTime - startTime);
-  const xy = timeline.points.map((point) => {
-    const x = 4 + ((point.readingDate.getTime() - startTime) / duration) * 152;
-    const v = point.current;
-    const y = 38 - ((v - min) / range) * 34;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  const observations = timeline.points.filter(p => p.current !== null && p.current !== "" && Number.isFinite(Number(p.current)) && p.current >= 0);
+  if (!observations.length) return "";
+  const start = observations[0].readingDate.getTime();
+  const end = Math.max(observations.at(-1).readingDate.getTime(), timeline.endDate.getTime());
+  const duration = Math.max(86400000, end - start);
+  const max = Math.max(10, ...observations.map(p => Number(p.current))) * 1.08;
+  const x = p => 4 + (p.readingDate.getTime() - start) / duration * 152;
+  const y = p => 38 - Number(p.current) / max * 34;
+  let gaps = "", line = "", dots = "";
+  observations.forEach((point, i) => {
+    const previous = observations[i - 1];
+    const gap = previous && point.readingDate - previous.readingDate > 14 * 86400000;
+    if (gap) gaps += `<rect x="${x(previous)}" y="4" width="${x(point)-x(previous)}" height="34" fill="#e9eef3"><title>Ingen avläsning i underlaget</title></rect>`;
+    line += `${!i || gap ? "M" : "L"}${x(point).toFixed(1)},${y(point).toFixed(1)} `;
+    if (!i || i === observations.length-1 || gap) dots += `<circle cx="${x(point)}" cy="${y(point)}" r="2" fill="#099cbd"/>`;
   });
-  const color = values.length > 1 && values[values.length - 1] >= values[values.length - 2] ? "#ff9d4d" : "#35e07d";
-  const observedLine = xy.length > 1
-    ? `<polyline points="${xy.join(" ")}" fill="none" stroke="${color}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`
-    : `<circle cx="${xy[0].split(",")[0]}" cy="${xy[0].split(",")[1]}" r="3" fill="${color}"/>`;
-  const last = xy[xy.length - 1].split(",");
-  const gapLine = timeline.hasGap
-    ? `<line x1="${last[0]}" y1="${last[1]}" x2="156" y2="${last[1]}" stroke="#748196" stroke-width="2" stroke-dasharray="7 5"/>`
-    : "";
-  return `<line x1="4" y1="38" x2="156" y2="38" stroke="#2a3544" stroke-width="1"/>${observedLine}${gapLine}`;
+  const last = observations.at(-1);
+  if (timeline.gapDays >= 2) gaps += `<rect x="${x(last)}" y="4" width="${156-x(last)}" height="34" fill="#e9eef3"><title>Inga nya värden · ${timeline.gapDays} dagar</title></rect>`;
+  return `<line x1="4" y1="38" x2="156" y2="38" stroke="#d9e3eb"/>${gaps}<path d="${line}" fill="none" stroke="#099cbd" stroke-width="2" stroke-linejoin="round"/>${dots}`;
 }
 
 window.labelMeter = function labelMeter(id, type) {

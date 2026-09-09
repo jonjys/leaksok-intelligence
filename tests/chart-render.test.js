@@ -1,3 +1,4 @@
+process.env.TZ = 'UTC';
 const assert = require('node:assert/strict');
 const harness = require('./workflow-harness.js');
 const { context, workflow } = harness();
@@ -22,11 +23,24 @@ assert.match(host.innerHTML,/2026-09-07/);
 assert.match(host.innerHTML,/Inga nya värden · 3 dagar/);
 assert.match(host.innerHTML,/<b>—<\/b>/); // Previous zero must never produce +700%.
 assert.match(host.innerHTML,/aria-label="Förstora graf"/);
-assert.match(host.innerHTML,/viewBox="0 0 616 220"/);
+assert.match(host.innerHTML,/viewBox="0 0 616 218"/);
 assert.doesNotMatch(host.innerHTML,/class="signal-pulse /); // Compact chart has no extra bar strip.
 assert.equal(host.dataset.pointCount,'2'); // Duplicate exports do not create extra observations.
 host.dataset.comparisonPeriod='90';
 workflow.renderLeakSignalChart(container,meter,true);
 assert.match(nodes.get('.signal-comparison-summary').innerHTML,/Avläsning saknas/);
 assert.doesNotMatch(nodes.get('.signal-chart-stage').innerHTML,/NaN|Infinity/);
+// The expanded graph must keep circular points and readable text, with no bar panel.
+workflow.renderLeakSignalChart(container, {...meter,id:'sparse',points:[
+ {date:new Date('2025-12-17'),readAt:new Date('2025-12-17'),current:120},
+ {date:new Date('2026-06-01'),readAt:new Date('2026-06-01'),current:45},
+ {date:new Date('2026-09-09'),readAt:new Date('2026-09-09'),current:112},
+]}, false);
+assert.match(host.innerHTML, /preserveAspectRatio="xMidYMid meet"/);
+assert.match(host.innerHTML, /Ingen avläsning i underlaget/);
+assert.doesNotMatch(host.innerHTML, /signal-pulse|Mediantrend|NaN|Infinity/);
+assert.equal((host.innerHTML.match(/class="signal-line current"/g)||[]).length,3);
+workflow.renderLeakSignalChart(container,{...meter,id:'single',points:[{date:new Date('2026-09-09'),current:42}]},false);
+assert.doesNotMatch(host.innerHTML,/NaN|Infinity/);
+assert.equal((host.innerHTML.match(/class="signal-date"/g)||[]).length,1, 'One reading has a single date tick');
 console.log('chart render tests: ok');
