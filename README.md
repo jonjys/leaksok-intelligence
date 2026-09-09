@@ -13,6 +13,8 @@ Verifiering: `node tests/history-comparison.test.js` och `node tests/chart-rende
 - Högerklicka en markerad rad eller kartkort och välj **Göm markerade**, eller använd knappen vid massval. Mätarna försvinner från ordinarie listor och kartöversikten. **Gömda** visar dem; **Visa markerade igen** återställer synligheten. Facit, reparationsdatum och historik bevaras. Synligheten sparas med den lokala profilen.
 - **Visa bara Efter mätare** är ett visningsfilter, ingen omklassificering. Byte av lista återställer detta filter.
 - Motorn använder unika avläsningsdagar. Upprepade exporter av samma avläsning ökar inte beständigheten. Grafernas tidsskala följer avläsningsdatum och visar luckan fram till sista exporten.
+- En ensam verklig avläsning märks internt som ny mätare. Redan efter flera avläsningar över 2–3 veckor bedöms procenthopp och beständig nivå normalt utan ett artificiellt inlärningsavdrag.
+- Kamstrups `LEAK` är en läcksignal, inte bevis för kundsida. `Efter mätare` kräver uttrycklig text om kundsida/efter mätaren eller ett manuellt fältbeslut.
 - **Nollställ** bedömer endast avläsningar efter nollställningstidpunkten. Efter minst tre nya avläsningsdagar kan automatiken varna igen. **Lagad** och **Konstaterad läcka** är manuella beslut.
 - Vid kort historik kan upprepat hög nivå mot Excel-snitt F ge **Misstänk**, men detta är inte bevis för läckage. Låga nivåer med bestående procentökning kan också ge Misstänk.
 - Bedömningen är en lokal regel- och statistikmotor, inte en ansluten språkmodell. Poängen är prioritering, inte en kalibrerad sannolikhet. Inga Excel-filer skickas till en AI-leverantör.
