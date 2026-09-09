@@ -48,7 +48,7 @@
   let previewUserLatLng = null;
   let previewMapPoints = [];
   let previewMapEntries = [];
-  let previewMapStyle = "satellite";
+  let previewMapStyle = "street";
   let mapCategoryFilter = "all";
   let mapToolMode = "";
   let selectionStart = null;
