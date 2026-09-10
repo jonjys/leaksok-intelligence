@@ -34,7 +34,7 @@
     meter.kamstrup = codes;
     const reasons = Array.isArray(meter.reasons) ? meter.reasons.slice() : [];
     if (codes.burst) {
-      reasons.unshift("flowIQ BURST: rörbrott efter mätaren (30 min högt flöde)");
+      reasons.unshift("flowIQ BURST: rörbrott efter mätaren");
       return Object.assign({}, meter, {
         category: "customer_side",
         infrastructure: Object.assign({}, meter.infrastructure || {}, { customerSide: true }),
@@ -44,7 +44,7 @@
       });
     }
     if (codes.leak || codes.eventLeak) {
-      reasons.unshift("flowIQ LEAK: läckage efter mätaren (inget stillastående flöde 24 h)");
+      reasons.unshift("flowIQ LEAK: läckage efter mätaren");
       return Object.assign({}, meter, {
         category: "customer_side",
         infrastructure: Object.assign({}, meter.infrastructure || {}, { customerSide: true }),
@@ -53,9 +53,10 @@
       });
     }
     if (codes.dry) {
-      reasons.unshift("flowIQ DRY: mätaren är inte vattenfylld, ingen mätning");
+      reasons.unshift("flowIQ DRY: mätaren är inte vattenfylld");
       return Object.assign({}, meter, {
         category: "stale_contact",
+        staleContact: true,
         risk: Math.min(meter.risk || 0, 8),
         confidence: "hög",
         reasons: uniq(reasons).slice(0, 8),
@@ -91,8 +92,5 @@
   }
 
   wrapAnalyze();
-  if (typeof state !== "undefined" && Array.isArray(state.meters) && state.meters.length) {
-    state.meters = state.meters.map(applyCodes);
-  }
   root.KamstrupCodes = { codesOf, applyCodes };
 }(typeof globalThis !== "undefined" ? globalThis : this));
