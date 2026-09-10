@@ -1,1 +1,1 @@
-placeholder
+(function exposeSmartLeakEngine(){ /* see follow-up */ })();
