@@ -1,0 +1,121 @@
+/* Desktop: Kamstrup-style split. Map left, chart + list right. Full viewport. */
+.signal-gap-connector,
+.signal-gap-label,
+.signal-chart-stage svg rect[fill="#f1f4f7"],
+.signal-chart-stage svg rect[fill="#eef3f7"] {
+  display: none !important;
+}
+.signal-plot-bg { fill: #fff !important; }
+
+@media (min-width: 1100px) {
+  html, body {
+    height: 100dvh;
+    overflow: hidden;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+  .topbar {
+    flex: 0 0 auto;
+    min-height: 56px;
+    padding: 8px 14px;
+  }
+  main {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 8px 10px;
+    display: grid;
+    grid-template-columns: 168px minmax(0, 1fr);
+    gap: 8px;
+    align-items: stretch;
+  }
+  .left-rail {
+    position: static;
+    max-height: 100%;
+    overflow: auto;
+  }
+  .content-column.desk-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.28fr) minmax(420px, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 8px;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .desk-split > .dropzone {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .desk-split > #meterPreview {
+    grid-column: 1;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+  .desk-split > .desk-right {
+    grid-column: 2;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .desk-split #meterPreview .preview-grid {
+    flex: 1;
+    height: auto !important;
+    min-height: 0;
+    grid-template-columns: 1fr !important;
+  }
+  .desk-split #meterPreview .preview-map-wrap {
+    display: block;
+    height: 100%;
+    min-height: 0;
+  }
+  .desk-split #meterPreview .selected-map {
+    height: 100%;
+    min-height: 0;
+  }
+  .desk-right .preview-chart {
+    flex: 0 0 236px;
+    height: 236px;
+    min-height: 236px;
+    padding: 0;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .desk-right .controls,
+  .desk-right .bulk-actions {
+    flex: 0 0 auto;
+  }
+  .desk-right .workspace {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .desk-right .table-wrap {
+    height: 100%;
+    max-height: none;
+  }
+  .desk-split #meterPreview.overview-map .preview-grid {
+    height: 100% !important;
+  }
+}
+
+@media (min-width: 1100px) and (max-height: 800px) {
+  .desk-right .preview-chart {
+    flex-basis: 200px;
+    height: 200px;
+    min-height: 200px;
+  }
+}
