@@ -14,7 +14,7 @@
   function replaceDashedGaps(svg) {
     const connectors = [...svg.querySelectorAll(".signal-gap-connector")];
     if (!connectors.length) return;
-    const height = Number(svg.viewBox?.baseVal?.height) || svg.getBoundingClientRect().height || 180;
+    const height = Number(svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.height) || 180;
     const top = 16;
     const plotHeight = Math.max(40, height - 46);
     connectors.forEach((path) => {
@@ -28,7 +28,7 @@
       const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
       rect.setAttribute("x", String(Math.min(x1, x2)));
       rect.setAttribute("y", String(top));
-      rect.setAttribute("width", String(Math.max(0, Math.abs(x2 - x1)));
+      rect.setAttribute("width", String(Math.max(0, Math.abs(x2 - x1))));
       rect.setAttribute("height", String(plotHeight));
       rect.setAttribute("fill", "#f1f4f7");
       const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
@@ -44,7 +44,10 @@
   }
 
   const observer = new MutationObserver(() => polish());
-  if (document.body) observer.observe(document.body, { childList: true, subtree: true });
-  document.addEventListener("DOMContentLoaded", polish);
-  setTimeout(polish, 0);
+  function start() {
+    if (document.body) observer.observe(document.body, { childList: true, subtree: true });
+    polish();
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
 })();
