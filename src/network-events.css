@@ -1,0 +1,17 @@
+.network-watch{border:1px solid #bae6ed;border-left:4px solid #008a9c;border-radius:12px;background:linear-gradient(120deg,#e9f9fb,#fff);padding:14px 16px;margin-bottom:10px;min-width:0;color:#123047;flex-shrink:0}
+.network-watch[hidden]{display:none}
+.network-watch-heading{display:flex;gap:8px 18px;align-items:center;flex-wrap:wrap}
+.network-watch-kicker{font-size:10px;font-weight:800;letter-spacing:.14em;color:#007b88}
+.network-watch-help,.network-watch-card p{font-size:12px;line-height:1.5;color:#526c80;margin:7px 0}
+.network-watch-card{margin-top:10px;border-top:1px solid #c9e4e9;padding-top:10px}
+.network-watch-card summary{cursor:pointer;font-weight:750;font-size:13px;padding:4px 0}
+.network-watch-members{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:8px;max-height:280px;overflow:auto}
+.network-watch-meter{display:grid;gap:7px;text-align:left;background:#fff;border:1px solid #cde4e9;border-radius:9px;padding:12px;color:#18354a;min-width:0;white-space:normal}
+.network-watch-meter:hover{border-color:#008fa2;background:#f1fcff}
+.network-watch-meter:focus-visible{outline:3px solid #14a3bc;outline-offset:2px}
+.network-watch-meter>span:first-child{font-size:11px;overflow-wrap:anywhere}
+.network-watch-meter strong{font-size:17px;color:#007f94}
+.network-watch-track{position:relative;height:9px;display:block;background:#f1f5f8;border-radius:4px;overflow:hidden}
+.network-watch-track i{position:absolute;left:0;top:0;height:100%;border-radius:4px}
+.network-watch-now{background:#05a7c1}.network-watch-base{background:#99afbe}
+@media(max-width:650px){.network-watch{padding:12px}.network-watch-members{grid-template-columns:1fr}}
