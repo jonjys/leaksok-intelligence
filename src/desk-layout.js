@@ -57,9 +57,11 @@
     const size = document.getElementById("pageSize")?.value || "50";
     const rows = currentPageRows();
     const selected = rows.filter((row) => row.input.checked).length;
-    button.textContent = selected && selected === rows.length
+    const label = selected && selected === rows.length
       ? "Avmarkera sida (" + selected + ")"
       : "Markera sida (" + size + ")";
+    // Setting the same text still mutates the DOM and retriggers our observer.
+    if (button.textContent !== label) button.textContent = label;
   }
 
   function ensureHideOptions() {
