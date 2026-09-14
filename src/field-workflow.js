@@ -1,8 +1,8 @@
 (function applyFieldWorkflow() {
   const workflowTypes = {
     leak: "Konstaterad läcka",
-    repaired: "Lagad",
-    seasonal: "Värmepanna / säsong",
+    repaired: "Lagade",
+    seasonal: "Säsong / falsklarm",
     known_noise: "Falsklarm/Annat",
     district_heating: "Fjärrvärme",
     large_building: "Höghus/stor byggnad",
@@ -88,7 +88,7 @@
     customer_contact: "Kontakta FÄ",
     known_noise: "Tillfällig topp",
     reset_baseline: "Nollställ och följ nya värden",
-    seasonal: "Värmepanna / säsong",
+    seasonal: "Säsong / falsklarm",
     false_alarm: "Falsklarm/Annat",
     suspect: "Misstänkt / bevaka",
   });
@@ -96,7 +96,7 @@
     all: "Alla mätare",
     dispatch: "Åk ut",
     suspect: "Misstänkt / bevaka",
-    seasonal: "Värmepanna / säsong",
+    seasonal: "Säsong / falsklarm",
     confirmed: "Aktiva läckor",
     customer_side: "Efter mätare",
     repaired: "Lagad",
@@ -239,7 +239,9 @@
   }
 
   function matchesFilter(row, filter) {
+    if (filter === "ignored") return row.category === "ignored" || MeterVisibility.hidden(state.labels[row.id]);
     if (!MeterVisibility.visible(state.labels[row.id], filter)) return false;
+    if (filter === "seasonal") return ["seasonal", "noise"].includes(row.category);
     if (filter === "hidden") return true;
     if (filter === "all") return true;
     if (filter === "actionable") return ["dispatch", "suspect_auto", "watch"].includes(row.category);
@@ -250,30 +252,32 @@
     return row.category === filter;
   }
 
+  const districts = [
+    ["Alby", ["ALBY"]],
+    ["Fittja", ["FITTJA", "FITJA"]],
+    ["Hallunda-Norsborg", ["HALLUNDA", "NORSBORG"]],
+    ["Tullinge", ["TULLINGE"]],
+    ["Tumba-Storvreten", ["TUMBA", "STORVRETEN"]],
+    ["Vårsta-Grödinge", ["VÅRSTA", "GRÖDINGE"]],
+  ];
   function meterTown(row) {
-    const known = ["TULLINGE", "TUMBA", "ALBY", "GRÖDINGE", "VÅRSTA", "NORSBORG", "FITJA", "HALLUNDA", "ERIKSBERG", "VÄRSTA"];
-    const text = normalize(`${row.area || ""} ${row.address || ""}`);
-    return known.find((town) => text.includes(normalize(town))) || String(row.area || "ÖVRIGT").trim().toUpperCase();
+    const area = normalize(row.area || "");
+    const address = normalize(row.address || "");
+    // Prefer the explicit locality. Avoid interpreting street names as districts.
+    const match = (text) => districts.find(([,names]) => names.some(name => new RegExp("(^|[^a-zåäö])" + normalize(name) + "($|[^a-zåäö])", "i").test(text)));
+    return (match(area) || match(address))?.[0] || "Övrigt / okänd";
   }
-
   function refreshAreaFilter() {
     const select = document.getElementById("areaFilter");
     if (!select) return;
     const current = select.value || "all";
-    const preferred = ["TULLINGE", "TUMBA", "ALBY", "GRÖDINGE", "VÅRSTA", "NORSBORG"];
-    const towns = [...new Set(state.meters.map(meterTown).filter(Boolean))]
-      .sort((a, b) => {
-        const ai = preferred.indexOf(a);
-        const bi = preferred.indexOf(b);
-        if (ai >= 0 || bi >= 0) return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
-        return a.localeCompare(b, "sv", { sensitivity: "base" });
-      });
+    const towns = [...districts.map(([name])=>name), "Övrigt / okänd"];
     const signature = towns.join("|");
     if (select.dataset.signature !== signature) {
-      select.innerHTML = `<option value="all">Alla orter</option>${towns.map((town) => `<option value="${escapeAttr(normalize(town))}">${escapeHtml(town)}</option>`).join("")}`;
+      select.innerHTML = '<option value="all">Alla kommundelar</option>' + towns.map(town => '<option value="' + escapeAttr(normalize(town)) + '">' + escapeHtml(town) + '</option>').join("");
       select.dataset.signature = signature;
     }
-    select.value = [...select.options].some((option) => option.value === current) ? current : "all";
+    select.value = [...select.options].some(option=>option.value===current) ? current : "all";
   }
 
   function latestReadingTime(row) {
@@ -284,6 +288,10 @@
   }
 
   function compareRows(a, b, sort) {
+    if (sort === "group") {
+      const order = { dispatch:0, suspect_auto:1, watch:1, confirmed:2, repaired:3, seasonal:4, noise:4, customer_side:5, ignored:7 };
+      return (order[a.category] ?? 6) - (order[b.category] ?? 6) || sortValue(b, "risk") - sortValue(a, "risk");
+    }
     if (sort === "name") return String(a.address || a.serial || a.id).localeCompare(String(b.address || b.serial || b.id), "sv", { numeric: true, sensitivity: "base" });
     if (sort === "area") {
       const area = String(a.area || "").localeCompare(String(b.area || ""), "sv", { sensitivity: "base" });
@@ -317,7 +325,7 @@
     box.hidden = !show;
     if (show) count.textContent = selectedCount > 0 ? `${selectedCount} markerade` : `${rows.length} träffar`;
     const save = document.getElementById("bulkSave");
-    if (save) save.textContent = selectedCount > 0 ? `Flytta ${selectedCount} markerade` : `Flytta ${rows.length} träffar`;
+    if (save) save.textContent = selectedCount > 0 ? `Flytta ${selectedCount} till vald grupp` : `Flytta ${rows.length} till vald grupp`;
     const hide = document.getElementById("hideSelected");
     if (hide) {
       hide.disabled = selectedCount === 0;
@@ -354,6 +362,7 @@
       const next = {
         ...existing,
         type,
+        hidden: false,
         address: meter.address || existing.address,
         serial: meter.serial || existing.serial,
         notedDate: existing.notedDate || today,
@@ -389,15 +398,13 @@
       <div class="context-menu-head"><span>SNABBVAL</span><b id="contextMeterName">Mätare</b></div>
       <button type="button" data-context-action="show">Visa graf</button>
       <button type="button" data-context-action="toggle">Avmarkera</button>
-      <button type="button" data-context-action="visibility">Göm markerade</button>
       <label for="contextGroupSelect">Lägg i grupp</label>
       <select id="contextGroupSelect">
         <option value="suspect">Misstänkt / bevaka</option>
         <option value="manual_dispatch">Åk ut</option>
         <option value="customer_contact">Efter mätare</option>
         <option value="leak">Aktiva läckor</option>
-        <option value="seasonal">Värmepanna / säsong</option>
-        <option value="known_noise">Falsklarm / störning</option>
+        <option value="seasonal">Säsong / falsklarm</option>
         <option value="repaired">Lagad</option>
         <option value="ignored">Ignorera</option>
         <option value="auto">Automatisk bedömning</option>
@@ -1162,6 +1169,19 @@
     previewMap.on("mousedown", startAreaSelection);
     previewMap.on("mousemove", moveAreaSelection);
     previewMap.on("mouseup", finishAreaSelection);
+    // Layout and visibility change after the map is constructed. Resize the actual
+    // Leaflet instance after its container changes, including initial display.
+    let resizeFrame = 0;
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(() => {
+        cancelAnimationFrame(resizeFrame);
+        resizeFrame = requestAnimationFrame(() => {
+          if (mapElement.clientWidth && mapElement.clientHeight) previewMap.invalidateSize({ pan:false, debounceMoveend:true });
+        });
+      });
+      observer.observe(mapElement);
+    }
+    requestAnimationFrame(() => previewMap.invalidateSize({ pan:false }));
     updateMapStyleButtons();
     return previewMap;
   }
@@ -2018,6 +2038,7 @@
     render();
   });
   document.getElementById("selectAllMatches")?.addEventListener("click", () => {
+    selectedMeters.clear();
     lastFilteredRows.forEach((meter) => selectedMeters.add(meter.id));
     selectedPreviewId = lastFilteredRows[0]?.id || selectedPreviewId;
     render();
