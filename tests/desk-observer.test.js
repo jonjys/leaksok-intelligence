@@ -26,11 +26,7 @@ function settle() {
   assert.equal(pending, false, "Observer must settle, not starve login and browser rendering");
 }
 settle();
-assert.equal(writes, 1);
-assert.equal(text, "Markera sida (50)");
-size.value = "100"; pending = true; settle();
-assert.equal(text, "Markera sida (100)");
-assert.equal(writes, 2);
-pending = true; settle();
-assert.equal(writes, 2, "Unrelated DOM changes must not rewrite the button");
-console.log("desk observer: settles after initial load and page-size changes");
+assert.equal(writes, 0, "Desktop layout must not override the shared selection label");
+assert.equal(text, "Markera alla");
+assert.equal(callback, undefined, "No body observer should be created for selection controls");
+console.log("desk layout: selection remains owned by the shared workflow");
