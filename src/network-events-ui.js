@@ -2,7 +2,7 @@
   let events = [];
   let panel;
   function compute() {
-    const raw = new Map(state.meters.map(m => [m.id, {id:m.id,address:m.address,area:m.area,points:[]} ]));
+    const raw = new Map(state.meters.filter(m => !MeterVisibility.hidden(state.labels[m.id]) && !["customer_side","repaired","ignored","seasonal","noise"].includes(m.category)).map(m => [m.id, {id:m.id,address:m.address,area:m.area,points:[]} ]));
     // Use original exports, before the daily minimum used by the older scorer.
     for (const file of state.files) for (const row of file.rows) {
       raw.get(row.id)?.points.push({date:row.exportDate || file.exportDate,readAt:row.readAt,current:row.current});
@@ -15,7 +15,8 @@
       meter.networkEvent = event.key;
       if (['normal','learning','watch','suspect_auto'].includes(meter.category)) {
         meter.category = 'suspect_auto';
-        meter.enginePriority = Math.max(meter.enginePriority || 0, 6050);
+        meter.risk = Math.max(meter.risk || 0, 44);
+        meter.enginePriority = Math.max(meter.enginePriority || 0, 6440);
         meter.reasons.unshift(`Gemensam ökning: ${event.members.length} mätare på samma gata, överlappande avläsningsintervall. Möjlig läcka, kontrollera.`);
       }
     }
@@ -27,7 +28,7 @@
     return el;
   }
   function draw() {
-    const host = document.querySelector('.desk-right') || document.querySelector('.content-column');
+    const host = document.getElementById("networkBriefHost");
     if (!host) return;
     if (!panel) { panel = element('section', '', 'network-watch'); panel.setAttribute('aria-label','Gemensamma förändringar'); }
     if (panel.parentElement !== host) host.prepend(panel);
@@ -35,7 +36,7 @@
     if (panel.dataset.signature === signature) return;
     panel.dataset.signature = signature;
     panel.replaceChildren();
-    panel.hidden = !state.meters.length;
+    panel.hidden = !events.length;
     const header = element('div','','network-watch-heading');
     header.append(element('span','OMRÅDESPULS','network-watch-kicker'), element('strong',events.length ? `${events.length} gemensamma förändringar` : 'Inga nya gemensamma ökningar'));
     panel.append(header);
@@ -63,8 +64,7 @@
       panel.append(card);
     }
   }
-  const previousAnalyze = analyze;
-  analyze = function analyzeNetworkEvents() { previousAnalyze(); compute(); render(); };
+  (window.LeakAnalysisSteps ||= []).push(compute);
   const previousRender = render;
   render = function renderNetworkEvents() { previousRender(); draw(); };
   document.addEventListener('DOMContentLoaded', draw);

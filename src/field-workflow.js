@@ -8,7 +8,8 @@
     large_building: "Höghus/stor byggnad",
     pump: "Undercentral/pumpar",
     false_alarm: "Falsklarm/Annat",
-    suspect: "Misstänkt / bevaka",
+    suspect: "Misstänk",
+    watch: "Bevaka",
     ignored: "Ignorera",
     manual_dispatch: "Åk ut",
     interesting: "Bevaka",
@@ -26,6 +27,7 @@
     customer_contact: ["efter mätare/kontakta FÄ"],
   };
   const selectedMeters = new Set();
+  let feedbackBatchIds = [];
   const GEOCODE_CACHE_KEY = "leaksok_geocode_v2_exact";
   const MAP_MARKS_KEY = "leaksok_map_marks_v1";
   const BOTKYRKA_BOUNDS = [[59.065, 17.54], [59.29, 18.035]];
@@ -67,8 +69,8 @@
     seasonal: "VÄRMEPANNA / SÄSONG",
     noise: "FALSKLARM / STÖRNING",
     ignored: "IGNORERAD",
-    dispatch: "AI TROR: ÅK UT",
-    suspect_auto: "AI TROR: BEVAKA",
+    dispatch: "ÅK UT · PRIORITERAD",
+    suspect_auto: "MISSTÄNK",
     learning: "NY MÄTARE",
   });
 
@@ -239,13 +241,13 @@
   }
 
   function matchesFilter(row, filter) {
-    if (filter === "ignored") return row.category === "ignored" || MeterVisibility.hidden(state.labels[row.id]);
+    if (filter === "ignored") return row.category === "ignored" && !MeterVisibility.hidden(state.labels[row.id]);
     if (!MeterVisibility.visible(state.labels[row.id], filter)) return false;
     if (filter === "seasonal") return ["seasonal", "noise"].includes(row.category);
     if (filter === "hidden") return true;
     if (filter === "all") return true;
     if (filter === "actionable") return ["dispatch", "suspect_auto", "watch"].includes(row.category);
-    if (filter === "suspect") return ["suspect_auto", "watch"].includes(row.category);
+    if (filter === "suspect") return row.category === "suspect_auto";
     if (filter === "learning") return ["learning", "new_high", "new_unknown"].includes(row.category);
     if (filter === "confirmed") return row.category === "confirmed";
     if (filter === "stale_contact") return row.staleContact || row.staleReadDays >= 14;
@@ -351,6 +353,13 @@
   function quickAssignMeters(ids, type) {
     const meters = ids.map((id) => state.meters.find((meter) => meter.id === id)).filter(Boolean);
     if (!meters.length) return;
+    if (["leak", "repaired"].includes(type)) {
+      window.labelMeter(meters[0].id, type);
+      feedbackBatchIds = meters.map(m => m.id);
+      if (meters.length > 1) document.getElementById("feedbackAddress").textContent = `${meters.length} markerade mätare · samma fältuppgifter sparas på alla`;
+      closeMeterContextMenu();
+      return;
+    }
     const now = new Date().toISOString();
     const today = localDate(new Date());
     for (const meter of meters) {
@@ -398,9 +407,13 @@
       <div class="context-menu-head"><span>SNABBVAL</span><b id="contextMeterName">Mätare</b></div>
       <button type="button" data-context-action="show">Visa graf</button>
       <button type="button" data-context-action="toggle">Avmarkera</button>
+      <button type="button" data-context-action="visibility">Göm markerade</button>
       <label for="contextGroupSelect">Lägg i grupp</label>
       <select id="contextGroupSelect">
-        <option value="suspect">Misstänkt / bevaka</option>
+        <option value="suspect">Misstänk</option>
+        <option value="interesting">Bevaka</option>
+        <option value="known_noise">Tillfällig topp / störning</option>
+        <option value="reset_baseline">Nollställ basnivå</option>
         <option value="manual_dispatch">Åk ut</option>
         <option value="customer_contact">Efter mätare</option>
         <option value="leak">Aktiva läckor</option>
@@ -558,7 +571,7 @@
     if (!tabs) return;
     const active = els.filter.value;
     const values = {
-      all: state.meters.length, dispatch: counts.dispatch, suspect: counts.suspect + counts.watch, customer_side: counts.customer,
+      all: state.meters.length, dispatch: counts.dispatch, suspect: counts.suspect, watch: counts.watch, customer_side: counts.customer,
       seasonal: counts.seasonal, confirmed: counts.confirmed, repaired: counts.repaired, ignored: counts.ignored, stale_contact: counts.stale, noise: counts.noise,
     };
     const secondary = ["seasonal", "noise", "ignored", "stale_contact"];
@@ -613,23 +626,24 @@
         <td data-label="Beslut" class="decision-cell">
           <span class="pill ${r.category}">${decisionText(r)}</span>
           <div class="score">${r.risk}</div>
-          <div class="small">säkerhet: ${r.confidence}</div>
+          <div class="small">underlag: ${r.confidence}</div>
         </td>
         <td data-label="Adress" class="address-cell">
-          <div class="address-line"><b>${escapeHtml(r.address || "-")}</b>${customerSideMark(r)}<button class="copy-address secondary" title="Kopiera adress" onclick="copyAddress('${escapeAttr(r.id)}', event)">Kopiera</button><button class="copy-address secondary" title="Öppna GPS" onclick="openMeterNavigation('${escapeAttr(r.id)}', event)">GPS</button></div>
+          <div class="address-line"><b>${escapeHtml(r.address || "-")}</b>${customerSideMark(r)}<button class="copy-address secondary" title="Kopiera adress" onclick="copyAddress(${inlineArg(r.id)}, event)">Kopiera</button><button class="copy-address secondary" title="Öppna GPS" onclick="openMeterNavigation(${inlineArg(r.id)}, event)">GPS</button></div>
           <div class="small">${escapeHtml(r.serial || r.id)} · ${escapeHtml(r.area || "ÖVRIGT")}</div>
           ${tagLine(r)}
         </td>
         <td data-label="E/F/P" class="metrics-cell">
-          <b>E ${round(r.last.current)}</b> · F ${round(r.last.average)} · G ${round(r.maxSeen)}
-          <div class="small">P ${(r.pDeviation * 100).toFixed(0)}% · ${signedPct(r.lastJump)} senast</div>
+          <div class="reading-pair"><span>${r.engine?.previousValue == null ? "—" : r.engine.previousValue}</span><i>→</i><b>${r.last.current}</b></div>
+          <div class="change-badge${r.engine?.newRise ? " new-rise" : ""}">${signedPct(r.engine?.latestPercent)} <small>${r.engine?.latestDelta == null ? "jämförelse saknas" : (r.engine.latestDelta >= 0 ? "+" : "") + r.engine.latestDelta + " i värde"}</small></div>
+          <div class="small">F ${round(r.last.average)} · P ${signedPct(r.pDeviation)}</div>
         </td>
         <td data-label="Trend" class="trend-cell">
           <b>${signedPct(r.lastJump)}</b> senast
           <div class="small">${signedPct(r.firstChange)} från första filen</div>
         </td>
         <td data-label="Historik" class="history-cell">
-          <svg class="spark" viewBox="0 0 160 42" onclick="openDetail('${escapeAttr(r.id)}')">${sparkPath(r.points)}</svg>
+          <svg class="spark" viewBox="0 0 160 42" onclick="openDetail(${inlineArg(r.id)})">${sparkPath(r.points)}</svg>
           <div class="small">${readingTimeline(r.points).points.length} avläsningar · senast ${readingTimeline(r.points).lastReadingDate}</div>
         </td>
         <td data-label="Varför" class="reason-cell">
@@ -665,7 +679,7 @@
       : (sets[active] || sets[category] || ["manual_dispatch", "suspect", "ignored"]);
     const address = escapeAttr(meter?.address || id);
     return `
-      <select class="row-action" aria-label="Flytta ${address}" onchange="if(this.value){quickGroupMeter(\'${escapeAttr(id)}\',this.value);this.value=\'\'}">
+      <select class="row-action" aria-label="Flytta ${address}" onchange="if(this.value){quickGroupMeter(${inlineArg(id)},this.value);this.value=\'\'}">
         <option value="">Välj grupp...</option>
         <option value="auto">Ta bort manuell grupp</option>
         ${types.map((type) => `<option value="${escapeAttr(type)}">${feedbackButtons[type] || workflowTypes[type] || type}</option>`).join("")}
@@ -771,6 +785,7 @@
     const expectedHouse = normalize(parsed.house).replace(/\s/g, "");
     if (!hitHouse || hitHouse !== expectedHouse) return false;
     const hitRoad = normalize(address.road || address.pedestrian || address.residential || address.footway || "");
+    if (!hitRoad) return false;
     const expectedRoad = normalize(parsed.road);
     const roadWords = expectedRoad.split(" ").filter((word) => word.length > 2);
     const roadMatches = hitRoad === expectedRoad
@@ -835,11 +850,11 @@
       } else {
         url.searchParams.set("q", addressForMap(meter));
       }
-      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      const response = await fetch(url.toString(), { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10000) });
       if (!response.ok) throw new Error(`GPS-sökning misslyckades (${response.status})`);
       const results = await response.json();
       const hit = Array.isArray(results)
-        ? (parsed ? results.find((candidate) => geocodeHitIsExact(candidate, parsed)) : results[0])
+        ? (parsed ? results.find((candidate) => geocodeHitIsExact(candidate, parsed)) : null)
         : null;
       const lat = Number(hit?.lat);
       const lng = Number(hit?.lon);
@@ -1149,13 +1164,13 @@
       attributionControl: true,
       preferCanvas: true,
       doubleClickZoom: true,
-      touchZoom: window.innerWidth > 760,
+      touchZoom: true,
       scrollWheelZoom: false,
       wheelDebounceTime: 110,
       wheelPxPerZoomLevel: 240,
       zoomDelta: 1,
       zoomSnap: 1,
-      dragging: window.innerWidth > 760,
+      dragging: true,
       boxZoom: true,
       minZoom: 11,
       maxBounds: BOTKYRKA_BOUNDS,
@@ -1370,6 +1385,7 @@
     previewMapPoints = [];
     previewMapEntries = [];
     if (!meters.length) {
+      previewAnnotationLayer?.clearLayers();
       setMapStatus("");
       return;
     }
@@ -1382,7 +1398,7 @@
         cachedLocated.push({ meter, coordinates: { lat: cached.lat, lng: cached.lng, label: cached.label || addressForMap(meter) } });
       }
     }
-    const geocodeLimit = overviewMode ? 80 : meters.length;
+    const geocodeLimit = overviewMode ? cachedLocated.length + 12 : meters.length;
     const queue = meters
       .filter((meter) => !cachedLocated.some((hit) => hit.meter.id === meter.id))
       .slice(0, Math.max(0, geocodeLimit - cachedLocated.length));
@@ -1424,7 +1440,7 @@
         fillColor: mapMarkerColor(meter.category),
         fillOpacity: selected ? 1 : .9,
       });
-      marker.bindTooltip(shortMapLabel(meter), {
+      marker.bindTooltip(escapeHtml(shortMapLabel(meter)), {
         permanent: !overviewMode && located.length <= 8,
         direction: "top",
         offset: [0, -7],
@@ -1432,8 +1448,8 @@
       });
       marker.bindPopup(`
         <b>${escapeHtml(meter.address || meter.id)}</b><br>
-        ${escapeHtml(decisionText(meter))} · underlagsstyrka ${meter.risk}<br>
-        <button type="button" onclick="openMeterNavigation('${escapeAttr(meter.id)}', event)">Kör hit</button>
+        ${escapeHtml(decisionText(meter))} · prioritet ${meter.risk}/100<br>
+        <button type="button" onclick="openMeterNavigation(${inlineArg(meter.id)}, event)">Kör hit</button>
       `);
       marker.on("click", () => {
         clearSelectionRectangle();
@@ -1588,7 +1604,7 @@
     const startIndex = clamp(Number(signalRanges.get(rangeKey)) || 0, 0, maxStart);
     const points = allPoints.slice(startIndex);
     const comparisonPeriod = host.dataset.comparisonPeriod || "previous";
-    const comparison = LeakHistory.compare(allPoints, comparisonPeriod);
+    const comparison = LeakHistory.compare(comparisonPeriod === "export" ? meter.points.map(p => ({ ...p, exportDate: p.date, readingDate: p.readAt || p.date })) : allPoints, comparisonPeriod);
     const values = points.map(point => Number(point.current));
     const maxValue = Math.max(10, ...values, comparison.reference?.value || 0);
     const roughStep = maxValue * 1.1 / 4;
@@ -1636,7 +1652,7 @@
       const px = timeX(time);
       return `<line x1="${px}" y1="${top}" x2="${px}" y2="${bottom}" class="signal-grid vertical"/><text x="${px}" y="${height-8}" class="signal-date" text-anchor="${!i ? "start" : i === tickCount-1 ? "end" : "middle"}">${escapeHtml(dateFormat.format(new Date(time)))}</text>`;
     }).join("");
-    const dots = values.map((value,i) => `<circle cx="${x(i)}" cy="${y(value)}" r="${i === values.length-1 ? 4 : values.length > 90 ? 1 : 2}" class="signal-dot${i === values.length-1 ? " latest" : ""}"><title>${localDate(points[i].date)} · Brus ${round(value)}</title></circle>`).join("");
+    const dots = values.map((value,i) => `<circle cx="${x(i)}" cy="${y(value)}" r="${i === values.length-1 ? 4 : values.length > 90 ? 1 : 2}" class="signal-dot${i >= values.length-5 ? " recent" : ""}${i === values.length-1 ? " latest" : ""}"><title>${localDate(points[i].date)} · Brus ${round(value)}</title></circle>`).join("");
     const latest = values.at(-1);
     const changeText = comparison.percent === null ? "—" : `${comparison.percent >= 0 ? "+" : ""}${Math.round(comparison.percent)}%`;
     const comparisonText = comparison.reference
@@ -1644,7 +1660,7 @@
       : "Avläsning saknas för jämförelsen";
     const comparisonLine = comparison.reference ? `<line x1="${left}" y1="${y(comparison.reference.value)}" x2="${right}" y2="${y(comparison.reference.value)}" class="signal-reference"><title>Jämförelse: ${escapeHtml(comparisonText)}</title></line>` : "";
     const topline = `<span><i class="signal-key"></i>Brusnivå</span><span><i class="signal-key reference"></i>Jämförelse</span><strong>${round(latest)} <small>senast</small></strong>`;
-    const summary = `<span><b>${changeText}</b> <small>${comparison.reference ? `mot ${escapeHtml(comparisonText)}` : comparisonText}</small></span><small>Avläst ${localDate(points.at(-1).date)}</small>`;
+    const summary = `<span><b>${changeText}</b> <em>${comparison.delta === null ? "" : (comparison.delta >= 0 ? "+" : "") + comparison.delta.toLocaleString("sv-SE") + " i värde"}</em> <small>${comparison.reference ? `mot ${escapeHtml(comparisonText)}` : comparisonText}</small></span><small>Avläst ${localDate(points.at(-1).date)}</small>`;
     const svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Brusnivå och historisk jämförelse för ${escapeAttr(meter.address || meter.id)}">
       <defs><linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0babc7" stop-opacity=".16"/><stop offset="1" stop-color="#0babc7" stop-opacity=".01"/></linearGradient></defs>
       <rect x="${left}" y="${top}" width="${right-left}" height="${bottom-top}" class="signal-plot-bg"/>
@@ -1661,7 +1677,7 @@
         <div class="signal-comparison-summary" aria-live="polite">${summary}</div>
         <div class="signal-chart-stage" ${compact ? 'role="button" tabindex="0" aria-label="Förstora graf"' : ''}>${svg}</div>
         <div class="signal-range-panel">
-          <label class="signal-comparison-control">Jämför <select class="signal-comparison-period" aria-label="Jämför med tidigare avläsning"><option value="previous">Föregående</option><option value="7">7 dagar bakåt</option><option value="30">30 dagar bakåt</option><option value="90">90 dagar bakåt</option><option value="365">1 år bakåt</option></select></label>
+          <label class="signal-comparison-control">Jämför <select class="signal-comparison-period" aria-label="Jämför med tidigare avläsning"><option value="previous">Föregående avläsning</option><option value="export">Föregående Excel</option><option value="7">7 dagar bakåt</option><option value="30">30 dagar bakåt</option><option value="90">90 dagar bakåt</option><option value="365">1 år bakåt</option></select></label>
           <div class="signal-range-labels"><span class="signal-range-dates"></span></div>
           <div class="signal-range-track"><input class="signal-range-start" type="range" min="0" max="${maxStart}" step="1" value="${startIndex}" aria-label="Startdatum för grafen"><i class="signal-range-end" aria-hidden="true"></i></div>
           <div class="signal-range-presets" aria-label="Snabbval för tidsperiod">
@@ -1765,6 +1781,7 @@
     const column = box.closest(".content-column");
     if (column) column.dataset.meterSelected = String(Boolean(meter));
     if (!meter) {
+      canvas.closest(".preview-chart")?.querySelector(".leak-signal-chart")?.remove();
       if (state.previewChart) state.previewChart.destroy();
       state.previewChart = null;
       const rows = overviewMapMeters();
@@ -1823,6 +1840,14 @@
     });
   }
 
+  window.selectLeakMeter = function selectLeakMeter(id) {
+    if (!state.meters.some(m => m.id === id)) return;
+    selectedMeters.clear();
+    selectedMeters.add(id);
+    selectedPreviewId = id;
+    render();
+  };
+
   window.openDetail = function openDetailFieldWorkflow(id) {
     const meter = state.meters.find((m) => m.id === id);
     if (!meter) return;
@@ -1832,8 +1857,8 @@
     els.detailMeta.textContent = `${meter.serial || meter.id} · ${meter.area || "ÖVRIGT"} · ${firstDate} till ${lastDate} · underlagsstyrka ${meter.risk} · ${decisionText(meter)}`;
     els.detailText.innerHTML = `
       <div class="detail-actions">
-        <button class="secondary" onclick="copyAddress('${escapeAttr(meter.id)}', event)">Kopiera adress</button>
-        <button class="secondary" onclick="openMeterNavigation('${escapeAttr(meter.id)}', event)">Kör hit</button>
+        <button class="secondary" onclick="copyAddress(${inlineArg(meter.id)}, event)">Kopiera adress</button>
+        <button class="secondary" onclick="openMeterNavigation(${inlineArg(meter.id)}, event)">Kör hit</button>
         ${feedbackActions(meter.id)}
       </div>
       <details class="detail-analysis"><summary>Visa analys och underlag</summary>
@@ -1857,6 +1882,7 @@
   window.labelMeter = function labelMeterField(id, type) {
     const meter = state.meters.find((item) => item.id === id);
     if (!meter) return;
+    feedbackBatchIds = [id];
     const existing = state.labels[id] || {};
     const today = localDate(new Date());
     document.getElementById("feedbackMeterId").value = id;
@@ -1909,7 +1935,7 @@
         next.mapMarks = { valve: mark.valve || null, leak: mark.leak };
         next.distanceUncertain = true;
       }
-      delete next.lineType;
+      next.lineType = document.querySelector('input[name="lineType"]:checked')?.value || "Vet ej";
     } else if (type === "repaired") {
       next.repairedDate = document.getElementById("repairedDate").value || localDate(new Date());
       next.lineType = document.querySelector('input[name="repairLineType"]:checked')?.value || "";
@@ -1922,7 +1948,19 @@
       }
     }
     if (type === "reset_baseline") next.resetAfter = next.at;
-    state.labels[id] = next;
+    const ids = feedbackBatchIds.length ? feedbackBatchIds : [id];
+    for (const meterId of ids) {
+      const target = state.meters.find(m => m.id === meterId);
+      if (!target) continue;
+      const fields = { type: next.type, note: next.note, at: next.at, source: next.source };
+      for (const key of type === "leak" ? ["confirmedDate","confirmedDateUncertain","lineType"] :
+        type === "repaired" ? ["repairedDate","lineType","distanceMeters","distanceUncertain"] :
+        ["notedDate","noiseTags","resetAfter"]) if (key in next) fields[key] = next[key];
+      state.labels[meterId] = meterId === id ? next : {
+        ...(state.labels[meterId] || {}), ...fields, address: target.address, serial: target.serial
+      };
+    }
+    feedbackBatchIds = [];
     saveLabels();
     document.getElementById("feedbackDialog").close();
     analyze();
@@ -1947,6 +1985,11 @@
       }
     }
     render();
+  });
+  document.getElementById("rows")?.addEventListener("keydown", event => {
+    if (!["Enter", " "].includes(event.key) || event.target.tagName !== "TR") return;
+    event.preventDefault();
+    event.target.click();
   });
   document.getElementById("rows")?.addEventListener("dblclick", (event) => {
     const row = event.target.closest?.("tr[data-meter-row]");
@@ -2095,26 +2138,7 @@
       ? state.meters.filter((meter) => selectedMeters.has(meter.id))
       : matchingRows();
     if (!rows.length) return;
-    const now = new Date().toISOString();
-    for (const meter of rows) {
-      const existing = state.labels[meter.id] || {};
-      state.labels[meter.id] = {
-        ...existing,
-        type,
-        address: meter.address || existing.address,
-        serial: meter.serial || existing.serial,
-        noiseTags: [...new Set([...(existing.noiseTags || []), ...(bulkDefaults[type] || [])])],
-        notedDate: existing.notedDate || localDate(new Date()),
-        at: now,
-        source: "fältfacit bulk",
-      };
-      if (type === "reset_baseline") state.labels[meter.id].resetAfter = now;
-    }
-    selectedMeters.clear();
-    selectedPreviewId = "";
-    saveLabels();
-    analyze();
-    els.importStatus.textContent = `${rows.length} mätare flyttade till ${workflowTypes[type] || type}.`;
+    quickAssignMeters(rows.map(m => m.id), type);
   });
 
   analyze();

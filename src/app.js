@@ -44,6 +44,9 @@ const state = {
   chart: null,
   profileId: null,
   profileName: null,
+  importing: false,
+  storageError: "",
+  lastImport: null,
 };
 
 const categoryText = {
@@ -154,8 +157,9 @@ function loadLabels() {
 }
 
 function saveLabels() {
-  localStorage.setItem("leaksok-intelligence-labels", JSON.stringify(state.labels));
-  persistState();
+  try { localStorage.setItem("leaksok-intelligence-labels", JSON.stringify(state.labels)); }
+  catch (error) { els.importStatus.textContent = "Facit visas men lokal reservkopia kunde inte sparas: " + error.message; }
+  return persistState();
 }
 
 function profileConfig() {
@@ -214,11 +218,13 @@ async function unlockProfile(event) {
       state.labels = { ...knownCases, ...(snapshot.labels || {}) };
     }
   } catch (error) {
-    els.importStatus.textContent = `Lokal historik kunde inte öppnas: ${error.message}`;
+    state.profileId = null;
+    els.profileStatus.textContent = `Historiken kunde inte öppnas: ${error.message}. Försök igen; sparade data har inte skrivits över.`;
+    return;
   }
   els.profileDialog.close();
   analyze();
-  persistState();
+  await persistState();
 }
 
 function lockProfile() {
@@ -232,15 +238,20 @@ function lockProfile() {
 }
 
 async function persistState() {
-  if (!state.profileId || !window.LeakStorage) return;
+  if (!state.profileId || !window.LeakStorage) {
+    state.storageError = "Historiken är inte sparad i en lokal profil. Håll sidan öppen och spara en säkerhetskopia.";
+    return false;
+  }
   try {
     await window.LeakStorage.save(state.profileId, {
-      files: state.files,
-      labels: state.labels,
-      savedAt: new Date(),
+      files: state.files, labels: state.labels, savedAt: new Date(),
     });
+    state.storageError = "";
+    return true;
   } catch (error) {
-    els.importStatus.textContent = `Kunde inte spara lokalt: ${error.message}`;
+    state.storageError = "Kunde inte spara lokalt: " + error.message;
+    els.importStatus.textContent = state.storageError;
+    return false;
   }
 }
 
@@ -255,7 +266,7 @@ function hydrateFiles(files) {
       rows: (file.rows || []).map((row) => ({
         ...row,
         exportDate,
-        readAt: new Date(row.readAt),
+        readAt: row.readAt ? new Date(row.readAt) : null,
       })),
     };
   }).filter((file) => !Number.isNaN(file.exportDate.getTime()));
@@ -286,31 +297,56 @@ function profileKey(name) {
 }
 
 async function handleFiles(files) {
+  if (state.importing) {
+    els.importStatus.textContent = "En import pågår. Vänta tills den är färdig.";
+    return;
+  }
   const excelFiles = files.filter((file) => /\.(xlsx|xls|csv)$/i.test(file.name));
   if (!excelFiles.length) {
     els.importStatus.textContent = "Ingen Excel- eller CSV-fil vald.";
     return;
   }
-  els.importStatus.textContent = `Läser ${excelFiles.length} filer...`;
-  let imported = 0;
-  const errors = [];
-  for (const file of excelFiles) {
-    try {
-      const parsed = await parseWorkbook(file);
-      if (!parsed.rows.length) throw new Error("inga mätarrader hittades");
-      state.files = state.files.filter((old) => old.name !== file.name);
-      state.files.push({ name: file.name, exportDate: parsed.exportDate, rows: parsed.rows });
-      imported++;
-    } catch (error) {
-      errors.push(`${file.name}: ${error.message}`);
+  state.importing = true;
+  els.pickFiles.disabled = true;
+  els.resetAll.disabled = true;
+  els.profileButton.disabled = true;
+  const previousFiles = state.files;
+  const nextFiles = [...previousFiles];
+  const errors = [], warnings = [];
+  let imported = 0, duplicates = 0;
+  try {
+    for (let index = 0; index < excelFiles.length; index++) {
+      const file = excelFiles[index];
+      els.importStatus.textContent = `Läser ${index + 1}/${excelFiles.length}: ${file.name}`;
+      try {
+        const parsed = await parseWorkbook(file);
+        if (!parsed.rows.length) throw new Error("inga mätarrader hittades");
+        const fingerprint = JSON.stringify(parsed.rows);
+        const same = nextFiles.find(old => old.name === file.name && new Date(old.exportDate).getTime() === parsed.exportDate.getTime());
+        if (same && JSON.stringify(same.rows) === fingerprint) { duplicates++; continue; }
+        // An overlapping or same-name export must not erase earlier readings.
+        nextFiles.push({ name: file.name, exportDate: parsed.exportDate, rows: parsed.rows });
+        if (parsed.skippedRows) warnings.push(`${file.name}: ${parsed.skippedRows} rader saknar giltigt brusvärde`);
+        if (parsed.unknownReadDates) warnings.push(`${file.name}: ${parsed.unknownReadDates} rader saknar giltigt avläsningsdatum`);
+        imported++;
+      } catch (error) { errors.push(`${file.name}: ${error.message}`); }
     }
+    state.files = nextFiles.sort((a, b) => a.exportDate - b.exportDate);
+    try { analyze(); }
+    catch (error) { state.files = previousFiles; analyze(); throw error; }
+    const saved = await persistState();
+    state.lastImport = { at: new Date().toISOString(), imported, duplicates, errors, warnings, saved };
+    els.importStatus.textContent = `${imported} nya filer · ${duplicates} dubbletter · ${state.meters.length.toLocaleString("sv-SE")} mätare. ${saved ? "Sparat på denna enhet." : state.storageError}${warnings.length ? " " + warnings.join(" | ") : ""}${errors.length ? " Kunde inte läsa: " + errors.join(" | ") : ""}`;
+    render();
+  } catch (error) {
+    els.importStatus.textContent = "Importen kunde inte slutföras: " + error.message;
+  } finally {
+    state.importing = false;
+    els.pickFiles.disabled = false;
+    els.resetAll.disabled = false;
+    els.profileButton.disabled = false;
+    els.fileInput.value = "";
   }
-  state.files.sort((a, b) => a.exportDate - b.exportDate);
-  analyze();
-  await persistState();
-  const meterRows = state.files.reduce((sum, file) => sum + file.rows.length, 0);
-  els.importStatus.textContent = `${imported} filer inlästa, ${meterRows.toLocaleString("sv-SE")} mätarrader.${errors.length ? ` Kunde inte läsa ${errors.length}: ${errors.join(" | ")}` : ""}`;
-  els.fileInput.value = "";
 }
 
 async function parseWorkbook(file) {
@@ -323,8 +359,11 @@ async function parseWorkbook(file) {
     }
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+    rows = [];
+    for (const name of workbook.SheetNames) {
+      const table = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: null });
+      if (findHeaderIndex(table) >= 0) { rows = table; break; }
+    }
   }
   const headerIndex = findHeaderIndex(rows);
   if (headerIndex < 0) return { exportDate: dateFromFile(file), rows: [] };
@@ -346,39 +385,46 @@ async function parseWorkbook(file) {
     throw new Error("Kamstrup-kolumnerna Serienummer/Adress/Senaste värde saknas");
   }
 
-  const exportDate = dateFromFile(file) || findExportDate(rows);
+  const exportDate = /\d{4}-\d{2}-\d{2}/.test(file.name) ? dateFromFile(file) : (findExportDate(rows.slice(0, headerIndex)) || dateFromFile(file));
   const parsed = [];
+  let skippedRows = 0, unknownReadDates = 0;
   for (let r = headerIndex + 1; r < rows.length; r++) {
     const row = rows[r] || [];
     const serial = cleanText(row[col.serial]);
     const address = cleanText(row[col.address]);
     if (!serial && !address) continue;
     const current = parseNumber(row[col.current]);
-    if (current == null) continue;
+    if (current == null || current < 0) { skippedRows++; continue; }
     const average = parseNumber(row[col.average]);
     const max = parseNumber(row[col.max]);
-    const readAt = parseDate(row[col.readAt]) || exportDate;
+    const parsedReadAt = parseDate(row[col.readAt]);
+    // Unknown dates never establish persistence or fresh evidence.
+    const readAt = parsedReadAt && parsedReadAt <= new Date(exportDate.getTime() + 86400000) ? parsedReadAt : null;
+    if (!readAt) unknownReadDates++;
     parsed.push({
       id: serial || normalizeAddress(address),
       serial,
       address,
       area: areaOf(`${address} ${cleanText(row[col.area])}`),
       readAt,
+      readAtUnknown: !readAt,
       exportDate,
       current,
-      average: average ?? current,
+      average,
+      infoCode: cleanText(row[col.info]),
+      activeEvents: cleanText(row[col.activeEvents]),
       max: max ?? current,
       info: [row[col.info], row[col.activeEvents]].map(cleanText).filter(Boolean).join(" · "),
       closedEvents: cleanText(row[col.closedEvents]),
       source: file.name,
     });
   }
-  return { exportDate, rows: parsed };
+  return { exportDate, rows: parsed, skippedRows, unknownReadDates };
 }
 
 function parseCsvRows(text) {
   const source = String(text || "").replace(/^\uFEFF/, "");
-  const firstLine = source.split(/\r?\n/, 1)[0] || "";
+  const firstLine = source.split(/\r?\n/).slice(0, 60).find(line => /serie|mätar|meter/i.test(line) && /värde|noise|brus|value/i.test(line)) || source.split(/\r?\n/, 1)[0] || "";
   const candidates = [",", ";", "\t"];
   const separator = candidates
     .map((value) => ({ value, count: firstLine.split(value).length - 1 }))
@@ -419,15 +465,23 @@ function findHeaderIndex(rows) {
   for (let i = 0; i < Math.min(rows.length, 60); i++) {
     const cells = (rows[i] || []).map((value) => String(value || "").toLowerCase());
     const hasAddress = cells.some((cell) => cell.includes("adress") || cell.includes("address"));
-    const hasValue = cells.some((cell) => cell.includes("senaste värde") || cell.includes("brus") || cell.includes("value"));
+    const hasValue = cells.some((cell) => cell.includes("senaste värde") || cell.includes("brus") || cell.includes("noise") || cell.includes("value"));
     const hasSerial = cells.some((cell) => cell.includes("serie") || cell.includes("mätar") || cell.includes("meter"));
-    if (hasAddress && hasValue && hasSerial) return i;
+    if ((hasAddress || hasSerial) && hasValue) return i;
   }
   return -1;
 }
 
 function findColumn(header, names) {
-  return header.findIndex((cell) => names.some((name) => cell.includes(name)));
+  for (const name of names) {
+    const exact = header.findIndex(cell => cell === name);
+    if (exact >= 0) return exact;
+  }
+  for (const name of names) {
+    const match = header.findIndex(cell => cell.includes(name));
+    if (match >= 0) return match;
+  }
+  return -1;
 }
 
 function findExportDate(rows) {
@@ -483,13 +537,18 @@ function analyze() {
       meter.address = row.address || meter.address;
       meter.area = row.area || meter.area;
       meter.info = row.info;
+      meter.infoCode = row.infoCode;
+      meter.activeEvents = row.activeEvents;
       meter.points.push({
         date: row.exportDate,
         readAt: row.readAt,
+        readAtUnknown: row.readAtUnknown,
         current: row.current,
         average: row.average,
         max: row.max,
         info: row.info,
+        infoCode: row.infoCode,
+        activeEvents: row.activeEvents,
         source: row.source,
       });
     }
@@ -501,19 +560,20 @@ function analyze() {
   });
   const sharedContexts = detectSharedSignals(meters);
   state.meters = meters.map((meter) => scoreMeter(meter, sharedContexts.get(meter.id)));
+  for (const step of window.LeakAnalysisSteps || []) step();
+  const weights = { dispatch:9000, confirmed:8500, customer_side:7000, suspect_auto:6000, watch:5900, learning:3000, normal:2000, seasonal:1200, noise:1100, repaired:500, ignored:0 };
+  for (const meter of state.meters) meter.enginePriority = (weights[meter.category] || 0) + meter.risk * 10 + Math.min(meter.engine?.persistenceDays || 0, 180);
   render();
 }
 
 function dedupePoints(points) {
   const byKey = new Map();
-  [...points].sort((a, b) => a.date - b.date).forEach((point) => {
-    const key = localDate(point.date);
-    const existing = byKey.get(key);
-    if (!existing || point.current < existing.current || (point.current === existing.current && point.date > existing.date)) {
-      byKey.set(key, point);
-    }
-  });
-  return [...byKey.values()].sort((a, b) => a.date - b.date);
+  for (const point of [...points].sort((a,b) => a.date-b.date)) {
+    // Preserve distinct readings even when several exports share a calendar day.
+    const key = point.readAt ? new Date(point.readAt).getTime() : new Date(point.date).getTime();
+    byKey.set(key, point);
+  }
+  return [...byKey.values()].sort((a,b) => a.date-b.date);
 }
 
 function scoreMeter(meter, networkContext = null) {
@@ -522,15 +582,15 @@ function scoreMeter(meter, networkContext = null) {
   const last = points[points.length - 1];
   const prev = points[points.length - 2] || null;
   const first = points[0];
-  const pDeviation = last.average ? (last.current / last.average) - 1 : 0;
-  const firstChange = first.current ? (last.current / first.current) - 1 : 0;
-  const lastJump = prev && prev.current ? (last.current / prev.current) - 1 : 0;
+  const pDeviation = last.average > 0 ? (last.current / last.average) - 1 : null;
+  const firstChange = first.current > 0 ? (last.current / first.current) - 1 : null;
+  const lastJump = prev && prev.current > 0 ? (last.current / prev.current) - 1 : null;
   const maxSeen = Math.max(...points.map((p) => p.max || p.current));
   const label = state.labels[meter.id]?.type ? state.labels[meter.id] : null;
   const infrastructure = infrastructureProfile(meter);
   const profile = patternProfile(points, infrastructure);
   const newMeter = profile.coverage.points <= 1 || profile.coverage.days <= 1;
-  const lowRelativeRise = LeakIntelligence.detectLowRelativeRise(points);
+  const lowRelativeRise = LeakIntelligence.detectLowRelativeRise(readingTimeline(points).points.map(p => ({ ...p, date: p.readingDate })));
   const freshAnomaly = Boolean(
     profile.newLevel
     || lowRelativeRise?.persistent
@@ -671,9 +731,9 @@ function addressClusterKey(address) {
 }
 
 function curveCorrelation(firstPoints, secondPoints) {
-  const secondByDate = new Map(secondPoints.map((point) => [localDate(point.date), point.current]));
-  const pairs = firstPoints
-    .map((point) => [point.current, secondByDate.get(localDate(point.date))])
+  const secondByDate = new Map(readingTimeline(secondPoints).points.map(point => [localDate(point.readingDate), point.current]));
+  const pairs = readingTimeline(firstPoints).points
+    .map((point) => [point.current, secondByDate.get(localDate(point.readingDate))])
     .filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
   if (pairs.length < 5) return 0;
   const first = pairs.map((pair) => pair[0]);
@@ -893,7 +953,7 @@ function renderRows(rows) {
         <div class="small">säkerhet: ${r.confidence}</div>
       </td>
       <td data-label="Adress" class="address-cell">
-        <div class="address-line"><b>${escapeHtml(r.address || "-")}</b>${customerSideMark(r)}<button class="copy-address secondary" title="Kopiera adress" onclick="copyAddress('${escapeAttr(r.id)}', event)">Kopiera</button></div>
+        <div class="address-line"><b>${escapeHtml(r.address || "-")}</b>${customerSideMark(r)}<button class="copy-address secondary" title="Kopiera adress" onclick="copyAddress(${inlineArg(r.id)}, event)">Kopiera</button></div>
         <div class="small">${escapeHtml(r.serial || r.id)} · ${escapeHtml(r.area || "ÖVRIGT")}</div>
         ${tagLine(r)}
       </td>
@@ -906,7 +966,7 @@ function renderRows(rows) {
         <div class="small">${signedPct(r.firstChange)} från första filen</div>
       </td>
       <td data-label="Historik" class="history-cell">
-        <svg class="spark" viewBox="0 0 160 42" onclick="openDetail('${escapeAttr(r.id)}')">${sparkPath(r.points)}</svg>
+        <svg class="spark" viewBox="0 0 160 42" onclick="openDetail(${inlineArg(r.id)})">${sparkPath(r.points)}</svg>
         <div class="small">${r.points.length} punkter · ${r.profile.coverage.days} dagar · ${r.profile.coverage.months} månader · ${r.profile.coverage.seasons} säsonger</div>
       </td>
       <td data-label="Varför" class="reason-cell">
@@ -934,7 +994,7 @@ function customerSideMark(row) {
 
 function feedbackActions(id) {
   return Object.entries(feedbackButtons)
-    .map(([type, text]) => `<button class="secondary" onclick="labelMeter('${escapeAttr(id)}','${type}')">${text}</button>`)
+    .map(([type, text]) => `<button class="secondary" onclick="labelMeter(${inlineArg(id)},'${type}')">${text}</button>`)
     .join("");
 }
 
@@ -947,6 +1007,7 @@ function readingTimeline(points) {
   const endDate = exportDates.length ? new Date(Math.max(...exportDates.map((date) => date.getTime()))) : new Date();
   const byReadingDate = new Map();
   for (const point of points) {
+    if (point.readAtUnknown) continue;
     const readingDate = validDate(point.readAt) && point.readAt <= endDate ? point.readAt : point.date;
     if (!validDate(readingDate)) continue;
     const key = localDate(readingDate);
@@ -1059,7 +1120,7 @@ window.openDetail = function openDetail(id) {
   els.detailMeta.textContent = `${meter.serial || meter.id} · ${meter.area || "ÖVRIGT"} · risk ${meter.risk} · ${categoryText[meter.category]}`;
   els.detailText.innerHTML = `
     <div class="detail-actions">
-      <button class="secondary" onclick="copyAddress('${escapeAttr(meter.id)}', event)">Kopiera adress</button>
+      <button class="secondary" onclick="copyAddress(${inlineArg(meter.id)}, event)">Kopiera adress</button>
       ${feedbackActions(meter.id)}
     </div>
     <p><b>Motivering:</b> ${meter.reasons.map(escapeHtml).join(" · ")}</p>
@@ -1239,6 +1300,7 @@ function parseNumber(value) {
   }
   const firstDot = normalized.indexOf(".");
   if (firstDot >= 0) normalized = normalized.slice(0, firstDot + 1) + normalized.slice(firstDot + 1).replace(/\./g, "");
+  if (!/\d/.test(normalized)) return null;
   const number = Number(normalized);
   return Number.isFinite(number) ? number : null;
 }
@@ -1266,6 +1328,7 @@ function signedPct(value) {
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 }
+function inlineArg(value) { return escapeAttr(JSON.stringify(String(value ?? ""))); }
 function escapeAttr(value) { return escapeHtml(value).replace(/`/g, "&#96;"); }
 
 bootstrap();

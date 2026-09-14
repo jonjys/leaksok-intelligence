@@ -34,12 +34,12 @@
         readAt: validDate(point.readAt || point.date),
         current: point.current == null || point.current === "" ? NaN : Number(point.current),
       }))
-      .filter((point) => point.date && Number.isFinite(point.current) && point.current >= 0)
+      .filter((point, index) => !points[index]?.readAtUnknown && point.date && Number.isFinite(point.current) && point.current >= 0)
       .sort((a, b) => a.date - b.date);
     const days = new Map();
     for (const point of exports) {
       const date = point.readAt && point.readAt <= point.date ? point.readAt : point.date;
-      const key = date.toISOString().slice(0, 10);
+      const key = dateKey(date);
       const previous = days.get(key);
       if (!previous || point.current < previous.current || (point.current === previous.current && point.date > previous.exportDate)) {
         days.set(key, { ...point, date, exportDate: point.date });
@@ -53,16 +53,30 @@
     const split = Math.max(1, values.length - recentCount);
     const baselineValues = values.slice(0, split);
     const recentValues = values.slice(-recentCount);
-    const baseline = median(baselineValues.length ? baselineValues : values);
+    let baseline = median(baselineValues.length ? baselineValues : values);
+    // Keep a stable level shift visible as daily imports accumulate.
+    // Compare candidate onsets with up to 30 preceding observed days.
+    for (let splitAt = Math.max(3, values.length - 90); splitAt <= values.length - 2; splitAt++) {
+      const before = values.slice(Math.max(0, splitAt - 30), splitAt);
+      const base = median(before);
+      const mad = median(before.map(value => Math.abs(value - base)));
+      const limit = Math.max(6, base + Math.max(2, 3 * mad), base * 1.5);
+      if (base <= 0 || base >= baseline || mad > Math.max(1, base * .25)) continue;
+      const after = values.slice(splitAt);
+      if (values.at(-1) < limit || median(after.slice(-5)) < limit) continue;
+      if (after.filter(value => value >= limit).length / after.length < .8) continue;
+      if (values[splitAt] < limit) continue;
+      baseline = base;
+    }
     const recentLevel = median(recentValues);
     const latest = values[values.length - 1];
-    const threshold = Math.max(8, baseline + 4, baseline * 1.55);
-    const relativeRise = baseline > 0 ? (recentLevel / baseline) - 1 : 0;
-    const latestRise = baseline > 0 ? (latest / baseline) - 1 : 0;
+    const threshold = Math.max(6, baseline + 2, baseline * 1.5);
+    const relativeRise = baseline > 0 ? (recentLevel / baseline) - 1 : null;
+    const latestRise = baseline > 0 ? (latest / baseline) - 1 : null;
     const recentShare = recentValues.filter((value) => value >= threshold).length / recentValues.length;
     let trailingElevated = 0;
     for (let index = values.length - 1; index >= 0; index--) {
-      if (values[index] < threshold) break;
+      if (values[index] < threshold || (index < values.length - 1 && ordered[index + 1].date - ordered[index].date > 14 * DAY_MS)) break;
       trailingElevated += 1;
     }
     const elevatedStart = trailingElevated ? ordered[ordered.length - trailingElevated].date : ordered[ordered.length - 1].date;
@@ -74,9 +88,9 @@
     const neighborLevel = median(neighbors.length ? neighbors : values);
     const isolatedPeak = values.length >= 4 && peak >= Math.max(30, threshold * 2) && peak >= Math.max(1, neighborLevel) * 2.4 && values.filter((value) => value >= peak * 0.7).length <= 1;
     const droppedAfterPeak = peakIndex < values.length - 1 && latest <= Math.max(threshold, peak * 0.45);
-    const transientSpike = isolatedPeak && (droppedAfterPeak || trailingElevated <= 1);
+    const transientSpike = isolatedPeak && droppedAfterPeak;
     const volatility = coefficientOfVariation(recentValues);
-    const normalizedSlope = normalizedLinearSlope(values.slice(-Math.min(8, values.length)), Math.max(1, baseline));
+    const normalizedSlope = normalizedLinearSlope(values.slice(-Math.min(8, values.length)), Math.max(1, baseline), ordered.slice(-Math.min(8, values.length)).map(p => p.date.getTime() / DAY_MS));
     const recentFloor = percentile(recentValues, 0.25);
     const fallingNow = values.length >= 3 && (latest < recentLevel * 0.68 || normalizedSlope < -0.12);
     const stableElevated = sustained && recentFloor >= threshold && volatility <= 0.5 && !fallingNow;
@@ -86,6 +100,12 @@
       points: ordered.length, baseline, recentLevel, latest, threshold, relativeRise, latestRise,
       recentShare, trailingElevated, persistenceDays, sustained, peak, transientSpike, volatility,
       normalizedSlope, recentFloor, fallingNow, stableElevated, staleReadDays, staleContact,
+      latestDelta: values.length > 1 ? latest - values.at(-2) : null,
+      latestPercent: values.length > 1 && values.at(-2) > 0 ? latest / values.at(-2) - 1 : null,
+      previousValue: values.length > 1 ? values.at(-2) : null,
+      previousDate: values.length > 1 ? ordered.at(-2).date : null,
+      latestDate: ordered.at(-1).date,
+      newRise: values.length > 1 && latest - values.at(-2) >= 2 && values.at(-2) > 0 && latest >= values.at(-2) * 1.5,
       heatPump: detectHeatPumpSeasonality(ordered),
     };
   }
@@ -112,13 +132,12 @@
       .sort((a, b) => a.exportDate - b.exportDate);
     const byDay = new Map();
     for (const row of rows) {
-      const key = row.exportDate.toISOString().slice(0, 10);
+      if (!row.readAt || row.readAt > row.exportDate) continue;
+      const key = dateKey(row.readAt);
       const previous = byDay.get(key);
-      if (!previous || (row.readAt && previous.readAt && row.readAt >= previous.readAt) || row.exportDate > previous.exportDate) {
-        byDay.set(key, row);
-      }
+      if (!previous || row.current < previous.current || (row.current === previous.current && row.exportDate > previous.exportDate)) byDay.set(key, row);
     }
-    const files = [...byDay.values()].sort((a, b) => a.exportDate - b.exportDate);
+    const files = [...byDay.values()].sort((a,b) => a.readAt-b.readAt);
     if (!files.length) return emptyExportCompare();
     const first = files[0];
     const prev = files.length > 1 ? files[files.length - 2] : null;
@@ -137,13 +156,13 @@
       prevCurrent: prev ? prev.current : null,
       lastCurrent: last.current,
       fileJump: prev ? last.current - prev.current : 0,
-      fileRise: prev && prev.current > 0 ? last.current / prev.current - 1 : 0,
-      fromFirst: first.current > 0 ? last.current / first.current - 1 : 0,
+      fileRise: prev && prev.current > 0 ? last.current / prev.current - 1 : null,
+      fromFirst: first.current > 0 ? last.current / first.current - 1 : null,
       fJump: prev && Number.isFinite(prev.average) && Number.isFinite(last.average) ? last.average - prev.average : 0,
       lastOverF: Number.isFinite(last.average) && last.average > 0 ? last.current / last.average - 1 : null,
       prevOverF: prev && Number.isFinite(prev.average) && prev.average > 0 ? prev.current / prev.average - 1 : null,
       trailingHighFiles,
-      persistentAcrossFiles: trailingHighFiles >= 3,
+      persistentAcrossFiles: trailingHighFiles >= 3 && calendarDaysBetween(files[files.length - trailingHighFiles].readAt, last.readAt) >= 7,
       newSincePreviousFile: Boolean(prev && last.current >= Math.max(15, prev.current * 1.8) && last.current - prev.current >= 8),
       droppedSincePreviousFile: Boolean(prev && last.current <= prev.current * 0.65 && prev.current - last.current >= 8),
       excelConfirmed: Boolean(Number.isFinite(last.average) && last.average > 0 && last.current >= last.average * 1.45 && last.current >= 15 && prev && last.current >= prev.current * 0.9),
@@ -157,7 +176,7 @@
   function rankMeter(result, meter, label) {
     const resetDate = label?.type === "reset_baseline" ? validDate(label.resetAfter || label.at || label.notedDate) : null;
     const points = resetDate ? meter.points.filter(p => validDate(p.readAt || p.date) > resetDate) : meter.points;
-    const info = String(meter.info ?? result.info ?? "");
+    const info = String(meter.activeEvents ?? meter.info ?? result.info ?? "");
     const customerSide = Boolean(result.infrastructure?.customerSide);
     const burst = /burst|rorbrott|rörbrott/i.test(info);
     const leakCode = /leak|lacka|läcka/i.test(info);
@@ -168,7 +187,7 @@
     engine.exports = exportsCmp;
     const reference = Number(result.last?.average);
     const referenceRise = !resetDate && reference > 0 ? engine.recentLevel / reference - 1 : 0;
-    const referenceSignal = engine.points >= 2 && engine.latest >= reference * 2 && referenceRise >= 1 && engine.recentLevel >= 15 && !engine.transientSpike && !engine.staleContact;
+    const referenceSignal = reference > 0 && engine.points >= 2 && engine.latest >= reference * 2 && referenceRise >= 1 && engine.recentLevel >= 15 && !engine.transientSpike && !engine.staleContact;
     const evidence = [];
     let score = 8;
     if (engine.recentLevel >= 100) { score += 28; evidence.push("mycket hög robust nivå"); }
@@ -187,14 +206,11 @@
     if (burst && !customerSide) { score += 28; evidence.push("BURST/rörbrott i Excel"); }
     else if (leakCode && !customerSide) { score += 14; evidence.push("LEAK i Excel"); }
     if (referenceSignal) { score += 12; evidence.push("Upprepat hög nivå mot Excel-snitt F; historik behövs för bekräftelse"); }
-    if (exportsCmp.persistentAcrossFiles) { score += 16; evidence.push(`samma förhöjning i ${exportsCmp.trailingHighFiles} Excel-filer`); }
-    else if (exportsCmp.trailingHighFiles >= 2) { score += 8; evidence.push("förhöjd i de två senaste Excel-filerna"); }
-    if (exportsCmp.newSincePreviousFile && !engine.transientSpike) {
-      score += 12;
-      evidence.push(`hopp mot föregående Excel ${round(exportsCmp.prevCurrent)} → ${round(exportsCmp.lastCurrent)}`);
-    }
-    if (exportsCmp.excelConfirmed) { score += 8; evidence.push("E ligger över F i senaste Excel"); }
-    if (exportsCmp.droppedSincePreviousFile) { score -= 16; evidence.push("senaste Excel lägre än föregående fil"); }
+    // Export counts are descriptive only: the same observations are not
+    // independent evidence and must not be scored a second time.
+    if (engine.newRise) evidence.push(`Ny ökning ${engine.previousValue} → ${engine.latest} (${signedPercent(engine.latestPercent)}) – kontrollera nästa avläsning`);
+    const interference = Boolean(result.infrastructure?.districtHeating || result.infrastructure?.largeSubstation);
+    if (interference) { score -= 16; evidence.push("Känd störmiljö – jämför grannar och kontrollera ljudkällan"); }
     if (engine.transientSpike) { score -= 42; evidence.push("enstaka topp nedvägd"); }
     if (engine.fallingNow && !burst) { score -= 28; evidence.push("senaste nivån faller tydligt"); }
     if (engine.volatility > 0.5 && !engine.stableElevated && !burst) { score -= 18; evidence.push("ojämn signal kräver kontroll"); }
@@ -208,10 +224,10 @@
       engine.stableElevated, engine.relativeRise >= 0.5, engine.recentLevel >= 30,
       Boolean(profile.newLevel), Boolean(profile.slowRise && engine.normalizedSlope > 0.04),
       Boolean(result.networkContext?.sharedSignal), Boolean(burst || leakCode),
-      exportsCmp.persistentAcrossFiles, Boolean(exportsCmp.excelConfirmed && exportsCmp.trailingHighFiles >= 2),
+      Boolean(referenceSignal),
     ].filter(Boolean).length;
     const newMeter = engine.points <= 1 || (profile.coverage?.days || 0) <= 1;
-    let category = classifyAutomatic({ score, hardEvidence, newMeter, customerSide, burst, leakCode, dryCode, engine, profile, referenceSignal });
+    let category = classifyAutomatic({ score, hardEvidence, newMeter, customerSide, burst, leakCode, dryCode, engine, profile, referenceSignal, interference, networkShared: Boolean(result.networkContext?.sharedSignal) });
     if (resetDate && engine.points >= 3) evidence.push("Bedömt enbart på nya avläsningar efter nollställning");
     const manual = applyManualLabel(category, score, resetDate && engine.points >= 3 ? null : label);
     category = manual.category;
@@ -238,10 +254,11 @@
     if (dryCode && !leakCode) return "normal";
     if (engine.points < 2) return engine.latest >= 100 || burst ? "suspect_auto" : (newMeter ? "learning" : "normal");
     const verifiedPattern = engine.stableElevated && engine.persistenceDays >= 14 && engine.trailingElevated >= 3 && engine.recentFloor >= 30;
-    const networkBackedPattern = engine.stableElevated && engine.persistenceDays >= 7 && Boolean(context.profile?.newLevel || context.referenceSignal || engine.exports?.persistentAcrossFiles) && hardEvidence >= 3;
-    if (score >= 82 && hardEvidence >= 3 && (verifiedPattern || networkBackedPattern || burst)) return "dispatch";
+    const networkBackedPattern = engine.stableElevated && engine.persistenceDays >= 7 && Boolean(context.networkShared || ((burst || leakCode) && engine.recentLevel >= 15)) && hardEvidence >= 3;
+    if (score >= 82 && hardEvidence >= 3 && (!context.interference || context.networkShared || burst) && (verifiedPattern || networkBackedPattern || burst)) return "dispatch";
     if (score >= 44 && hardEvidence >= 2 && (engine.trailingElevated >= 2 || profile.newLevel || profile.slowRise)) return "suspect_auto";
     if (engine.trailingElevated >= 2 && engine.persistenceDays >= 1 && engine.relativeRise >= 1 && engine.recentLevel >= 8) return "suspect_auto";
+    if (engine.newRise || (engine.trailingElevated >= 2 && engine.relativeRise >= .5 && engine.recentLevel >= 6)) return "suspect_auto";
     if (context.referenceSignal) return "suspect_auto";
     if (engine.recentLevel >= 60 || (leakCode && engine.recentLevel >= 30)) return "suspect_auto";
     if (newMeter) return "learning";
@@ -297,7 +314,7 @@
       const date = validDate(p.readAt || p.date);
       const value = p.current == null || p.current === "" ? NaN : Number(p.current);
       if (!date || !Number.isFinite(value) || value < 0) continue;
-      const key = date.toISOString().slice(0, 10);
+      const key = dateKey(date);
       if (!days.has(key) || value < days.get(key).current) days.set(key, { date, current: value });
     }
     const usable = [...days.values()].sort((a,b) => a.date-b.date);
@@ -347,9 +364,11 @@
   }
 
   function validDate(value) {
+    if (value == null || value === "") return null;
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? null : date;
   }
+  function dateKey(date) { return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`; }
   function calendarDaysBetween(from, to) {
     const fromDay = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
     const toDay = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
@@ -378,11 +397,11 @@
     if (!mean) return 0;
     return Math.sqrt(average(values.map((value) => (value - mean) ** 2))) / mean;
   }
-  function normalizedLinearSlope(values, scale) {
+  function normalizedLinearSlope(values, scale, times = values.map((_, i) => i)) {
     if (values.length < 2) return 0;
-    const meanX = (values.length - 1) / 2;
+    const meanX = average(times);
     const meanY = average(values);
-    const numerator = values.reduce((sum, value, index) => sum + (index - meanX) * (value - meanY), 0);
+    const numerator = values.reduce((sum, value, index) => sum + (times[index] - meanX) * (value - meanY), 0);
     const denominator = values.reduce((sum, _, index) => sum + (index - meanX) ** 2, 0);
     return denominator ? (numerator / denominator) / scale : 0;
   }
