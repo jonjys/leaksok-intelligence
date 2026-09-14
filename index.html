@@ -11,7 +11,9 @@
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="./src/network-events.css">\n</head>
+  <link rel="stylesheet" href="./src/network-events.css">
+  <link rel="stylesheet" href="./src/season-controls.css">
+</head>
 <body>
   <header class="topbar">
     <div class="brand">
@@ -96,9 +98,10 @@
       </section>
       <section class="controls">
         <input id="search" type="search" placeholder="Sök adress, serienummer, område. Klistra in flera adresser med radbrytning eller kommatecken">
-        <select id="filter" aria-hidden="true" tabindex="-1">
-          <option value="all">Alla listor</option>
-          <option value="dispatch">Trolig läcka - åk ut</option>
+        <select id="filter" aria-label="Visa bara">
+          <option value="all">Visa bara: Alla mätare</option>
+          <option value="actionable">Akuta + misstänkta</option>
+          <option value="dispatch">Akuta / Åk ut</option>
           <option value="customer_side">Efter mätare</option>
           <option value="confirmed">Aktiva läckor</option>
           <option value="suspect">Misstänkt / bevaka</option>
@@ -109,8 +112,8 @@
           <option value="stale_contact">Utan avläsning</option>
           <option value="hidden">Gömda</option>
         </select>
-        <select id="sort">
-          <option value="risk">Risk högst först</option>
+        <select id="sort" aria-label="Sortera efter">
+          <option value="risk">Prioritet högst först</option>
           <option value="name">Namn A–Ö</option>
           <option value="lastRead">Senast avläst</option>
           <option value="area">Ort A–Ö och namn</option>
@@ -262,6 +265,8 @@
   <script src="./src/layout-polish.js"></script>
   <script src="./src/map-workspace.js"></script>
   <script src="./src/chart-honesty.js"></script>
-  <script src="./src/desk-layout.js"></script>\n  <script src="./src/network-events.js"></script>\n  <script src="./src/network-events-ui.js"></script>
+  <script src="./src/desk-layout.js"></script>
+  <script src="./src/network-events.js"></script>
+  <script src="./src/network-events-ui.js"></script>
 </body>
 </html>
