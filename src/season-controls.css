@@ -6,3 +6,5 @@
 .controls .pager-controls { margin-left:auto; }
 .controls #excludeFilter { display:block!important; }
 @media(max-width:650px){.controls #search{flex-basis:100%}.controls #filter{flex:1 1 100%}.controls select{flex:1 1 140px}.controls .pager-controls{margin-left:0}}
+
+#listTabs button[data-filter="seasonal"], #listTabs button[data-filter="ignored"] { display:flex!important; }
