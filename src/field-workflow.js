@@ -242,6 +242,7 @@
     if (!MeterVisibility.visible(state.labels[row.id], filter)) return false;
     if (filter === "hidden") return true;
     if (filter === "all") return true;
+    if (filter === "actionable") return ["dispatch", "suspect_auto", "watch"].includes(row.category);
     if (filter === "suspect") return ["suspect_auto", "watch"].includes(row.category);
     if (filter === "learning") return ["learning", "new_high", "new_unknown"].includes(row.category);
     if (filter === "confirmed") return row.category === "confirmed";
@@ -1968,6 +1969,15 @@
     if (mapSearch && mapSearch !== document.activeElement) mapSearch.value = els.search.value;
   }, true);
   els.sort?.addEventListener("change", () => { currentPage = 1; }, true);
+  els.filter?.addEventListener("change", () => {
+    currentPage = 1;
+    selectedMeters.clear();
+    selectedPreviewId = "";
+    clearSelectionRectangle();
+    const excluded = document.getElementById("excludeFilter");
+    if (excluded) excluded.value = "none";
+    render();
+  });
   document.getElementById("areaFilter")?.addEventListener("change", () => {
     currentPage = 1;
     selectedMeters.clear();
