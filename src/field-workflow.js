@@ -1645,7 +1645,7 @@
       const value = tickStep * i;
       return `<line x1="${left}" y1="${y(value)}" x2="${right}" y2="${y(value)}" class="signal-grid"/><text x="${left-9}" y="${y(value)+4}" class="signal-axis" text-anchor="end">${round(value)}</text>`;
     }).join("");
-    const tickCount = maxTime === minTime ? 1 : Math.max(2, Math.min(7, Math.floor((right-left)/115) + 1));
+    const tickCount = maxTime === minTime ? 1 : Math.max(2, Math.min(7, Math.ceil(span / 86400000) + 1, Math.floor((right-left)/115) + 1));
     const dateFormat = new Intl.DateTimeFormat("sv-SE", {day:"numeric",month:"short", ...(span > 180 * 86400000 ? {year:"2-digit"} : {})});
     const xGrid = Array.from({length:tickCount}, (_,i) => {
       const time = minTime + (maxTime-minTime) * i / Math.max(1,tickCount-1);
@@ -1800,7 +1800,7 @@
     const staleDays = meter.staleReadDays || 0;
     const selectedCount = selectedMeterList().length;
     document.getElementById("previewTitle").textContent = meter.address || meter.id;
-    document.getElementById("previewMeta").textContent = `${decisionText(meter)} · underlagsstyrka ${meter.risk} · ${dates.firstDate} till ${dates.lastDate}${staleDays >= 14 ? ` · tappad kontakt ${staleDays} dagar` : ""}${selectedCount > 1 ? ` · ${selectedCount} mätare på kartan` : ""}`;
+    document.getElementById("previewMeta").textContent = `${decisionText(meter)} · prioritet ${meter.risk}/100 · ${dates.firstDate} till ${dates.lastDate}${staleDays >= 14 ? ` · tappad kontakt ${staleDays} dagar` : ""}${selectedCount > 1 ? ` · ${selectedCount} mätare på kartan` : ""}`;
     if (state.previewChart) state.previewChart.destroy();
     state.previewChart = null;
     const labels = meter.points.map((point) => localDate(point.date));
@@ -1854,7 +1854,7 @@
     const { firstDate, lastDate, lastReadDate } = meterDates(meter);
     const staleDays = meter.staleReadDays || 0;
     els.detailTitle.textContent = meter.address || meter.id;
-    els.detailMeta.textContent = `${meter.serial || meter.id} · ${meter.area || "ÖVRIGT"} · ${firstDate} till ${lastDate} · underlagsstyrka ${meter.risk} · ${decisionText(meter)}`;
+    els.detailMeta.textContent = `${meter.serial || meter.id} · ${meter.area || "ÖVRIGT"} · ${firstDate} till ${lastDate} · prioritet ${meter.risk}/100 · ${decisionText(meter)}`;
     els.detailText.innerHTML = `
       <div class="detail-actions">
         <button class="secondary" onclick="copyAddress(${inlineArg(meter.id)}, event)">Kopiera adress</button>

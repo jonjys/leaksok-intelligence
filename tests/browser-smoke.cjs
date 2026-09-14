@@ -50,6 +50,9 @@ const server = http.createServer((req,res)=>{
     await page.locator('[data-filter="all"]').click();
     await page.evaluate(()=>selectLeakMeter('1'));
     await page.waitForSelector('.preview-chart .signal-chart-stage svg');
+    await page.waitForTimeout(450); // Leaflet flyTo animation, not an application readiness gate.
+    const tableBox=await page.locator('.table-wrap').boundingBox();
+    assert.ok(tableBox.y < 900,'Desktop must show first work rows without scrolling');
     await page.screenshot({path:'test-results/desktop-1440.png',fullPage:true});
     console.log('REVIEW_DESKTOP:'+(await page.screenshot({type:'jpeg',quality:35})).toString('base64'));
     await page.setViewportSize({width:1366,height:768});
