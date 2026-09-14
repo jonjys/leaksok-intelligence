@@ -3,9 +3,9 @@
     ["manual_dispatch", "Akut / åk ut"],
     ["suspect", "Misstänk / bevaka"],
     ["leak", "Konstaterad läcka"],
-    ["customer_contact", "Efter mätare / kontakta FÄ"],
+    ["customer_contact", "Efter mätare"],
     ["repaired", "Lagad / klar"],
-    ["known_noise", "Störning / säsong / topp"],
+    ["seasonal", "Säsong / falsklarm"],
     ["reset_baseline", "Nollställ och följ nya värden"],
     ["ignored", "Ignorera"],
   ];
@@ -16,7 +16,8 @@
     suspect_auto: "Misstänk / bevaka",
     customer_side: "Efter mätare",
     confirmed: "Aktiva läckor",
-    repaired: "Lagad",
+    repaired: "Lagade",
+    seasonal: "Säsong / falsklarm",
   };
 
   function optionHtml() {
