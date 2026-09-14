@@ -215,7 +215,12 @@ async function unlockProfile(event) {
     const snapshot = await window.LeakStorage.load(state.profileId);
     if (snapshot) {
       state.files = hydrateFiles(snapshot.files || []);
+      const localLabels = state.labels;
       state.labels = { ...knownCases, ...(snapshot.labels || {}) };
+      for (const [id, label] of Object.entries(localLabels)) {
+        const time = l => Math.max(Date.parse(l?.at || "") || 0, Date.parse(l?.visibilityUpdatedAt || "") || 0);
+        if (time(label) > time(state.labels[id])) state.labels[id] = label;
+      }
     }
   } catch (error) {
     state.profileId = null;

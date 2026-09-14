@@ -61,7 +61,8 @@ const server = http.createServer((req,res)=>{
     await page.locator('input[name="repairLineType"][value="SV"]').check();
     await page.locator('#distanceMeters').fill('55');
     await page.locator('#saveFeedback').click();
-    await page.waitForFunction(()=>state.labels['1']?.distanceMeters===55);
+    await page.waitForFunction(()=>!document.getElementById('feedbackDialog').open);
+    assert.equal(await page.evaluate(()=>state.labels['1'].distanceMeters),55);
     await page.reload({waitUntil:'networkidle'});
     await page.locator('#profileCode').fill('1234');
     await page.locator('#profileForm button').click();

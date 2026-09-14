@@ -1909,7 +1909,7 @@
     document.getElementById("feedbackDialog").showModal();
   };
 
-  function saveFieldFeedback(event) {
+  async function saveFieldFeedback(event) {
     event.preventDefault();
     event.stopImmediatePropagation();
     const id = document.getElementById("feedbackMeterId").value;
@@ -1961,8 +1961,23 @@
       };
     }
     feedbackBatchIds = [];
-    saveLabels();
-    document.getElementById("feedbackDialog").close();
+    const saveButton = document.getElementById("saveFeedback");
+    saveButton.disabled = true;
+    saveButton.textContent = "Sparar…";
+    const saved = await saveLabels();
+    saveButton.disabled = false;
+    saveButton.textContent = "Spara facit";
+    if (saved) document.getElementById("feedbackDialog").close();
+    else {
+      let message = document.getElementById("feedbackSaveStatus");
+      if (!message) {
+        message = document.createElement("p");
+        message.id = "feedbackSaveStatus";
+        message.setAttribute("role", "alert");
+        saveButton.before(message);
+      }
+      message.textContent = state.storageError;
+    }
     analyze();
   }
 

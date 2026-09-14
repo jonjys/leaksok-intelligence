@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const Smart = require('../src/smart-engine');
 const Morning = require('../src/morning-brief');
 const pts = values => values.map((current,i) => ({current,date:new Date(2026,8,i+1,8),readAt:new Date(2026,8,i+1,6)}));
-const rank = points => Smart.rankMeter({profile:{coverage:{days:100}},infrastructure:{},reasons:[]},{id:'a',points});
+const rank = points => Smart.rankMeter({id:'a',profile:{coverage:{days:100}},infrastructure:{},reasons:[]},{id:'a',points});
 assert.equal(rank(pts([5,10])).category,'suspect_auto','First small rise stays visible');
 assert.equal(rank(pts([5,10])).confidence,'låg');
 assert.equal(rank(pts([4,6])).category,'suspect_auto');
