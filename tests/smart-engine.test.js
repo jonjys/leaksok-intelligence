@@ -104,8 +104,8 @@ const heatPumpPoints = [
   { date: new Date("2026-02-15T06:00:00"), readAt: new Date("2026-02-15T06:00:00"), current: 29 },
 ];
 const heatPump = rank([], { points: heatPumpPoints });
-assert.equal(heatPump.category, "seasonal");
-assert.equal(heatPump.engine.heatPump.is, true);
+assert.notEqual(heatPump.category, "seasonal", "four sparse readings do not prove recurrence");
+assert.equal(heatPump.engine.heatPump.is, false);
 
 const tooLoudForHeatPump = heatPumpPoints.map((point, index) => ({ ...point, current: index === 3 ? 45 : point.current }));
 assert.equal(SmartEngine.detectHeatPumpSeasonality(tooLoudForHeatPump).is, false);
