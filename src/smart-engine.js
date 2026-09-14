@@ -199,7 +199,7 @@
     if (engine.fallingNow && !burst) { score -= 28; evidence.push("senaste nivån faller tydligt"); }
     if (engine.volatility > 0.5 && !engine.stableElevated && !burst) { score -= 18; evidence.push("ojämn signal kräver kontroll"); }
     if (engine.heatPump.is) { score -= 38; evidence.push(engine.heatPump.reason); }
-    if (profile.repeatedPattern) { score -= 32; evidence.push("återkommande säsongsmönster"); }
+    if (engine.heatPump.anomaly) { score += 16; evidence.push(engine.heatPump.reason); }
     if (profile.fluctuating && !engine.sustained) { score -= 16; evidence.push("fladdrig signal"); }
     if (dryCode && !leakCode) { score -= 20; evidence.push("DRY/torr driftstatus"); }
     if (engine.staleContact) { score -= 55; evidence.push(`gammal avläsning ${engine.staleReadDays} dagar`); }
@@ -234,7 +234,7 @@
     if (engine.staleContact) return "normal";
     if (engine.heatPump.is && !burst && !leakCode) return "seasonal";
     if (engine.transientSpike) return "noise";
-    if (profile.repeatedPattern && !engine.sustained) return "seasonal";
+    if (engine.heatPump.anomaly && !burst && !leakCode) return "suspect_auto";
     if (dryCode && !leakCode) return "normal";
     if (engine.points < 2) return engine.latest >= 100 || burst ? "suspect_auto" : (newMeter ? "learning" : "normal");
     const verifiedPattern = engine.stableElevated && engine.persistenceDays >= 14 && engine.trailingElevated >= 3 && engine.recentFloor >= 30;
@@ -266,7 +266,7 @@
   function compactReasons(existing, engine, evidence, label) {
     const reasons = [];
     if (label?.type) reasons.push(`Manuellt facit: ${label.type}`);
-    if (engine.heatPump.is) reasons.push(engine.heatPump.reason);
+    if (engine.heatPump.candidate) reasons.push(engine.heatPump.reason);
     if (engine.transientSpike) reasons.push("Enstaka topp: påverkar inte akutlistan");
     else if (engine.sustained) reasons.push(`Bestående nivå i ${engine.persistenceDays} dagar (${engine.trailingElevated} avläsningar)`);
     if (engine.baseline > 0 && Math.abs(engine.relativeRise) >= 0.25) {
@@ -290,29 +290,60 @@
   }
 
   function detectHeatPumpSeasonality(points) {
-    if (!Array.isArray(points) || points.length < 4) return { is: false, reason: "" };
-    const usable = points.filter((point) => point.date instanceof Date && Number.isFinite(point.current));
-    if (usable.length < 4 || usable.some((point) => point.current >= 40)) return { is: false, reason: "" };
-    const coldMonths = new Set([9, 10, 11, 0, 1, 2, 3]);
-    const warmMonths = new Set([4, 5, 6, 7, 8]);
-    const cold = usable.filter((point) => coldMonths.has(point.date.getMonth())).map((point) => point.current);
-    const warm = usable.filter((point) => warmMonths.has(point.date.getMonth())).map((point) => point.current);
-    if (cold.length >= 2 && warm.length >= 2) {
-      const coldLevel = median(cold);
-      const warmLevel = median(warm);
-      if (coldLevel > 12 && warmLevel < 28 && coldLevel >= warmLevel * 1.45 && coldLevel - warmLevel >= 5) {
-        return { is: true, reason: `Värmepanna/säsong: vinter ${round(coldLevel)} mot sommar ${round(warmLevel)}` };
-      }
+    const no = { is: false, candidate: false, anomaly: false, reason: "" };
+    // Actual reading days, not the number of imported workbooks.
+    const days = new Map();
+    for (const p of points || []) {
+      const date = validDate(p.readAt || p.date);
+      const value = p.current == null || p.current === "" ? NaN : Number(p.current);
+      if (!date || !Number.isFinite(value) || value < 0) continue;
+      const key = date.toISOString().slice(0, 10);
+      if (!days.has(key) || value < days.get(key).current) days.set(key, { date, current: value });
     }
-    const first = usable[0];
-    const last = usable[usable.length - 1];
-    const spanDays = calendarDaysBetween(first.date, last.date);
-    const values = usable.map((point) => point.current);
-    const gentleRise = values.every((value, index) => index === 0 || value <= values[index - 1] * 1.8 + 5);
-    if (spanDays >= 120 && warmMonths.has(first.date.getMonth()) && coldMonths.has(last.date.getMonth()) && gentleRise && last.current > 15 && last.current >= first.current * 1.3) {
-      return { is: true, reason: `Värmepanna/säsong: gradvis ${round(first.current)} → ${round(last.current)}` };
+    const usable = [...days.values()].sort((a,b) => a.date-b.date);
+    if (usable.length < 12) return no;
+    const monthly = new Map();
+    for (const p of usable) {
+      const key = p.date.getUTCFullYear()*12 + p.date.getUTCMonth();
+      if (!monthly.has(key)) monthly.set(key, []);
+      monthly.get(key).push(p.current);
     }
-    return { is: false, reason: "" };
+    const months = [...monthly].filter(([,v]) => v.length >= 3)
+      .map(([key,v]) => ({ key, month:key%12, level:median(v) }));
+    const cold = months.filter(m => [10,11,0,1,2].includes(m.month));
+    const warm = months.filter(m => [5,6,7].includes(m.month));
+    if (cold.length < 2 || warm.length < 2) return no;
+    const winter = median(cold.map(m=>m.level)), summer = median(warm.map(m=>m.level));
+    if (winter < summer*1.5 || winter-summer < 5) return no;
+    // A winter/summer contrast alone could be a repaired leak.
+    // Require a return to the same high/low state after the opposite season.
+    const phases = months.filter(m => [10,11,0,1,2,5,6,7].includes(m.month))
+      .map(m => ({...m, phase:[5,6,7].includes(m.month) ? "summer" : "winter"}));
+    const runs = [];
+    for (const m of phases) {
+      const last = runs.at(-1);
+      if (!last || last.phase !== m.phase || m.key-last.end > 4) runs.push({phase:m.phase,start:m.key,end:m.key,values:[m.level]});
+      else { last.end=m.key; last.values.push(m.level); }
+    }
+    let repeated = false;
+    for (let i=2;i<runs.length;i++) {
+      const a=runs[i-2], b=runs[i-1], c=runs[i];
+      if (a.phase!==c.phase || a.phase===b.phase || [a,b,c].some(r=>r.values.length<2) || c.end-a.start<9 || c.start-b.end>6 || b.start-a.end>6) continue;
+      const av=median(a.values), bv=median(b.values), cv=median(c.values);
+      const returns = Math.max(av,cv) <= Math.max(1,Math.min(av,cv))*1.6 + 3;
+      const contrast = a.phase==="winter" ? Math.min(av,cv)>=bv*1.5 && Math.min(av,cv)-bv>=5 : bv>=Math.max(av,cv)*1.5 && bv-Math.max(av,cv)>=5;
+      if (returns && contrast) repeated=true;
+    }
+    const last = usable.at(-1);
+    const prior = usable.filter(p => last.date-p.date>90*DAY_MS && p.date.getUTCMonth()===last.date.getUTCMonth());
+    const expected = prior.length>=3 ? median(prior.map(p=>p.current)) : [5,6,7].includes(last.date.getUTCMonth()) ? summer : winter;
+    const recent = usable.slice(-3);
+    const limit = Math.max(expected*1.6,expected+8);
+    const anomaly = last.current>limit && median(recent.map(p=>p.current))>limit;
+    const reason = (repeated ? "Återkommande säsong" : "Möjlig säsong – mer historik behövs") +
+      `: vinter ${round(winter)}, sommar ${round(summer)}` +
+      (anomaly ? `. Ny avvikelse: ${round(last.current)} mot förväntat ${round(expected)} – bevaka` : "");
+    return { is:repeated && !anomaly, candidate:true, anomaly, winter, summer, expected, reason };
   }
 
   function validDate(value) {
