@@ -11,7 +11,7 @@
   };
 
   function codesOf(meter) {
-    const text = (meter.info || "") + " " + (meter.closedEvents || "");
+    const text = meter.info || "";
     return {
       leak: CODE.LEAK.test(text),
       burst: CODE.BURST.test(text),
@@ -32,6 +32,8 @@
   function applyCodes(meter) {
     const codes = codesOf(meter);
     meter.kamstrup = codes;
+    // A saved field assessment wins over automatic info-code sorting.
+    if (typeof state !== "undefined" && state.labels?.[meter.id]?.type) return meter;
     const reasons = Array.isArray(meter.reasons) ? meter.reasons.slice() : [];
     if (codes.burst) {
       reasons.unshift("flowIQ BURST: rörbrott efter mätaren");
@@ -72,7 +74,7 @@
     if (codes.tamper || codes.reverse) {
       reasons.unshift(codes.tamper ? "flowIQ TAMPER" : "flowIQ REVERSE");
       return Object.assign({}, meter, {
-        category: ["normal", "learning"].includes(meter.category) ? "suspect" : meter.category,
+        category: ["normal", "learning"].includes(meter.category) ? "suspect_auto" : meter.category,
         reasons: uniq(reasons).slice(0, 8),
       });
     }
