@@ -35,7 +35,7 @@
 .morning-example { position:absolute; top:18px; right:8px; font-size:32px; font-weight:700; }
 .morning-example b { color:#087f7b; font-size:20px; margin-left:10px; }
 .morning-example small { display:block; font-size:11px; font-weight:450; color:var(--muted); }
-.dropzone > div { display:block; font-size:11px; color:var(--muted); }
+.dropzone > div { display:none; }
 .dropzone > div strong { display:none; }
 .controls #excludeFilter { display:block; }
 #networkBriefHost:empty { display:none; }
@@ -149,4 +149,29 @@ thead th:nth-child(6) { width:180px; }
   .preview-chart .signal-range-panel { gap:3px; padding-top:4px; }
   .preview-chart .signal-range-presets button { font-size:10px; min-height:24px; padding:2px 4px; }
   .preview-chart .signal-comparison-control select { min-height:24px; }
+}
+
+/* Import details stay available without displacing the operational workspace. */
+.dropzone { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; }
+.dropzone .import-status { flex:1 1 400px; font-size:11px; margin:0; overflow-wrap:anywhere; }
+.import-details { font-size:11px; color:var(--muted); min-width:0; }
+.import-details[hidden] { display:none; }
+.import-details summary { cursor:pointer; padding:4px 0; color:var(--accent); }
+.import-details[open] { flex-basis:100%; }
+.import-details ul { max-height:180px; overflow:auto; margin:4px 0; padding:8px 8px 8px 26px; border:1px solid var(--line); border-radius:8px; background:#fff; overflow-wrap:anywhere; }
+.import-details li { padding:3px 0; }
+#networkBriefHost { max-height:none; overflow:visible; }
+.network-watch { padding:8px 12px; margin:0; background:#f6fafb; border-left-width:2px; }
+.network-watch-heading { cursor:pointer; font-size:12px; }
+.network-watch-heading::before { content:'▸'; color:var(--accent); }
+.network-watch[open] > .network-watch-heading::before { content:'▾'; }
+.network-watch[open] { max-height:320px; overflow:auto; }
+.morning-signal.needs-review { border-color:#edc58f; background:#fff8eb !important; }
+.morning-signal.needs-review .morning-address { color:#8a4c12; }
+.morning-footnote { display:none; }
+@media(min-width:1001px) {
+  .morning-brief { padding:8px 12px; gap:6px 16px; border-radius:10px; }
+  .morning-heading h2 { font-size:15px; }
+  .morning-stats b { font-size:22px; }
+  .morning-signal small { font-size:10px; }
 }

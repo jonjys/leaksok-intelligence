@@ -95,6 +95,63 @@ const server = http.createServer((req,res)=>{
     console.log('REVIEW_MOBILE:'+(await page.screenshot({type:'jpeg',quality:35})).toString('base64'));
     assert.equal(await page.locator('#meterPreview .preview-chart').count(),1,'Resize does not orphan chart');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+2),true,'No mobile horizontal overflow');
+    // A large import must not turn diagnostics into an expanded text wall.
+    await page.setViewportSize({width:1440,height:1000});
+    const warningFiles=Array.from({length:121},(_,i)=>({name:`batch-${i}-2026-09-14.csv`,mimeType:'text/csv',buffer:Buffer.from(csv('2026-09-14',10)+'\ninvalid;Bad row;2026-09-14;N/A;5;;')}));
+    await page.locator('#fileInput').setInputFiles(warningFiles);
+    await page.waitForFunction(()=>!state.importing);
+    assert.ok((await page.locator('#importStatus').innerText()).length<220,'Import status stays concise');
+    assert.equal(await page.locator('#importDetails').evaluate(e=>e.open),false);
+    await page.locator('#importDetailsSummary').click();
+    assert.equal(await page.locator('#importDetailsBody li').count(),121,'Every diagnostic remains accessible');
+    await page.locator('#importDetailsSummary').click();
+    assert.ok((await page.locator('#dropzone').boundingBox()).height<65,'Collapsed import stays compact');
+    // Same shape as the reported event, with a synthetic meter identifier/address.
+    await page.evaluate(()=>{state.labels['99']={type:'seasonal',note:'Värmepanna'};});
+    for (const [stamp,value] of [['2026-09-14 02:46',15],['2026-09-15 06:59',125],['2026-09-15 07:46',127]]) {
+      const content='Serienummer;Adress;Senaste avläsning;Senaste värde;Genomsnittsvärde\n99;TESTVÄGEN 23 TUMBA 14730;'+stamp+';'+value+';95';
+      await page.locator('#fileInput').setInputFiles({name:stamp.slice(0,10)+' '+stamp.slice(11).replace(':','-')+'.csv',mimeType:'text/csv',buffer:Buffer.from(content)});
+      await page.waitForFunction(()=>!state.importing);
+    }
+    assert.equal(await page.locator('.morning-signal').first().getAttribute('data-morning-meter'),'99');
+    await page.locator('[data-morning-meter="99"]').click();
+    await page.waitForSelector('.preview-chart .signal-chart-stage svg');
+    assert.match(await page.locator('.preview-chart .signal-comparison-summary').innerText(),/747%/);
+    const titles=await page.locator('.preview-chart .signal-dot title').allTextContents();
+    assert.ok(titles.some(t=>t.includes('06:59')&&t.includes('125')));
+    assert.ok(titles.some(t=>t.includes('07:46')&&t.includes('127')));
+    await page.locator('[data-morning-filter="new_signal"]').click();
+    assert.ok((await page.locator('#rows').innerText()).includes('TESTVÄGEN 23'));
+    assert.equal(await page.evaluate(()=>state.meters.find(m=>m.id==='99').category),'seasonal');
+    await page.evaluate(()=>selectLeakMeter('99'));
+    await page.screenshot({path:'test-results/review-desktop.png'});
+    console.log('REVIEW_RECHECK:'+(await page.screenshot({type:'jpeg',quality:45})).toString('base64'));
+    if(process.env.ORIGINAL_EXPORT_DIR) {
+      await page.evaluate(()=>{state.files=[];state.labels={'23571762':{type:'seasonal',note:'Värmepanna'}};analyze();});
+      const originals=fs.readdirSync(process.env.ORIGINAL_EXPORT_DIR).filter(n=>n.endsWith('.xlsx')).sort().map(n=>path.join(process.env.ORIGINAL_EXPORT_DIR,n));
+      await page.locator('#fileInput').setInputFiles(originals);
+      await page.waitForFunction(()=>!state.importing);
+      assert.equal(await page.evaluate(()=>state.files.length),13);
+      assert.equal(await page.evaluate(()=>state.meters.length),2965);
+      assert.equal(await page.locator('.morning-signal').first().getAttribute('data-morning-meter'),'23571762');
+      await page.locator('[data-morning-meter="23571762"]').click();
+      await page.waitForSelector('.preview-chart .signal-chart-stage svg');
+      assert.match(await page.locator('.preview-chart .signal-comparison-summary').innerText(),/747%/);
+      const svgTitles=await page.locator('.preview-chart .signal-dot title').allTextContents();
+      assert.ok(svgTitles.some(t=>t.includes('06:59')&&t.includes('125')));
+      assert.ok(svgTitles.some(t=>t.includes('07:46')&&t.includes('127')));
+      await page.locator('[data-morning-filter="new_signal"]').click();
+      assert.ok(await page.locator('#rows').innerText().then(t=>t.includes('ALICE')),'New signals includes earlier seasonal label');
+      assert.equal(await page.evaluate(()=>state.meters.find(m=>m.id==='23571762').category),'seasonal');
+      await page.evaluate(()=>selectLeakMeter('23571762'));
+      await page.screenshot({path:'test-results/original-alice-desktop.png',fullPage:true});
+      await page.setViewportSize({width:1366,height:768});
+      await page.screenshot({path:'test-results/original-alice-1366.png'});
+      await page.setViewportSize({width:390,height:844});
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2));
+      await page.screenshot({path:'test-results/original-alice-mobile.png',fullPage:true});
+      console.log('Original exports: 13 XLSX, 2965 meters, Alice 15→125→127, review filter and full timestamps passed.');
+    }
     assert.deepEqual(errors,[],'No browser runtime exceptions');
     console.log('Browser: CSV + XLSX, small rise, hidden menu, repair form, persisted reload, desktop and mobile passed.');
   } catch(e) {
@@ -102,3 +159,4 @@ const server = http.createServer((req,res)=>{
     throw e;
   } finally { await browser.close();server.close(); }
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
+

@@ -183,6 +183,7 @@
     const dryCode = /dry|torr/i.test(info);
     const profile = resetDate ? { coverage: result.profile?.coverage } : (result.profile || {});
     const engine = analyzeSeries(points, { staleReadDays: result.staleReadDays });
+    engine.recentChange = analyzeLatestChange(points);
     const exportsCmp = compareExports(points);
     engine.exports = exportsCmp;
     const reference = Number(result.last?.average);
@@ -252,13 +253,14 @@
     if (engine.transientSpike) return "noise";
     if (engine.heatPump.anomaly && !burst && !leakCode) return "suspect_auto";
     if (dryCode && !leakCode) return "normal";
+    if (engine.recentChange?.newRise && engine.points < 2) return "suspect_auto";
     if (engine.points < 2) return engine.latest >= 100 || burst ? "suspect_auto" : (newMeter ? "learning" : "normal");
     const verifiedPattern = engine.stableElevated && engine.persistenceDays >= 14 && engine.trailingElevated >= 3 && engine.recentFloor >= 30;
     const networkBackedPattern = engine.stableElevated && engine.persistenceDays >= 7 && Boolean(context.networkShared || ((burst || leakCode) && engine.recentLevel >= 15)) && hardEvidence >= 3;
     if (score >= 82 && hardEvidence >= 3 && (!context.interference || context.networkShared || burst) && (verifiedPattern || networkBackedPattern || burst)) return "dispatch";
     if (score >= 44 && hardEvidence >= 2 && (engine.trailingElevated >= 2 || profile.newLevel || profile.slowRise)) return "suspect_auto";
     if (engine.trailingElevated >= 2 && engine.persistenceDays >= 1 && engine.relativeRise >= 1 && engine.recentLevel >= 8) return "suspect_auto";
-    if (engine.newRise || (engine.trailingElevated >= 2 && engine.relativeRise >= .5 && engine.recentLevel >= 6)) return "suspect_auto";
+    if (engine.newRise || engine.recentChange?.newRise || (engine.trailingElevated >= 2 && engine.relativeRise >= .5 && engine.recentLevel >= 6)) return "suspect_auto";
     if (context.referenceSignal) return "suspect_auto";
     if (engine.recentLevel >= 60 || (leakCode && engine.recentLevel >= 30)) return "suspect_auto";
     if (newMeter) return "learning";
@@ -282,6 +284,11 @@
 
   function compactReasons(existing, engine, evidence, label) {
     const reasons = [];
+    if (engine.recentChange?.newRise) {
+      const c = engine.recentChange;
+      reasons.push(`${label?.type ? "Ny signal trots tidigare facit" : "Ny signal"}: ${c.previousValue} → ${c.latest} (${signedPercent(c.percent)}) – kontrollera ljudkällan`);
+      if (c.previousEpisodes) reasons.push(`${c.previousEpisodes} tidigare liknande förhöjning(ar) med återgång i avläsningarna; orsak ej fastställd`);
+    }
     if (label?.type) reasons.push(`Manuellt facit: ${label.type}`);
     if (engine.heatPump.candidate) reasons.push(engine.heatPump.reason);
     if (engine.transientSpike) reasons.push("Enstaka topp: påverkar inte akutlistan");
@@ -402,7 +409,7 @@
     const meanX = average(times);
     const meanY = average(values);
     const numerator = values.reduce((sum, value, index) => sum + (times[index] - meanX) * (value - meanY), 0);
-    const denominator = values.reduce((sum, _, index) => sum + (index - meanX) ** 2, 0);
+    const denominator = times.reduce((sum, time) => sum + (time - meanX) ** 2, 0);
     return denominator ? (numerator / denominator) / scale : 0;
   }
   function signedPercent(value) {
@@ -413,5 +420,42 @@
   function capitalize(value) { return value ? value[0].toUpperCase() + value.slice(1) : value; }
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
 
-  return { analyzeSeries, rankMeter, compareExports, detectHeatPumpSeasonality };
+  // Latest observation and previous observed day are separate from the daily
+  // floor used for persistence. A second export must not hide this morning's jump.
+  function analyzeLatestChange(points) {
+    const byTime = new Map();
+    for (const p of points || []) {
+      const readAt = validDate(p.readAt || p.date), exported = validDate(p.date);
+      if (p.readAtUnknown || !readAt || !exported || readAt > exported || p.current == null || p.current === "" || !Number.isFinite(Number(p.current)) || Number(p.current) < 0) continue;
+      const row = { time:readAt.getTime(), exported:exported.getTime(), value:Number(p.current) };
+      const old = byTime.get(row.time);
+      if (!old || row.exported >= old.exported) byTime.set(row.time, row);
+    }
+    const rows = [...byTime.values()].sort((a,b)=>a.time-b.time);
+    const last = rows.at(-1);
+    if (!last) return null;
+    const earlier = rows.filter(p=>p.time < last.time && last.time-p.time <= 14*DAY_MS);
+    const previous = earlier.filter(p=>dateKey(new Date(p.time)) !== dateKey(new Date(last.time))).at(-1) || earlier[0];
+    const delta = previous ? last.value-previous.value : null;
+    const percent = previous?.value > 0 ? delta/previous.value : null;
+    const newRise = delta >= 2 && percent >= .5;
+    const threshold = previous ? Math.max(previous.value*1.5, previous.value+2) : Infinity;
+    let firstHighIndex = rows.length-1;
+    if (newRise) while (firstHighIndex > 0 && rows[firstHighIndex-1].value >= threshold && rows[firstHighIndex].time-rows[firstHighIndex-1].time <= 14*DAY_MS) firstHighIndex--;
+    const firstHigh = newRise ? rows[firstHighIndex] : null;
+    let previousEpisodes = 0, high = false;
+    const episodeThreshold = Math.max(threshold, last.value*.5);
+    for (let i=0; newRise && i<firstHighIndex; i++) {
+      if (i && rows[i].time-rows[i-1].time > 14*DAY_MS) high=false;
+      if (rows[i].value >= episodeThreshold) high=true;
+      else if (high && rows[i].value <= previous.value*1.25) { previousEpisodes++; high=false; }
+    }
+    return {latest:last.value,latestDate:new Date(last.time),previousValue:previous?.value ?? null,
+      previousDate:previous ? new Date(previous.time) : null, delta,percent,newRise,
+      firstHighAt:firstHigh ? new Date(firstHigh.time) : null,
+      lastLowAt:firstHighIndex>0 && newRise ? new Date(rows[firstHighIndex-1].time) : null,
+      previousEpisodes, observationsSinceRise:newRise ? rows.length-firstHighIndex : 0};
+  }
+
+  return { analyzeSeries, rankMeter, compareExports, detectHeatPumpSeasonality, analyzeLatestChange };
 }));

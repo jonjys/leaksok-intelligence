@@ -341,7 +341,14 @@ async function handleFiles(files) {
     catch (error) { state.files = previousFiles; analyze(); throw error; }
     const saved = await persistState();
     state.lastImport = { at: new Date().toISOString(), imported, duplicates, errors, warnings, saved };
-    els.importStatus.textContent = `${imported} nya filer · ${duplicates} dubbletter · ${state.meters.length.toLocaleString("sv-SE")} mätare. ${saved ? "Sparat på denna enhet." : state.storageError}${warnings.length ? " " + warnings.join(" | ") : ""}${errors.length ? " Kunde inte läsa: " + errors.join(" | ") : ""}`;
+    els.importStatus.textContent = `${imported} nya filer · ${duplicates} dubbletter · ${state.meters.length.toLocaleString("sv-SE")} mätare · ${saved ? "Sparat" : state.storageError}${warnings.length ? ` · ${warnings.length} importanmärkningar` : ""}${errors.length ? ` · ${errors.length} filer kunde inte läsas` : ""}`;
+    const details = document.getElementById("importDetails");
+    if (details) {
+      details.hidden = !warnings.length && !errors.length;
+      details.open = false;
+      document.getElementById("importDetailsSummary").textContent = `Visa importdetaljer (${warnings.length + errors.length})`;
+      document.getElementById("importDetailsBody").innerHTML = [...errors.map(message => `Kunde inte läsa: ${message}`), ...warnings].map(message => `<li>${escapeHtml(message)}</li>`).join("");
+    }
     render();
   } catch (error) {
     els.importStatus.textContent = "Importen kunde inte slutföras: " + error.message;
@@ -1003,7 +1010,7 @@ function feedbackActions(id) {
     .join("");
 }
 
-function readingTimeline(points) {
+function readingTimeline(points, options = {}) {
   if (!points.length) {
     return { points: [], endDate: null, lastReadingDate: "-", gapDays: 0, hasGap: false };
   }
@@ -1015,9 +1022,9 @@ function readingTimeline(points) {
     if (point.readAtUnknown) continue;
     const readingDate = validDate(point.readAt) && point.readAt <= endDate ? point.readAt : point.date;
     if (!validDate(readingDate)) continue;
-    const key = localDate(readingDate);
+    const key = options.allReadings ? readingDate.getTime() : localDate(readingDate);
     const existing = byReadingDate.get(key);
-    if (!existing || point.current < existing.current || (point.current === existing.current && point.date > existing.date)) {
+    if (!existing || (options.allReadings ? point.date > existing.date : point.current < existing.current || (point.current === existing.current && point.date > existing.date))) {
       byReadingDate.set(key, { ...point, readingDate });
     }
   }

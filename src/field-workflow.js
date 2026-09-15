@@ -246,6 +246,12 @@
     if (filter === "seasonal") return ["seasonal", "noise"].includes(row.category);
     if (filter === "hidden") return true;
     if (filter === "all") return true;
+    if (filter === "new_signal") {
+      const c = row.engine?.recentChange;
+      const lastExport = Math.max(...state.files.map(f=>new Date(f.exportDate).getTime()));
+      const age = lastExport-new Date(c?.latestDate).getTime();
+      return Boolean(c?.newRise && age >= 0 && age <= 86400000 && !row.dryMeter && !["customer_side","ignored"].includes(row.category));
+    }
     if (filter === "actionable") return ["dispatch", "suspect_auto", "watch"].includes(row.category);
     if (filter === "suspect") return row.category === "suspect_auto";
     if (filter === "learning") return ["learning", "new_high", "new_unknown"].includes(row.category);
@@ -615,7 +621,9 @@
       els.rows.innerHTML = `<tr><td colspan="8" class="empty">Ingen mätare matchar filtret.</td></tr>`;
       return;
     }
-    els.rows.innerHTML = rows.map((r) => `
+    els.rows.innerHTML = rows.map((r) => {
+      const change = r.engine?.recentChange || {previousValue:r.engine?.previousValue, latest:r.last.current, percent:r.engine?.latestPercent, delta:r.engine?.latestDelta, newRise:r.engine?.newRise};
+      return `
       <tr data-meter-row="${escapeAttr(r.id)}" class="${selectedMeters.has(r.id) ? "row-selected" : ""}" tabindex="0">
         <td data-label="Välj" class="select-cell">
           <label class="row-check">
@@ -634,8 +642,8 @@
           ${tagLine(r)}
         </td>
         <td data-label="E/F/P" class="metrics-cell">
-          <div class="reading-pair"><span>${r.engine?.previousValue == null ? "—" : r.engine.previousValue}</span><i>→</i><b>${r.last.current}</b></div>
-          <div class="change-badge${r.engine?.newRise ? " new-rise" : ""}">${signedPct(r.engine?.latestPercent)} <small>${r.engine?.latestDelta == null ? "jämförelse saknas" : (r.engine.latestDelta >= 0 ? "+" : "") + r.engine.latestDelta + " i värde"}</small></div>
+          <div class="reading-pair"><span>${change.previousValue ?? "—"}</span><i>→</i><b>${change.latest}</b></div>
+          <div class="change-badge${change.newRise ? " new-rise" : ""}">${signedPct(change.percent)} <small>${change.delta == null ? "jämförelse saknas" : (change.delta >= 0 ? "+" : "") + change.delta + " i värde"}</small></div>
           <div class="small">F ${round(r.last.average)} · P ${signedPct(r.pDeviation)}</div>
         </td>
         <td data-label="Trend" class="trend-cell">
@@ -651,7 +659,7 @@
         </td>
         <td data-label="Facit" class="feedback-cell"><div class="feedback">${feedbackActions(r.id)}</div></td>
       </tr>
-    `).join("");
+    `; }).join("");
   };
 
   feedbackActions = function feedbackActionsFieldWorkflow(id) {
@@ -1594,7 +1602,7 @@
       container.appendChild(host);
     }
 
-    const timeline = readingTimeline(meter.points);
+    const timeline = readingTimeline(meter.points, { allReadings:true });
     const allPoints = timeline.points.filter(point => point.current !== null && point.current !== "" && Number.isFinite(Number(point.current)) && Number(point.current) >= 0).map(point => ({ ...point, date: point.readingDate }));
     if (!allPoints.length) return;
     const rangeKey = `${container.id || "signal"}:${meter.id}`;
@@ -1603,7 +1611,7 @@
     const maxStart = Math.max(0, allPoints.length - 2);
     const startIndex = clamp(Number(signalRanges.get(rangeKey)) || 0, 0, maxStart);
     const points = allPoints.slice(startIndex);
-    const comparisonPeriod = host.dataset.comparisonPeriod || "previous";
+    const comparisonPeriod = host.dataset.comparisonPeriod || "previous_day";
     const comparison = LeakHistory.compare(comparisonPeriod === "export" ? meter.points.map(p => ({ ...p, exportDate: p.date, readingDate: p.readAt || p.date })) : allPoints, comparisonPeriod);
     const values = points.map(point => Number(point.current));
     const maxValue = Math.max(10, ...values, comparison.reference?.value || 0);
@@ -1656,7 +1664,7 @@
       const px = timeX(time);
       return `<line x1="${px}" y1="${top}" x2="${px}" y2="${bottom}" class="signal-grid vertical"/><text x="${px}" y="${height-8}" class="signal-date" text-anchor="${!i ? "start" : i === tickCount-1 ? "end" : "middle"}">${escapeHtml(dateLabel)}</text>`;
     }).join("");
-    const dots = values.map((value,i) => `<circle cx="${x(i)}" cy="${y(value)}" r="${i === values.length-1 ? 4 : values.length > 90 ? 1 : 2}" class="signal-dot${i >= values.length-5 ? " recent" : ""}${i === values.length-1 ? " latest" : ""}"><title>${localDate(points[i].date)} · Brus ${round(value)}</title></circle>`).join("");
+    const dots = values.map((value,i) => `<circle cx="${x(i)}" cy="${y(value)}" r="${i === values.length-1 ? 4 : values.length > 90 ? 1 : 2}" class="signal-dot${i >= values.length-5 ? " recent" : ""}${i === values.length-1 ? " latest" : ""}"><title>${localDate(points[i].date)} ${points[i].date.toLocaleTimeString("sv-SE", {hour:"2-digit",minute:"2-digit"})} · Brus ${round(value)}</title></circle>`).join("");
     const latest = values.at(-1);
     const changeText = comparison.percent === null ? "—" : `${comparison.percent >= 0 ? "+" : ""}${Math.round(comparison.percent)}%`;
     const comparisonText = comparison.reference
@@ -1664,7 +1672,7 @@
       : "Avläsning saknas för jämförelsen";
     const comparisonLine = comparison.reference ? `<line x1="${left}" y1="${y(comparison.reference.value)}" x2="${right}" y2="${y(comparison.reference.value)}" class="signal-reference"><title>Jämförelse: ${escapeHtml(comparisonText)}</title></line>` : "";
     const topline = `<span><i class="signal-key"></i>Brusnivå</span><span><i class="signal-key reference"></i>Jämförelse</span><strong>${round(latest)} <small>senast</small></strong>`;
-    const summary = `<span><b>${changeText}</b> <em>${comparison.delta === null ? "" : (comparison.delta >= 0 ? "+" : "") + comparison.delta.toLocaleString("sv-SE") + " i värde"}</em> <small>${comparison.reference ? `mot ${escapeHtml(comparisonText)}` : comparisonText}</small></span><small>Avläst ${localDate(points.at(-1).date)}</small>`;
+    const summary = `<span><b>${changeText}</b> <em>${comparison.delta === null ? "" : (comparison.delta >= 0 ? "+" : "") + comparison.delta.toLocaleString("sv-SE") + " i värde"}</em> <small>${comparison.reference ? `mot ${escapeHtml(comparisonText)}` : comparisonText}</small></span><small>Avläst ${localDate(points.at(-1).date)} ${points.at(-1).date.toLocaleTimeString("sv-SE", {hour:"2-digit",minute:"2-digit"})}</small>`;
     const svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Brusnivå och historisk jämförelse för ${escapeAttr(meter.address || meter.id)}">
       <defs><linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0babc7" stop-opacity=".16"/><stop offset="1" stop-color="#0babc7" stop-opacity=".01"/></linearGradient></defs>
       <rect x="${left}" y="${top}" width="${right-left}" height="${bottom-top}" class="signal-plot-bg"/>
@@ -1681,7 +1689,7 @@
         <div class="signal-comparison-summary" aria-live="polite">${summary}</div>
         <div class="signal-chart-stage" ${compact ? 'role="button" tabindex="0" aria-label="Förstora graf"' : ''}>${svg}</div>
         <div class="signal-range-panel">
-          <label class="signal-comparison-control">Jämför <select class="signal-comparison-period" aria-label="Jämför med tidigare avläsning"><option value="previous">Föregående avläsning</option><option value="export">Föregående Excel</option><option value="7">7 dagar bakåt</option><option value="30">30 dagar bakåt</option><option value="90">90 dagar bakåt</option><option value="365">1 år bakåt</option></select></label>
+          <label class="signal-comparison-control">Jämför <select class="signal-comparison-period" aria-label="Jämför med tidigare avläsning"><option value="previous_day">Föregående avläsningsdag</option><option value="previous">Föregående avläsning</option><option value="export">Föregående Excel</option><option value="7">7 dagar bakåt</option><option value="30">30 dagar bakåt</option><option value="90">90 dagar bakåt</option><option value="365">1 år bakåt</option></select></label>
           <div class="signal-range-labels"><span class="signal-range-dates"></span></div>
           <div class="signal-range-track"><input class="signal-range-start" type="range" min="0" max="${maxStart}" step="1" value="${startIndex}" aria-label="Startdatum för grafen"><i class="signal-range-end" aria-hidden="true"></i></div>
           <div class="signal-range-presets" aria-label="Snabbval för tidsperiod">
@@ -1748,7 +1756,7 @@
       for (let i=1; i<times.length; i++) if (Math.abs(x(i)-px) < Math.abs(x(index)-px)) index=i;
       let tooltip = stage.querySelector(".signal-hover");
       if (!tooltip) { tooltip = document.createElement("div"); tooltip.className="signal-hover"; stage.appendChild(tooltip); }
-      tooltip.textContent = `${localDate(points[index].date)} · Brus ${round(values[index])}`;
+      tooltip.textContent = `${localDate(points[index].date)} ${points[index].date.toLocaleTimeString("sv-SE", {hour:"2-digit",minute:"2-digit"})} · Brus ${round(values[index])}`;
       tooltip.style.left = `${Math.max(4, Math.min(rect.width-180, event.clientX-rect.left+12))}px`;
       tooltip.style.top = "6px";
       const cursor = stage.querySelector(".signal-cursor");
@@ -1805,6 +1813,11 @@
     const selectedCount = selectedMeterList().length;
     document.getElementById("previewTitle").textContent = meter.address || meter.id;
     document.getElementById("previewMeta").textContent = `${decisionText(meter)} · prioritet ${meter.risk}/100 · ${dates.firstDate} till ${dates.lastDate}${staleDays >= 14 ? ` · tappad kontakt ${staleDays} dagar` : ""}${selectedCount > 1 ? ` · ${selectedCount} mätare på kartan` : ""}`;
+    const signal = meter.engine?.recentChange;
+    if (signal?.newRise) {
+      const observed = new Date(signal.firstHighAt).toLocaleString("sv-SE", {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
+      document.getElementById("previewMeta").textContent = `Ny signal · först observerad ${observed} · ${signal.observationsSinceRise} avläsningar · tidigare: ${decisionText(meter)}`;
+    }
     if (state.previewChart) state.previewChart.destroy();
     state.previewChart = null;
     const labels = meter.points.map((point) => localDate(point.date));
@@ -2162,3 +2175,4 @@
 
   analyze();
 }());
+

@@ -1,5 +1,14 @@
 # LeakSök Intelligence
 
+## Avläsningar samma dag och importdetaljer, 15 september 2026
+
+- Importen visar en kort status. Alla anmärkningar och filfel finns under Visa importdetaljer. Områdespuls är hopfälld tills den öppnas.
+- Detaljgrafen visar varje unik tidsstämplad avläsning, inklusive flera samma dag. Standardjämförelsen använder senaste värdet från föregående avläsningsdag (högst 14 dagars avstånd). Dygnets lägsta nivå används fortfarande när varaktighet bedöms.
+- Nya signaler visar aktuella ökningar även för tidigare säsongs-/störningsmärkta och lagade mätare. Starka sådana avvikelser visas som Ompröva tidigare facit. Befintliga fältbeslut ändras inte automatiskt.
+- Först observerad är första tillgängliga förhöjda avläsning, inte en fastställd läckstart. Återkommande förhöjning kräver tidigare observerade höga värden och återgång; exportens historiska Maxvärde dateras inte som en läcka.
+- Regression: flera exporter samma dag, återkomst, oförändrade manuella beslut, läsbara importdetaljer vid 121 filer och samma tidskoordinater i trendberäkningen.
+
+
 ## Morgonanalys, 14 september 2026
 
 Öppna samma webbläsare/profil och importera Kamstrups senaste 24-timmarsexport. Historiken byggs på tidigare importer. Appen hämtar inte exporter från Kamstrup automatiskt.
@@ -126,3 +135,4 @@ Arbetsvyn använder `styles.css` för grundkomponenter och `workspace-v3.css` me
 Grafen ritas med verkliga avläsningsdatum och uppmätta SVG-dimensioner. Luckor över 14 dagar visas som saknat underlag i både minigraf och detaljgraf. Inga mätvärden interpoleras över sådana luckor. Grå yta efter sista avläsningen visar hur länge nya värden saknas fram till sista exportdatumet. Förändringstal jämför observerade värden; tidigare nollvärde ger ingen påhittad procentsats. Diagrammet zoomar inte vid vanlig scroll.
 
 Kontroll: `TZ=UTC node tests/chart-render.test.js`, `node tests/ui-structure.test.js` och den befintliga import-/motorsviten.
+

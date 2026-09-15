@@ -30,14 +30,14 @@
   function draw() {
     const host = document.getElementById("networkBriefHost");
     if (!host) return;
-    if (!panel) { panel = element('section', '', 'network-watch'); panel.setAttribute('aria-label','Gemensamma förändringar'); }
+    if (!panel) { panel = element('details', '', 'network-watch'); panel.setAttribute('aria-label','Gemensamma förändringar'); }
     if (panel.parentElement !== host) host.prepend(panel);
     const signature = JSON.stringify(events);
     if (panel.dataset.signature === signature) return;
     panel.dataset.signature = signature;
     panel.replaceChildren();
     panel.hidden = !events.length;
-    const header = element('div','','network-watch-heading');
+    const header = element('summary','','network-watch-heading');
     header.append(element('span','OMRÅDESPULS','network-watch-kicker'), element('strong',events.length ? `${events.length} gemensamma förändringar` : 'Inga nya gemensamma ökningar'));
     panel.append(header);
     const help = element('p', 'Minst två adresser på samma gata, minst +50 % och +3 mot tidigare nivå. Saknad avläsning räknas inte som oförändrat brus.','network-watch-help');
@@ -69,3 +69,4 @@
   render = function renderNetworkEvents() { previousRender(); draw(); };
   document.addEventListener('DOMContentLoaded', draw);
 })();
+

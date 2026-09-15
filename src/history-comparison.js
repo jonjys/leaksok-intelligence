@@ -17,6 +17,9 @@
       const latestExport = exportTime(latest);
       const earlierExports = rows.filter(p => p !== latest && exportTime(p) < latestExport - 12 * 60 * 60 * 1000);
       reference = earlierExports.at(-1) || null;
+    } else if (period === "previous_day") {
+      const day = time => new Date(time).toLocaleDateString("sv-SE");
+      reference = earlier.filter(p => day(p.time) !== day(latest.time) && latest.time - p.time <= 14 * DAY).at(-1) || null;
     } else if (period !== "previous") {
       const days = Number(period);
       const target = latest.time - days * DAY;

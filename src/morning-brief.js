@@ -20,16 +20,16 @@
       <div class="morning-heading"><div><span class="morning-kicker">MORGONANALYS</span><h2>Det här har förändrats</h2></div>
         <span class="data-freshness ${report.ageHours > 30 ? "is-old" : ""}">${report.ageHours > 30 ? "Äldre export · " : "Senaste export · "}${escapeHtml(latestText)}</span></div>
       <div class="morning-stats">
-        <button type="button" data-morning-filter="suspect"><b>${report.changes.length}</b><span>nya ökningar · 24 h</span></button>
+        <button type="button" data-morning-filter="new_signal"><b>${report.changes.length}</b><span>nya ökningar · 24 h</span></button>
         <button type="button" data-morning-filter="dispatch"><b>${report.dispatch}</b><span>prioriterade att åka till</span></button>
         <button type="button" data-morning-filter="stale_contact"><b>${report.stale}</b><span>utan färsk avläsning ≥14 d</span></button>
         <div><b>${report.fresh}<small> / ${report.total}</small></b><span>avlästa senaste 24 h</span></div>
       </div>
       <div class="morning-signals">${report.changes.slice(0,3).map(m => `
-        <button type="button" class="morning-signal" data-morning-meter="${escapeAttr(m.id)}">
+        <button type="button" class="morning-signal${m.recheck ? " needs-review" : ""}" data-morning-meter="${escapeAttr(m.id)}">
           <span class="morning-address">${escapeHtml(m.address || m.id)}</span>
           <strong>${fmt(m.before)} <i>→</i> ${fmt(m.latest)} <em>+${fmt(m.percent)} %</em></strong>
-          <small>+${fmt(m.delta)} i värde · ${m.labelType ? "ny förändring trots facit – kontrollera" : m.days ? m.days + " dagar observerad förhöjning" : "första hoppet – följ nästa avläsning"}</small>
+          <small>+${fmt(m.delta)} i värde · ${m.recheck ? "Ompröva tidigare facit" : m.previousEpisodes ? "Liknande förhöjning har återkommit" : "Ny signal – kontrollera"}</small>
           <small>${escapeHtml(date(m.beforeAt))} → ${escapeHtml(date(m.readAt))}</small>
         </button>`).join("") || '<p class="morning-quiet">Ingen ny ökning över +50 % och +2 i senaste dygnets avläsningar. Bestående misstankar finns kvar i arbetslistorna.</p>'}</div>
       <p class="morning-footnote">${state.storageError ? escapeHtml(state.storageError) : "Historik på denna enhet"} · Procent av exportvärdet. Prioriteten väger även in varaktighet, dataluckor och störningar.${report.unknown ? " " + report.unknown + " mätare saknar giltigt avläsningsdatum." : ""}</p>`;
@@ -39,6 +39,10 @@
     if (meter) { window.selectLeakMeter?.(meter.dataset.morningMeter); return; }
     const filter = event.target.closest("[data-morning-filter]");
     if (filter) {
+      if (![...els.filter.options].some(o => o.value === "new_signal")) {
+        const option = document.createElement("option"); option.value = "new_signal"; option.textContent = "Nya signaler · 24 h"; els.filter.appendChild(option);
+      }
+      els.search.value = ""; els.areaFilter.value = "all"; els.excludeFilter.value = "none";
       els.filter.value = filter.dataset.morningFilter;
       els.filter.dispatchEvent(new Event("change", { bubbles:true }));
     }
@@ -58,18 +62,22 @@
       if (m.category === "dispatch") result.dispatch++;
       if (m.staleContact || m.staleReadDays >= 14) result.stale++;
       const e = m.engine || {};
-      const readAt = e.latestDate ? new Date(e.latestDate).getTime() : NaN;
+      const c = e.recentChange || { latest:e.latest, latestDate:e.latestDate, previousValue:e.previousValue, previousDate:e.previousDate, percent:e.latestPercent, delta:e.latestDelta, newRise:e.newRise };
+      const readAt = c.latestDate ? new Date(c.latestDate).getTime() : NaN;
       if (!Number.isFinite(readAt)) { result.unknown++; continue; }
       const fresh = exportAt != null && readAt <= exportAt && exportAt-readAt <= DAY;
       if (fresh) result.fresh++;
-      if (!fresh || !e.newRise || m.category === "customer_side" || m.dryMeter) continue;
-      result.changes.push({ id:m.id, address:m.address, before:e.previousValue, latest:e.latest,
-        percent:e.latestPercent*100, delta:e.latestDelta, readAt, beforeAt:e.previousDate,
+      if (!fresh || !c.newRise || m.category === "customer_side" || m.dryMeter) continue;
+      result.changes.push({ id:m.id, address:m.address, before:c.previousValue, latest:c.latest,
+        percent:c.percent*100, delta:c.delta, readAt, beforeAt:c.previousDate,
         days:e.persistenceDays || 0, labelType:labels[m.id]?.type || null,
+        recheck:["seasonal","noise","repaired"].includes(m.category) && c.delta >= 8 && c.percent >= 1,
+        previousEpisodes:c.previousEpisodes || 0, firstHighAt:c.firstHighAt, lastLowAt:c.lastLowAt,
         priority:m.enginePriority || m.risk || 0 });
     }
-    result.changes.sort((a,b)=>b.priority-a.priority || b.percent-a.percent);
+    result.changes.sort((a,b)=>Number(b.recheck)-Number(a.recheck) || b.percent-a.percent || b.delta-a.delta || b.priority-a.priority);
     return result;
   }
   return { build };
 }));
+
