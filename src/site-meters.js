@@ -16,14 +16,13 @@
     const points = Array.isArray(meter.points) ? meter.points : [];
     if (points.length === 0) return true;
     const latest = points[points.length - 1];
-    const value = Number(latest && latest.current);
+    if (!latest || latest.current == null || latest.current === "" || latest.readAtUnknown) return true;
+    const value = Number(latest.current);
     return !Number.isFinite(value);
   }
 
   function isLive(meter) {
-    const points = Array.isArray(meter.points) ? meter.points : [];
-    if (points.length < 2) return false;
-    return points.some((point) => Number(point.current) > 0);
+    return !isSilent(meter) && !meter.staleContact;
   }
 
   function attachSites(meters) {
@@ -64,7 +63,7 @@
     } else if (site.incompleteExcel) {
       reasons.unshift("Flerbostad/adressintervall i Excel, men bara en mätare importerades");
     }
-    if (site.siblingSilent && isSilent(meter)) {
+    if (site.siblingSilent && isSilent(meter) && !meter.label?.type) {
       return Object.assign({}, meter, {
         category: "stale_contact",
         risk: Math.min(meter.risk || 0, 12),
@@ -85,7 +84,7 @@
     const meter = state.meters.find((item) => (item.address || item.id) === title);
     const site = meter && meter.site;
     if (!site || (!site.multi && site.meterCount < 2)) return;
-    if (meta.dataset.siteNote === meter.id) return;
+    if (meta.textContent.includes("mätare på adressen")) return;
     meta.dataset.siteNote = meter.id;
     const extra = site.meterCount > 1
       ? site.meterCount + " mätare på adressen · " + site.liveCount + " med data" + (site.silentCount ? " · " + site.silentCount + " utan avläsning" : "")
@@ -93,19 +92,10 @@
     meta.textContent = meta.textContent + " · " + extra;
   }
 
-  function wrapAnalyze() {
-    if (typeof analyze !== "function" || analyze.__siteWrapped) return;
-    const previous = analyze;
-    analyze = function analyzeWithSites() {
-      previous();
-      attachSites(state.meters || []);
-      state.meters = (state.meters || []).map(applySiteRank);
-      if (typeof render === "function") render();
-    };
-    analyze.__siteWrapped = true;
-  }
-
-  wrapAnalyze();
+  (window.LeakAnalysisSteps ||= []).push(() => {
+    attachSites(state.meters);
+    state.meters = state.meters.map(applySiteRank);
+  });
   if (typeof state !== "undefined" && Array.isArray(state.meters) && state.meters.length) {
     attachSites(state.meters);
     state.meters = state.meters.map(applySiteRank);

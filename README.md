@@ -1,4 +1,20 @@
-# Läcksök Intelligence
+# LeakSök Intelligence
+
+## Morgonanalys, 14 september 2026
+
+Öppna samma webbläsare/profil och importera Kamstrups senaste 24-timmarsexport. Historiken byggs på tidigare importer. Appen hämtar inte exporter från Kamstrup automatiskt.
+
+- Morgonöversikten visar datum för senaste export, nya små ökningar, prioriterade mätare och datatäckning.
+- 5 → 10 visas som +5 i exportvärde och +100 %. Procent av en dB-siffra är inte procent förändring av ljudintensitet. Appen använder benämningen exportvärde eftersom exportens enhet måste verifieras i källan.
+- Misstänk visar automatiska signaler, inklusive ett första +50 % / +2-hopp. Bevaka är en manuell arbetslista.
+- En kvarstående förhöjning vägs mot verkliga avläsningsdagar. Flera exporter av samma avläsning ger inte flera bekräftelser. Luckor över 14 dagar bryter sammanhängande beständighet.
+- Samma filnamn från olika dagar bevaras. Excel-blad med omslag, CSV med rapporthuvud, svenska decimaler och saknade värden hanteras.
+- Konstaterad/Lagad öppnar fältformulär även via snabbval. Sparandet måste slutföras innan formuläret stängs.
+- Karta och graf delar desktopvyn. Tabellen använder hela bredden. Grafen behåller dataluckor och markerar senaste fem punkterna.
+- Akustiska händelser i Aktiva händelser skiljs från flowIQ-infokoder. LEAK/BURST i infokod anger förbrukningsavvikelser att kontrollera efter mätaren. DRY är torr mätare, inte kommunikationsbortfall.
+- Prioritet 0–100 är en regelbaserad rangordning, inte en läcksannolikhet. Ingen extern språkmodell får mätardata.
+
+Verifiera med `node --test tests/*.test.js`. GitHub Actions kör sviten i UTC och Europe/Stockholm samt Chromium-test av import, fältflöde, omladdning och responsiv layout. Webbläsartestet använder syntetiska CSV- och XLSX-data; originalexporter från kommunen finns inte i repo:t.
 
 ## Delad karta och historik
 
@@ -14,7 +30,7 @@ Verifiering: `node tests/history-comparison.test.js` och `node tests/chart-rende
 - **Visa bara Efter mätare** är ett visningsfilter, ingen omklassificering. Byte av lista återställer detta filter.
 - Motorn använder unika avläsningsdagar. Upprepade exporter av samma avläsning ökar inte beständigheten. Grafernas tidsskala följer avläsningsdatum och visar luckan fram till sista exporten.
 - En ensam verklig avläsning märks internt som ny mätare. Redan efter flera avläsningar över 2–3 veckor bedöms procenthopp och beständig nivå normalt utan ett artificiellt inlärningsavdrag.
-- Kamstrups `LEAK` är en läcksignal, inte bevis för kundsida. `Efter mätare` kräver uttrycklig text om kundsida/efter mätaren eller ett manuellt fältbeslut.
+- Infokod `LEAK` är en förbrukningsavvikelse som följs upp efter mätaren; en akustisk händelse med texten Läckage anger inte läckans placering.
 - **Nollställ** bedömer endast avläsningar efter nollställningstidpunkten. Efter minst tre nya avläsningsdagar kan automatiken varna igen. **Lagad** och **Konstaterad läcka** är manuella beslut.
 - Vid kort historik kan upprepat hög nivå mot Excel-snitt F ge **Misstänk**, men detta är inte bevis för läckage. Låga nivåer med bestående procentökning kan också ge Misstänk.
 - Bedömningen är en lokal regel- och statistikmotor, inte en ansluten språkmodell. Poängen är prioritering, inte en kalibrerad sannolikhet. Inga Excel-filer skickas till en AI-leverantör.
@@ -51,7 +67,7 @@ Facit och tolkade mätvärden sparas i webbläsarens IndexedDB och kan återanv�
 
 Fyra verkliga startfacit följer med motorn: Alhagsvägen 58-60 (bekräftad och lagad), Alice Tegnérs väg 23 (värmepanna/säsong), Broängsvägen 22 (lagad) och Vattravägen 8 (aktivt exempel). Lagad och aktiva läckor är manuella listor. Appen ska inte automatiskt lägga något som lagat bara för att värdet går ner.
 
-Flera starkt korrelerade kurvor på samma husnummer markeras som möjlig gemensam servis före mätarna. `Leak` i Excel visas som `Efter mätare` och hamnar i egen arbetslista för `Kontakta FÄ`. `Dry` används som tecken på avstängd sommarvattenmätare och ska inte automatiskt bli läckprioritet.
+Flera starkt korrelerade kurvor på samma husnummer markeras som möjlig gemensam servis före mätarna. `LEAK` i infokod följs upp i Efter mätare. Texten Läckage i akustiska händelser anger inte vilken sida om mätaren läckan finns på. `DRY` betyder torr mätare; orsaken måste kontrolleras.
 
 ## Kamstrup-principer som motorn följer
 
@@ -105,7 +121,7 @@ Vänstermenyn visar de viktigaste arbetslistorna först: `Alla mätare`, `Åk ut
 
 ### Layout och historikgrafer (9 september 2026)
 
-Arbetsvyn använder `styles.css` för grundkomponenter och `workspace-v3.css` som enda layoutlager. De äldre layout- och presentationsfilerna laddas inte längre av sidan. Karta/lista, filter och sidval delar samma arbetsyta; en vald mätare öppnar karta och graf bredvid varandra på dator och staplat på telefon.
+Arbetsvyn använder `styles.css` för grundkomponenter och `workspace-v3.css` med `desk-layout.css` för morgonöversikten och responsiva justeringar. De äldre layout- och presentationsfilerna laddas inte längre av sidan. Karta/lista, filter och sidval delar samma arbetsyta; en vald mätare öppnar karta och graf bredvid varandra på dator och staplat på telefon.
 
 Grafen ritas med verkliga avläsningsdatum och uppmätta SVG-dimensioner. Luckor över 14 dagar visas som saknat underlag i både minigraf och detaljgraf. Inga mätvärden interpoleras över sådana luckor. Grå yta efter sista avläsningen visar hur länge nya värden saknas fram till sista exportdatumet. Förändringstal jämför observerade värden; tidigare nollvärde ger ingen påhittad procentsats. Diagrammet zoomar inte vid vanlig scroll.
 

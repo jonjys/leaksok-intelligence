@@ -1,7 +1,9 @@
 (function applyLayoutPolish() {
   const compactBulkOptions = [
     ["manual_dispatch", "Akut / åk ut"],
-    ["suspect", "Misstänk / bevaka"],
+    ["suspect", "Misstänk"],
+    ["interesting", "Bevaka"],
+    ["known_noise", "Tillfällig topp / störning"],
     ["leak", "Konstaterad läcka"],
     ["customer_contact", "Efter mätare"],
     ["repaired", "Lagad / klar"],
@@ -13,7 +15,9 @@
   const listNames = {
     all: "Alla mätare",
     dispatch: "Åk ut",
-    suspect_auto: "Misstänk / bevaka",
+    suspect_auto: "Misstänk",
+    suspect: "Misstänk",
+    watch: "Bevaka",
     customer_side: "Efter mätare",
     confirmed: "Aktiva läckor",
     repaired: "Lagade",
@@ -62,8 +66,9 @@
     drawer.className = "info-drawer";
     drawer.innerHTML = `
       <summary>Info</summary>
-      <div class="info-drawer-content">${panel.innerHTML}</div>
+      <div class="info-drawer-content"></div>
     `;
+    drawer.querySelector(".info-drawer-content").appendChild(panel);
     rail.appendChild(drawer);
   }
 

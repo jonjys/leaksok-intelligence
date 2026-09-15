@@ -228,7 +228,7 @@ const dailyMinimum = context.__engine.dedupePoints([
   { date: new Date(2026, 9, 25, 6, 0), current: 9, source: "early.xlsx" },
   { date: new Date(2026, 9, 26, 6, 0), current: 14, source: "next.xlsx" },
 ]);
-assert.deepEqual(Array.from(dailyMinimum, (point) => point.current), [9, 14]);
+assert.deepEqual(Array.from(dailyMinimum, (point) => point.current), [9, 18, 14]);
 
 const dailyTimeline = context.__engine.readingTimeline([
   { date: new Date(2026, 9, 25, 12), readAt: new Date(2026, 9, 25, 8), current: 20 },

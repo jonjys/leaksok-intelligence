@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Läcksök Int</title>
+  <title>LeakSök · Morgonanalys</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="./src/styles.css">
   <link rel="stylesheet" href="./src/workspace-v3.css">
@@ -17,12 +17,12 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <p class="eyebrow">Leak Detection</p>
-      <h1>Läcksök Int</h1>
+      <p class="eyebrow">BOTKYRKA · VATTEN</p>
+      <h1>LeakSök<span class="brand-sub"> / Intelligence</span></h1>
     </div>
     <div class="actions">
       <button id="profileButton" class="secondary" title="Lås appen">Fredde - lås</button>
-      <button id="pickFiles">Välj filer</button>
+      <button id="pickFiles">＋ Importera Excel</button>
       <button id="exportJson" class="secondary">Export facit</button>
       <button id="resetAll" class="danger">Rensa</button>
     </div>
@@ -38,20 +38,24 @@
       <nav class="list-tabs" id="listTabs" aria-label="Listor">
         <button type="button" data-filter="all">Alla mätare <b>0</b></button>
         <button type="button" data-filter="dispatch">Åk ut <b>0</b></button>
-        <button type="button" data-filter="suspect">Misstänkt / bevaka <b>0</b></button>
+        <button type="button" data-filter="suspect">Misstänk <b>0</b></button>
+        <button type="button" data-filter="watch">Bevaka <b>0</b></button>
         <button type="button" data-filter="confirmed">Aktiva läckor <b>0</b></button>
         <button type="button" data-filter="repaired">Lagade <b>0</b></button>
         <button type="button" data-filter="ignored">Ignorera <b>0</b></button>
         <button type="button" data-filter="seasonal">Säsong / falsklarm <b>0</b></button>
         <button type="button" data-filter="customer_side">Efter mätare <b>0</b></button>
+        <button type="button" data-filter="stale_contact">Utan avläsning <b>0</b></button>
+        <button type="button" data-filter="hidden">Gömda <b>0</b></button>
       </nav>
     </aside>
     <div class="content-column">
+      <section id="morningBrief" class="morning-brief" aria-label="Morgonanalys"></section>
       <section class="dropzone" id="dropzone">
         <input id="fileInput" type="file" multiple accept=".xlsx,.xls,.csv" hidden>
         <div>
           <strong>Ladda Excel</strong>
-          <span>Valfri dag, vecka, månad eller flera filer. Headern hittas automatiskt.</span>
+          <span>Släpp senaste 24-timmarsexporten här. Tidigare historik behålls.</span>
         </div>
         <p id="importStatus" class="import-status" role="status" aria-live="polite"></p>
       </section>
@@ -88,13 +92,14 @@
         </div>
         <div id="selectedMeterChips" class="meter-chips" aria-label="Markerade mätare"></div>
       </section>
+      <div id="networkBriefHost"></div>
       <section class="controls">
         <input id="search" type="search" placeholder="Sök adress, serienummer, område. Klistra in flera adresser med radbrytning eller kommatecken">
         <select id="filter" aria-label="Visa bara">
           <option value="all">Visa bara: Alla mätare</option>
           <option value="actionable">Akuta + misstänkta</option>
           <option value="dispatch">Åk ut</option>
-          <option value="suspect">Misstänkt / bevaka</option>
+          <option value="suspect">Misstänk</option><option value="watch">Bevaka</option><option value="hidden">Gömda</option><option value="stale_contact">Utan avläsning</option>
           <option value="confirmed">Aktiva läckor</option>
           <option value="repaired">Lagade</option>
           <option value="ignored">Ignorera</option>
@@ -107,7 +112,7 @@
           <option value="name">Namn A–Ö</option>
           <option value="lastRead">Senast avläst</option>
           <option value="area">Ort A–Ö och namn</option>
-          <option value="p">P% högst först</option>
+          <option value="robustRise">Ökning från basnivå</option><option value="p">P% högst först</option>
           <option value="lastJump">Senaste hopp högst först</option>
           <option value="current">Högst aktuellt värde</option>
           <option value="max">Högsta uppmätta värde</option>
@@ -151,6 +156,7 @@
           <option value="reset_baseline">Nollställ och följ nya värden</option>
           <option value="ignored">Ignorera</option>
         </select>
+        <button type="button" id="hideSelected" class="secondary">Göm markerade</button>
         <button id="bulkSave" class="secondary">Flytta</button>
         
       </section>
@@ -160,9 +166,9 @@
             <thead>
               <tr>
                 <th><button type="button" class="table-sort" data-sort-table="select">Välj</button></th>
-                <th><button type="button" class="table-sort" data-sort-table="group">Sortera efter lista</button></th>
+                <th><button type="button" class="table-sort" data-sort-table="risk">Prioritet</button></th>
                 <th><button type="button" class="table-sort" data-sort-table="name">Adress</button></th>
-                <th><button type="button" class="table-sort" data-sort-table="p">E/F/P</button></th>
+                <th><button type="button" class="table-sort" data-sort-table="lastJump">Förändring</button></th>
                 <th><button type="button" class="table-sort" data-sort-table="lastJump">Trend</button></th>
                 <th><button type="button" class="table-sort" data-sort-table="lastRead">Historik</button></th>
                 <th>Varför</th>
@@ -213,7 +219,10 @@
         <input id="confirmedDate" type="date">
       </label>
       <fieldset id="confirmedFields">
-        <legend>Datum</legend>
+        <legend>Konstaterad läcka</legend>
+        <label><input type="radio" name="lineType" value="AV"> AV</label>
+        <label><input type="radio" name="lineType" value="SV"> SV</label>
+        <label><input type="radio" name="lineType" value="Vet ej" checked> Vet ej</label>
         <label><input id="confirmedDateUncertain" type="checkbox"> Osäkert datum</label>
       </fieldset>
       <div id="repairFields" class="form-grid" hidden>
@@ -254,9 +263,8 @@
   <script src="./src/kamstrup-codes.js"></script>
   <script src="./src/layout-polish.js"></script>
   <script src="./src/map-workspace.js"></script>
-  <script src="./src/chart-honesty.js"></script>
-  <script src="./src/desk-layout.js"></script>
   <script src="./src/network-events.js"></script>
   <script src="./src/network-events-ui.js"></script>
+  <script src="./src/morning-brief.js"></script>
 </body>
 </html>

@@ -23,9 +23,10 @@
       const exported = Date.parse(p.date);
       if (!Number.isFinite(value) || value < 0 || !Number.isFinite(time) || !Number.isFinite(exported) || time > exported) continue;
       // Local calendar date in the source, so browser timezone cannot split peers.
-      const day = typeof p.readAt === 'string' ? p.readAt.slice(0,10) : new Date(time).toISOString().slice(0,10);
+      const date = new Date(time);
+      const day = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
       const old = days.get(day);
-      if (!old || time > old.time || (time === old.time && exported > old.exported)) days.set(day, { value, time, exported, day });
+      if (!old || value < old.value || (value === old.value && exported > old.exported)) days.set(day, { value, time, exported, day });
     }
     return [...days.values()].sort((a,b) => a.time-b.time);
   }

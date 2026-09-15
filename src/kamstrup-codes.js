@@ -11,16 +11,17 @@
   };
 
   function codesOf(meter) {
-    const text = meter.info || "";
+    const text = meter.infoCode ?? meter.info ?? "";
+    const events = meter.activeEvents ?? "";
     return {
       leak: CODE.LEAK.test(text),
       burst: CODE.BURST.test(text),
       dry: CODE.DRY.test(text),
       reverse: CODE.REVERSE.test(text),
       tamper: CODE.TAMPER.test(text),
-      noise: CODE.NOISE.test(text),
+      noise: CODE.NOISE.test(events || text),
       unset: CODE.UNSET.test(text),
-      eventLeak: CODE.EVENT_LEAK.test(text),
+      eventLeak: CODE.EVENT_LEAK.test(events),
       raw: text.trim(),
     };
   }
@@ -36,17 +37,17 @@
     if (typeof state !== "undefined" && state.labels?.[meter.id]?.type) return meter;
     const reasons = Array.isArray(meter.reasons) ? meter.reasons.slice() : [];
     if (codes.burst) {
-      reasons.unshift("flowIQ BURST: rörbrott efter mätaren");
+      reasons.unshift("flowIQ BURST: hög sammanhängande förbrukning – kontrollera installation efter mätaren");
       return Object.assign({}, meter, {
         category: "customer_side",
         infrastructure: Object.assign({}, meter.infrastructure || {}, { customerSide: true }),
         risk: Math.max(meter.risk || 0, 72),
-        confidence: "hög",
+        confidence: "låg",
         reasons: uniq(reasons).slice(0, 8),
       });
     }
-    if (codes.leak || codes.eventLeak) {
-      reasons.unshift("flowIQ LEAK: läckage efter mätaren");
+    if (codes.leak) {
+      reasons.unshift("flowIQ LEAK: kontinuerligt flöde – kontrollera möjlig läcka efter mätaren");
       return Object.assign({}, meter, {
         category: "customer_side",
         infrastructure: Object.assign({}, meter.infrastructure || {}, { customerSide: true }),
@@ -57,8 +58,8 @@
     if (codes.dry) {
       reasons.unshift("flowIQ DRY: mätaren är inte vattenfylld");
       return Object.assign({}, meter, {
-        category: "stale_contact",
-        staleContact: true,
+        category: "normal",
+        dryMeter: true,
         risk: Math.min(meter.risk || 0, 8),
         confidence: "hög",
         reasons: uniq(reasons).slice(0, 8),
@@ -81,18 +82,8 @@
     return meter;
   }
 
-  function wrapAnalyze() {
-    if (typeof analyze !== "function" || analyze.__codesWrapped) return;
-    const previous = analyze;
-    analyze = function analyzeWithCodes() {
-      previous();
-      if (!state || !Array.isArray(state.meters)) return;
-      state.meters = state.meters.map(applyCodes);
-      if (typeof render === "function") render();
-    };
-    analyze.__codesWrapped = true;
-  }
-
-  wrapAnalyze();
+  (root.LeakAnalysisSteps ||= []).push(() => {
+    state.meters = state.meters.map(applyCodes);
+  });
   root.KamstrupCodes = { codesOf, applyCodes };
 }(typeof globalThis !== "undefined" ? globalThis : this));
