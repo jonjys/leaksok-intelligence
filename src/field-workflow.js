@@ -1808,6 +1808,11 @@
       return;
     }
   
+    const oldSignal = canvas.closest(".preview-chart")?.querySelector(".leak-signal-chart");
+    if (oldSignal && oldSignal.dataset.meterId !== String(meter.id)) {
+      oldSignal.signalObserver?.disconnect();
+      oldSignal.remove();
+    }
     const dates = meterDates(meter);
     const staleDays = meter.staleReadDays || 0;
     const selectedCount = selectedMeterList().length;

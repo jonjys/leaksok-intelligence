@@ -115,7 +115,7 @@ const server = http.createServer((req,res)=>{
     }
     assert.equal(await page.locator('.morning-signal').first().getAttribute('data-morning-meter'),'99');
     await page.locator('[data-morning-meter="99"]').click();
-    await page.waitForSelector('.preview-chart .signal-chart-stage svg');
+    await page.waitForSelector('.preview-chart [data-meter-id="99"] .signal-chart-stage svg');
     assert.match(await page.locator('.preview-chart .signal-comparison-summary').innerText(),/747%/);
     const titles=await page.locator('.preview-chart .signal-dot title').allTextContents();
     assert.ok(titles.some(t=>t.includes('06:59')&&t.includes('125')));
@@ -135,7 +135,7 @@ const server = http.createServer((req,res)=>{
       assert.equal(await page.evaluate(()=>state.meters.length),2965);
       assert.equal(await page.locator('.morning-signal').first().getAttribute('data-morning-meter'),'23571762');
       await page.locator('[data-morning-meter="23571762"]').click();
-      await page.waitForSelector('.preview-chart .signal-chart-stage svg');
+      await page.waitForSelector('.preview-chart [data-meter-id="23571762"] .signal-chart-stage svg');
       assert.match(await page.locator('.preview-chart .signal-comparison-summary').innerText(),/747%/);
       const svgTitles=await page.locator('.preview-chart .signal-dot title').allTextContents();
       assert.ok(svgTitles.some(t=>t.includes('06:59')&&t.includes('125')));
