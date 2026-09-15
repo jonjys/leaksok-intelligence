@@ -1645,12 +1645,16 @@
       const value = tickStep * i;
       return `<line x1="${left}" y1="${y(value)}" x2="${right}" y2="${y(value)}" class="signal-grid"/><text x="${left-9}" y="${y(value)+4}" class="signal-axis" text-anchor="end">${round(value)}</text>`;
     }).join("");
-    const tickCount = maxTime === minTime ? 1 : Math.max(2, Math.min(7, Math.ceil(span / 86400000) + 1, Math.floor((right-left)/115) + 1));
+    const tickCount = maxTime === minTime ? 1 : Math.max(2, Math.min(7, Math.floor((maxTime - minTime) / 86400000) + 1, Math.floor((right-left)/115) + 1));
     const dateFormat = new Intl.DateTimeFormat("sv-SE", {day:"numeric",month:"short", ...(span > 180 * 86400000 ? {year:"2-digit"} : {})});
+    const displayedDates = new Set();
     const xGrid = Array.from({length:tickCount}, (_,i) => {
       const time = minTime + (maxTime-minTime) * i / Math.max(1,tickCount-1);
+      const dateLabel = dateFormat.format(new Date(time));
+      if (displayedDates.has(dateLabel)) return "";
+      displayedDates.add(dateLabel);
       const px = timeX(time);
-      return `<line x1="${px}" y1="${top}" x2="${px}" y2="${bottom}" class="signal-grid vertical"/><text x="${px}" y="${height-8}" class="signal-date" text-anchor="${!i ? "start" : i === tickCount-1 ? "end" : "middle"}">${escapeHtml(dateFormat.format(new Date(time)))}</text>`;
+      return `<line x1="${px}" y1="${top}" x2="${px}" y2="${bottom}" class="signal-grid vertical"/><text x="${px}" y="${height-8}" class="signal-date" text-anchor="${!i ? "start" : i === tickCount-1 ? "end" : "middle"}">${escapeHtml(dateLabel)}</text>`;
     }).join("");
     const dots = values.map((value,i) => `<circle cx="${x(i)}" cy="${y(value)}" r="${i === values.length-1 ? 4 : values.length > 90 ? 1 : 2}" class="signal-dot${i >= values.length-5 ? " recent" : ""}${i === values.length-1 ? " latest" : ""}"><title>${localDate(points[i].date)} · Brus ${round(value)}</title></circle>`).join("");
     const latest = values.at(-1);
