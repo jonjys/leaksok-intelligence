@@ -58,6 +58,10 @@
           <span>Släpp senaste 24-timmarsexporten här. Tidigare historik behålls.</span>
         </div>
         <p id="importStatus" class="import-status" role="status" aria-live="polite"></p>
+        <details id="importLog" class="import-log" hidden>
+          <summary id="importLogSummary">Importlogg</summary>
+          <ul id="importLogEntries" aria-label="Varningar och filer som inte kunde läsas"></ul>
+        </details>
       </section>
       <section class="meter-preview" id="meterPreview" data-mobile-view="chart" hidden>
         <div class="preview-head">

@@ -301,6 +301,25 @@ function profileKey(name) {
   return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "lokal";
 }
 
+
+function renderImportLog(warnings = [], errors = []) {
+  const log = document.getElementById("importLog");
+  const summary = document.getElementById("importLogSummary");
+  const entries = document.getElementById("importLogEntries");
+  if (!log || !summary || !entries) return;
+  entries.replaceChildren();
+  log.open = false;
+  log.hidden = warnings.length + errors.length === 0;
+  summary.textContent = `Importlogg · ${warnings.length} varningar · ${errors.length} filer kunde inte läsas`;
+  for (const [prefix, messages] of [["Kunde inte läsa", errors], ["Varning", warnings]]) {
+    for (const message of messages) {
+      const item = document.createElement("li");
+      item.textContent = prefix + ": " + message;
+      entries.appendChild(item);
+    }
+  }
+}
+
 async function handleFiles(files) {
   if (state.importing) {
     els.importStatus.textContent = "En import pågår. Vänta tills den är färdig.";
@@ -315,6 +334,7 @@ async function handleFiles(files) {
   els.pickFiles.disabled = true;
   els.resetAll.disabled = true;
   els.profileButton.disabled = true;
+  renderImportLog();
   const previousFiles = state.files;
   const nextFiles = [...previousFiles];
   const errors = [], warnings = [];
@@ -341,7 +361,8 @@ async function handleFiles(files) {
     catch (error) { state.files = previousFiles; analyze(); throw error; }
     const saved = await persistState();
     state.lastImport = { at: new Date().toISOString(), imported, duplicates, errors, warnings, saved };
-    els.importStatus.textContent = `${imported} nya filer · ${duplicates} dubbletter · ${state.meters.length.toLocaleString("sv-SE")} mätare. ${saved ? "Sparat på denna enhet." : state.storageError}${warnings.length ? " " + warnings.join(" | ") : ""}${errors.length ? " Kunde inte läsa: " + errors.join(" | ") : ""}`;
+    els.importStatus.textContent = `${imported} nya filer · ${duplicates} dubbletter · ${state.meters.length.toLocaleString("sv-SE")} mätare. ${saved ? "Sparat på denna enhet." : state.storageError}${warnings.length ? ` ${warnings.length} varningar.` : ""}${errors.length ? ` ${errors.length} filer kunde inte läsas.` : ""}`;
+    renderImportLog(warnings, errors);
     render();
   } catch (error) {
     els.importStatus.textContent = "Importen kunde inte slutföras: " + error.message;
