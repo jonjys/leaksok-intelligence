@@ -45,6 +45,7 @@
         <button type="button" data-filter="ignored">Ignorera <b>0</b></button>
         <button type="button" data-filter="seasonal">Säsong / falsklarm <b>0</b></button>
         <button type="button" data-filter="customer_side">Efter mätare <b>0</b></button>
+        <button type="button" data-filter="learning">Nyuppsatt, avvakta <b>0</b></button>
         <button type="button" data-filter="stale_contact">Utan avläsning <b>0</b></button>
         <button type="button" data-filter="hidden">Gömda <b>0</b></button>
       </nav>
@@ -103,7 +104,7 @@
           <option value="all">Visa bara: Alla mätare</option>
           <option value="actionable">Akuta + misstänkta</option>
           <option value="dispatch">Åk ut</option>
-          <option value="suspect">Misstänk</option><option value="watch">Bevaka</option><option value="hidden">Gömda</option><option value="stale_contact">Utan avläsning</option>
+          <option value="suspect">Misstänk</option><option value="watch">Bevaka</option><option value="hidden">Gömda</option><option value="learning">Nyuppsatt, avvakta</option><option value="stale_contact">Utan avläsning</option>
           <option value="confirmed">Aktiva läckor</option>
           <option value="repaired">Lagade</option>
           <option value="ignored">Ignorera</option>
@@ -134,7 +135,7 @@
             <label><input type="checkbox" value="seasonal"> Säsong / falsklarm</label>
             <label><input type="checkbox" value="repaired"> Lagade</label>
             <label><input type="checkbox" value="ignored"> Ignorerade</label>
-            <label><input type="checkbox" value="learning"> Nya mätare</label>
+            <label><input type="checkbox" value="learning"> Nyuppsatta, avvakta</label>
             <button type="button" id="clearExcluded" class="secondary">Visa alla grupper</button>
           </div>
         </details>
@@ -162,8 +163,7 @@
           <option value="customer_contact">Kontakta FÄ / Efter mätare</option>
           <option value="repaired">Lagad</option>
           <option value="seasonal">Värmepanna / säsong</option>
-          <option value="known_noise">Tillfällig topp</option>
-          <option value="reset_baseline">Nollställ och följ nya värden</option>
+          <option value="new_install">Nyuppsatt, avvakta</option>
           <option value="ignored">Ignorera</option>
         </select>
         <button type="button" id="hideSelected" class="secondary">Göm markerade</button>

@@ -180,19 +180,19 @@ thead th:nth-child(6) { width:180px; }
   main { grid-template-columns:175px minmax(0,1fr); gap:12px; }
   .content-column {
     display:grid; overflow:hidden;
-    grid-template-columns:minmax(0,3fr) minmax(360px,2fr);
+    grid-template-columns:minmax(330px,2fr) minmax(0,3fr);
     grid-template-rows:auto auto auto auto auto minmax(0,1fr);
     gap:8px 12px;
   }
   .content-column > #morningBrief { grid-column:1/-1; grid-row:1; }
   .content-column > #dropzone { grid-column:1/-1; grid-row:2; }
   .content-column > #networkBriefHost { grid-column:1/-1; grid-row:3; max-height:76px; }
-  .content-column > .controls { grid-column:1; grid-row:4; align-content:start; overflow:visible; }
-  .content-column > #bulkActions { grid-column:1; grid-row:5; flex-wrap:wrap; }
-  .content-column > .workspace { grid-column:1; grid-row:6; min-height:0; height:100%; overflow:hidden; }
-  .content-column > #meterPreview { grid-column:2; grid-row:4/7; min-height:0; height:100%; margin:0; }
+  .content-column > .controls { grid-column:1/-1; grid-row:4; align-content:start; overflow:visible; }
+  .content-column > #bulkActions { grid-column:2; grid-row:5; flex-wrap:wrap; }
+  .content-column > .workspace { grid-column:2; grid-row:6; min-height:0; height:100%; overflow:hidden; }
+  .content-column > #meterPreview { grid-column:1; grid-row:5/7; min-height:0; height:100%; margin:0; }
   .content-column .table-wrap { height:100%; max-height:none; min-height:0; scrollbar-width:auto; scrollbar-gutter:stable; overscroll-behavior:contain; }
-  .controls #search { flex:1 0 100%; width:100%; }
+  .controls #search { flex:1 1 280px; width:auto; }
   .controls .pager-controls { margin-left:auto; }
   #meterPreview .preview-head { flex-wrap:wrap; gap:6px; flex:none; }
   #meterPreview .preview-grid {
@@ -225,4 +225,22 @@ thead th:nth-child(6) { width:180px; }
   .controls .sort-control { flex:1 1 100%; }
   .controls .sort-control select { flex:1; width:auto; min-width:0; }
   .hide-menu-options { left:0; right:auto; }
+}
+
+/* Direct address selection uses the same state as the checkbox and map. */
+#rows .meter-address {
+  display:inline; min-height:32px; padding:2px 0; border:0; border-radius:3px;
+  background:transparent !important; color:var(--ink) !important;
+  box-shadow:none; font:inherit; font-weight:750; text-align:left; cursor:pointer;
+}
+#rows .meter-address:hover { color:var(--accent) !important; text-decoration:underline; text-underline-offset:3px; }
+#rows .meter-address:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+#rows tr.row-selected { background:#eaf7f5; box-shadow:inset 3px 0 var(--accent); }
+#rows .row-check input { width:18px; height:18px; accent-color:var(--accent); }
+#listTabs button[data-filter="learning"] { display:flex !important; }
+@media(min-width:1200px) {
+  body[data-work-view="list"] .content-column:has(#meterPreview.overview-map) > .workspace,
+  body[data-work-view="list"] .content-column:has(#meterPreview.overview-map) > #bulkActions,
+  .content-column:has(> #meterPreview[hidden]) > .workspace,
+  .content-column:has(> #meterPreview[hidden]) > #bulkActions { grid-column:1; }
 }

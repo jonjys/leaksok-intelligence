@@ -267,6 +267,7 @@
 
   function applyManualLabel(category, score, label) {
     if (!label?.type) return { category, score };
+    if (label.type === "new_install") return { category: "learning", score };
     if (label.type === "leak") return { category: "confirmed", score: Math.max(score, 86) };
     if (label.type === "repaired") return { category: "repaired", score: Math.min(score, 18) };
     if (label.type === "manual_dispatch") return { category: "dispatch", score: Math.max(score, 94) };
@@ -282,7 +283,7 @@
 
   function compactReasons(existing, engine, evidence, label) {
     const reasons = [];
-    if (label?.type) reasons.push(`Manuellt facit: ${label.type}`);
+    if (label?.type) reasons.push(label.type === "new_install" ? "Manuellt vald: nyuppsatt mätare, avvakta fler avläsningar" : `Manuellt facit: ${label.type}`);
     if (engine.heatPump.candidate) reasons.push(engine.heatPump.reason);
     if (engine.transientSpike) reasons.push("Enstaka topp: påverkar inte akutlistan");
     else if (engine.sustained) reasons.push(`Bestående nivå i ${engine.persistenceDays} dagar (${engine.trailingElevated} avläsningar)`);

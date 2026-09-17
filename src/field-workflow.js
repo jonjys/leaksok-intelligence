@@ -10,6 +10,7 @@
     false_alarm: "Falsklarm/Annat",
     suspect: "Misstänk",
     watch: "Bevaka",
+    new_install: "Nyuppsatt, avvakta",
     ignored: "Ignorera",
     manual_dispatch: "Åk ut",
     interesting: "Bevaka",
@@ -71,7 +72,7 @@
     ignored: "IGNORERAD",
     dispatch: "ÅK UT · PRIORITERAD",
     suspect_auto: "MISSTÄNK",
-    learning: "NY MÄTARE",
+    learning: "NYUPPSATT · AVVAKTA",
   });
 
   function decisionText(meter) {
@@ -88,11 +89,9 @@
     interesting: "Bevaka",
     ignored: "Ignorera",
     customer_contact: "Kontakta FÄ",
-    known_noise: "Tillfällig topp",
-    reset_baseline: "Nollställ och följ nya värden",
+    new_install: "Nyuppsatt, avvakta",
     seasonal: "Säsong / falsklarm",
-    false_alarm: "Falsklarm/Annat",
-    suspect: "Misstänkt / bevaka",
+    suspect: "Misstänkt",
   });
   const listLabels = {
     all: "Alla mätare",
@@ -103,6 +102,7 @@
     customer_side: "Efter mätare",
     repaired: "Lagad",
     ignored: "Ignorera",
+    learning: "Nyuppsatt, avvakta",
     stale_contact: "Utan avläsning",
     noise: "Falsklarm/störning",
     hidden: "Gömda",
@@ -131,6 +131,7 @@
     const customerSide = Boolean(result.infrastructure?.customerSide);
     result.staleReadDays = staleReadDays;
     result.staleContact = staleContact;
+    if (label?.type === "new_install") result.category = "learning";
     if (label?.type === "leak") result.category = "confirmed";
     if (label?.type === "repaired") result.category = "repaired";
     if (label?.type === "manual_dispatch") {
@@ -412,8 +413,7 @@
       <select id="contextGroupSelect">
         <option value="suspect">Misstänk</option>
         <option value="interesting">Bevaka</option>
-        <option value="known_noise">Tillfällig topp / störning</option>
-        <option value="reset_baseline">Nollställ basnivå</option>
+        <option value="new_install">Nyuppsatt, avvakta</option>
         <option value="manual_dispatch">Åk ut</option>
         <option value="customer_contact">Efter mätare</option>
         <option value="leak">Aktiva läckor</option>
@@ -629,7 +629,7 @@
           <div class="small">underlag: ${r.confidence}</div>
         </td>
         <td data-label="Adress" class="address-cell">
-          <div class="address-line"><b>${escapeHtml(r.address || "-")}</b>${customerSideMark(r)}<button class="copy-address secondary" title="Kopiera adress" onclick="copyAddress(${inlineArg(r.id)}, event)">Kopiera</button><button class="copy-address secondary" title="Öppna GPS" onclick="openMeterNavigation(${inlineArg(r.id)}, event)">GPS</button></div>
+          <div class="address-line"><button type="button" class="meter-address" data-select-meter="${escapeAttr(r.id)}" aria-pressed="${selectedMeters.has(r.id)}">${escapeHtml(r.address || "-")}</button>${customerSideMark(r)}<button class="copy-address secondary" title="Kopiera adress" onclick="copyAddress(${inlineArg(r.id)}, event)">Kopiera</button><button class="copy-address secondary" title="Öppna GPS" onclick="openMeterNavigation(${inlineArg(r.id)}, event)">GPS</button></div>
           <div class="small">${escapeHtml(r.serial || r.id)} · ${escapeHtml(r.area || "ÖVRIGT")}</div>
           ${tagLine(r)}
         </td>
@@ -1988,21 +1988,13 @@
   document.getElementById("feedbackForm")?.addEventListener("submit", saveFieldFeedback, true);
   document.getElementById("rows")?.addEventListener("click", (event) => {
     const row = event.target.closest?.("tr[data-meter-row]");
-    if (!row || event.target.closest?.("button, input, label, a, select, textarea, svg")) return;
+    const addressButton = event.target.closest?.("[data-select-meter]");
+    if (!row || (!addressButton && event.target.closest?.("button, input, label, a, select, textarea, svg"))) return;
     const id = row.dataset.meterRow;
-    if (event.shiftKey || event.ctrlKey || event.metaKey) {
-      if (selectedMeters.has(id)) selectedMeters.delete(id);
-      else selectedMeters.add(id);
-      selectedPreviewId = selectedMeters.has(id) ? id : ([...selectedMeters].at(-1) || "");
-    } else {
-      const deselectOnly = selectedMeters.size === 1 && selectedMeters.has(id);
-      selectedMeters.clear();
-      if (deselectOnly) selectedPreviewId = "";
-      else {
-        selectedMeters.add(id);
-        selectedPreviewId = id;
-      }
-    }
+    if (selectedMeters.has(id)) selectedMeters.delete(id);
+    else selectedMeters.add(id);
+    selectedPreviewId = selectedMeters.has(id) ? id : ([...selectedMeters].at(-1) || "");
+    clearSelectionRectangle();
     render();
   });
   document.getElementById("rows")?.addEventListener("keydown", event => {
