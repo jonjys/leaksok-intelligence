@@ -1,0 +1,22 @@
+#tripListDialog { width:min(1150px,96vw); max-width:96vw; height:min(850px,92dvh); max-height:92dvh; padding:24px; border:1px solid #dce6e9; border-radius:18px; color:#17313e; }
+#tripListDialog::backdrop { background:#17313e66; backdrop-filter:blur(3px); }
+#tripListDialog[open] { display:flex; flex-direction:column; gap:12px; }
+#tripListDialog .trip-head { display:flex; justify-content:space-between; align-items:start; gap:16px; }
+#tripListDialog h2 { margin:4px 0 8px; font-size:28px; }
+#tripListDialog p { margin:0; }
+#tripListDialog .trip-head p,#tripListDialog .trip-help { color:#687c88; font-size:13px; }
+#tripListDialog .trip-tools { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:12px; background:#eef9f7; border-radius:10px; }
+#tripListDialog .trip-tools strong { margin-right:auto; }
+#tripListDialog .trip-table { flex:1; min-height:100px; overflow:auto; }
+#tripListDialog table { display:table; width:100%; min-width:620px; table-layout:fixed; }
+#tripListDialog thead { display:table-header-group; }
+#tripListDialog tbody { display:table-row-group; }
+#tripListDialog tr { display:table-row; }
+#tripListDialog td,#tripListDialog th { display:table-cell!important; padding:10px 6px; border-bottom:1px solid #dce6e9; text-align:left; }
+#tripListDialog th:nth-child(1) { width:20%; } #tripListDialog th:nth-child(2) { width:30%; } #tripListDialog th:nth-child(3) { width:40%; } #tripListDialog th:nth-child(4) { width:90px; }
+#tripListDialog td input,#tripListDialog td textarea { width:100%; min-width:0; font:inherit; border:1px solid #dce6e9; border-radius:7px; padding:8px; background:white; color:inherit; }
+#tripListDialog textarea { resize:vertical; }
+#tripStatus { font-size:13px; color:#087f7b; min-height:18px; }
+#tripCopyFallback textarea { width:100%; }
+#tripListDialog [hidden] { display:none!important; }
+@media(max-width:650px) { #tripListDialog { padding:14px; } #tripListDialog .trip-tools button { flex:1; } }
