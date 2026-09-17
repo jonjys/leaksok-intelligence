@@ -2155,6 +2155,10 @@
   document.addEventListener("click", (event) => {
     if (!event.target.closest?.("#meterContextMenu")) closeMeterContextMenu();
   });
+  document.getElementById("addToTripList")?.addEventListener("click", () => {
+    const meters = state.meters.filter((meter) => selectedMeters.has(meter.id));
+    if (meters.length) window.LeakTripList?.add(meters);
+  });
   document.getElementById("bulkSave")?.addEventListener("click", () => {
     const searchTerms = terms(els.search.value);
     const type = document.getElementById("bulkType").value;
