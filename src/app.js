@@ -38,6 +38,7 @@ const knownCases = {
 };
 
 const state = {
+  tripList: [],
   files: [],
   meters: [],
   labels: loadLabels(),
@@ -214,6 +215,7 @@ async function unlockProfile(event) {
   try {
     const snapshot = await window.LeakStorage.load(state.profileId);
     if (snapshot) {
+      state.tripList = Array.isArray(snapshot.tripList) ? snapshot.tripList : [];
       state.files = hydrateFiles(snapshot.files || []);
       const localLabels = state.labels;
       state.labels = { ...knownCases, ...(snapshot.labels || {}) };
@@ -249,7 +251,7 @@ async function persistState() {
   }
   try {
     await window.LeakStorage.save(state.profileId, {
-      files: state.files, labels: state.labels, savedAt: new Date(),
+      files: state.files, labels: state.labels, tripList: state.tripList, savedAt: new Date(),
     });
     state.storageError = "";
     return true;
