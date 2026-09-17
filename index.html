@@ -110,6 +110,7 @@
           <option value="seasonal">Säsong / falsklarm</option>
           <option value="customer_side">Efter mätare</option>
         </select>
+        <label class="sort-control"><span>Sortera efter</span>
         <select id="sort" aria-label="Sortera efter">
           <option value="risk">Prioritet högst först</option>
           <option value="group">Lista / status</option>
@@ -123,15 +124,20 @@
           <option value="persistence">Längst beständig nivå</option>
           <option value="confidence">Säkerhet högst först</option>
         </select>
+        </label>
         <select id="areaFilter" aria-label="Kommundel"><option value="all">Alla kommundelar</option></select>
-        <select id="excludeFilter" aria-label="Göm mätare">
-          <option value="none">Göm inget</option>
-          <option value="customer_side">Göm Efter mätare</option>
-          <option value="seasonal">Göm Värmepanna / säsong</option>
-          <option value="repaired">Göm Lagade</option>
-          <option value="ignored">Göm Ignorerade</option>
-          <option value="learning">Göm nya mätare</option>
-        </select>
+        <details id="excludeFilter" class="hide-menu">
+          <summary>Göm mätare <span id="excludedCount"></span></summary>
+          <div class="hide-menu-options">
+            <p>Göm valda grupper från listan och kartan</p>
+            <label><input type="checkbox" value="customer_side"> Efter mätare</label>
+            <label><input type="checkbox" value="seasonal"> Säsong / falsklarm</label>
+            <label><input type="checkbox" value="repaired"> Lagade</label>
+            <label><input type="checkbox" value="ignored"> Ignorerade</label>
+            <label><input type="checkbox" value="learning"> Nya mätare</label>
+            <button type="button" id="clearExcluded" class="secondary">Visa alla grupper</button>
+          </div>
+        </details>
         <button type="button" class="secondary select-all-matches" id="selectAllMatches">Markera alla</button>
         <button type="button" class="secondary clear-all-selection" id="clearAllSelection" hidden>Avmarkera</button>
         <div class="pager-controls" id="pagerControls">
