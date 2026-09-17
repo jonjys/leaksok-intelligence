@@ -3,12 +3,11 @@
     ["manual_dispatch", "Akut / åk ut"],
     ["suspect", "Misstänk"],
     ["interesting", "Bevaka"],
-    ["known_noise", "Tillfällig topp / störning"],
+    ["new_install", "Nyuppsatt, avvakta"],
     ["leak", "Konstaterad läcka"],
     ["customer_contact", "Efter mätare"],
     ["repaired", "Lagad / klar"],
     ["seasonal", "Säsong / falsklarm"],
-    ["reset_baseline", "Nollställ och följ nya värden"],
     ["ignored", "Ignorera"],
   ];
 
@@ -18,6 +17,7 @@
     suspect_auto: "Misstänk",
     suspect: "Misstänk",
     watch: "Bevaka",
+    learning: "Nyuppsatt, avvakta",
     customer_side: "Efter mätare",
     confirmed: "Aktiva läckor",
     repaired: "Lagade",
