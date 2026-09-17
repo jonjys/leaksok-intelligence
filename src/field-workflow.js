@@ -308,11 +308,11 @@
     const filter = els.filter.value;
     const sort = els.sort.value;
     const area = document.getElementById("areaFilter")?.value || "all";
-    const excluded = document.getElementById("excludeFilter")?.value || "none";
+    const excluded = Array.from(document.querySelectorAll('#excludeFilter input:checked'), (input) => input.value);
     const rows = state.meters
       .filter((row) => matchesFilter(row, filter))
       .filter((row) => area === "all" || normalize(meterTown(row)) === area)
-      .filter((row) => excluded === "none" || filter === "hidden" || !matchesFilter(row, excluded))
+      .filter((row) => filter === "hidden" || !excluded.some((group) => matchesFilter(row, group)))
       .filter((row) => !searchTerms.length || matches(row, searchTerms));
     rows.sort((a, b) => compareRows(a, b, sort));
     return rows;
@@ -2037,8 +2037,7 @@
     const button = event.target.closest?.("button[data-filter]");
     if (!button) return;
     els.filter.value = button.dataset.filter;
-    const excludeFilter = document.getElementById("excludeFilter");
-    if (excludeFilter) excludeFilter.value = "none";
+
     selectedMeters.clear();
     selectedPreviewId = "";
     clearSelectionRectangle();
@@ -2056,8 +2055,7 @@
     selectedMeters.clear();
     selectedPreviewId = "";
     clearSelectionRectangle();
-    const excluded = document.getElementById("excludeFilter");
-    if (excluded) excluded.value = "none";
+
     render();
   });
   document.getElementById("areaFilter")?.addEventListener("change", () => {
@@ -2067,10 +2065,25 @@
     render();
   });
   document.getElementById("excludeFilter")?.addEventListener("change", () => {
+    const count = document.querySelectorAll("#excludeFilter input:checked").length;
+    document.getElementById("excludedCount").textContent = count ? `(${count})` : "";
     currentPage = 1;
     selectedMeters.clear();
     selectedPreviewId = "";
     render();
+  });
+  document.getElementById("clearExcluded")?.addEventListener("click", () => {
+    document.querySelectorAll("#excludeFilter input").forEach((input) => { input.checked = false; });
+    document.getElementById("excludeFilter").dispatchEvent(new Event("change"));
+  });
+  document.addEventListener("click", (event) => {
+    const menu = document.getElementById("excludeFilter");
+    if (menu?.open && !menu.contains(event.target)) menu.open = false;
+  });
+  document.getElementById("excludeFilter")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.currentTarget.open = false;
+    event.currentTarget.querySelector("summary").focus();
   });
   document.querySelector("thead")?.addEventListener("click", (event) => {
     const button = event.target.closest?.("button[data-sort-table]");
