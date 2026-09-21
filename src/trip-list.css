@@ -13,10 +13,21 @@
 #tripListDialog tbody { display:table-row-group; }
 #tripListDialog tr { display:table-row; }
 #tripListDialog td,#tripListDialog th { display:table-cell!important; padding:10px 6px; border-bottom:1px solid #dce6e9; text-align:left; }
-#tripListDialog th:nth-child(1) { width:20%; } #tripListDialog th:nth-child(2) { width:30%; } #tripListDialog th:nth-child(3) { width:40%; } #tripListDialog th:nth-child(4) { width:90px; }
+#tripListDialog th:nth-child(1) { width:52px; }
+#tripListDialog th:nth-child(2) { width:19%; }
+#tripListDialog th:nth-child(3) { width:28%; }
+#tripListDialog th:nth-child(4) { width:auto; }
+#tripListDialog th:nth-child(5) { width:90px; }
+#tripListDialog td input[type=checkbox] { width:20px; height:20px; accent-color:#087f7b; cursor:pointer; }
+#tripListDialog .trip-selected { background:#eaf8f5; }
+#tripListDialog thead { position:sticky; top:0; background:#f1f6f8; z-index:1; }
+#tripListDialog .trip-footer { display:flex; flex-wrap:wrap; gap:8px; }
+#tripListDialog button:disabled { opacity:.45; cursor:not-allowed; }
+#openDownloadList { border:1px solid #087f7b; color:#087f7b; }
 #tripListDialog td input,#tripListDialog td textarea { width:100%; min-width:0; font:inherit; border:1px solid #dce6e9; border-radius:7px; padding:8px; background:white; color:inherit; }
 #tripListDialog textarea { resize:vertical; }
 #tripStatus { font-size:13px; color:#087f7b; min-height:18px; }
 #tripCopyFallback textarea { width:100%; }
 #tripListDialog [hidden] { display:none!important; }
 @media(max-width:650px) { #tripListDialog { padding:14px; } #tripListDialog .trip-tools button { flex:1; } }
+

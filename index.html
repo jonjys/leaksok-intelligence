@@ -22,7 +22,7 @@
       <h1>LeakSök<span class="brand-sub"> / Intelligence</span></h1>
     </div>
     <div class="actions">
-      <button id="openTripList" class="secondary" type="button">Åklista</button>
+      <button id="openTripList" class="secondary" type="button">Ladda ner</button>
       <button id="profileButton" class="secondary" title="Lås appen">Fredde - lås</button>
       <button id="pickFiles">＋ Importera Excel</button>
       <button id="exportJson" class="secondary">Export facit</button>
@@ -38,6 +38,7 @@
         <div><b>0</b><span>aktiva läckor</span></div>
       </section>
       <nav class="list-tabs" id="listTabs" aria-label="Listor">
+        <button type="button" id="openDownloadList">Ladda ner ↗</button>
         <button type="button" data-filter="all">Alla mätare <b>0</b></button>
         <button type="button" data-filter="dispatch">Åk ut <b>0</b></button>
         <button type="button" data-filter="suspect">Misstänk <b>0</b></button>
@@ -159,6 +160,7 @@
       <section class="bulk-actions" id="bulkActions" hidden>
         <span id="bulkCount">0 träffar</span>
         <select id="bulkType">
+          <option value="download">Ladda ner</option>
           <option value="manual_dispatch">Åk ut</option>
           <option value="suspect">Misstänkt / bevaka</option>
           <option value="leak">Konstaterad läcka → Aktiva läckor</option>
@@ -168,7 +170,7 @@
           <option value="new_install">Nyuppsatt, avvakta</option>
           <option value="ignored">Ignorera</option>
         </select>
-        <button type="button" id="addToTripList">Lägg i åklista</button>
+        <button type="button" id="addToTripList">Flytta till Ladda ner</button>
         <button type="button" id="hideSelected" class="secondary">Göm markerade</button>
         <button id="bulkSave" class="secondary">Flytta</button>
         
@@ -282,3 +284,4 @@
   <script src="./src/trip-list.js"></script>
 </body>
 </html>
+

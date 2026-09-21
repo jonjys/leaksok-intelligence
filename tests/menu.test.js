@@ -9,6 +9,7 @@ assert.equal(k.KamstrupCodes.applyCodes({id:'a',info:'LEAK',category:'repaired'}
 assert.equal(k.KamstrupCodes.applyCodes({id:'b',info:'LEAK',category:'normal'}).category,'customer_side');
 assert.equal(k.KamstrupCodes.applyCodes({id:'b',closedEvents:'LEAK',category:'normal'}).category,'normal');
 const html=fs.readFileSync(__dirname+'/../index.html','utf8');const nav=html.slice(html.indexOf('<nav'),html.indexOf('</nav>'));
-assert.deepEqual([...nav.matchAll(/data-filter="([^"]+)"/g)].map(m=>m[1]),['all','dispatch','suspect','watch','confirmed','repaired','ignored','seasonal','customer_side','stale_contact','hidden']);
+assert.deepEqual([...nav.matchAll(/data-filter="([^"]+)"/g)].map(m=>m[1]),['all','dispatch','suspect','watch','confirmed','repaired','ignored','seasonal','customer_side','learning','stale_contact','hidden']);
 assert.ok(!fs.readFileSync(__dirname+'/../src/desk-layout.js','utf8').includes('interceptSelectAll'));
 console.log('menu: district mapping, assignments, order and complete selection passed');
+

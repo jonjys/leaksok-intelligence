@@ -329,6 +329,11 @@
     if (show) count.textContent = selectedCount > 0 ? `${selectedCount} markerade` : `${rows.length} träffar`;
     const save = document.getElementById("bulkSave");
     if (save) save.textContent = selectedCount > 0 ? `Flytta ${selectedCount} till vald grupp` : `Flytta ${rows.length} till vald grupp`;
+    const download = document.getElementById("addToTripList");
+    if (download) {
+      download.disabled = selectedCount === 0;
+      download.textContent = `Flytta ${selectedCount || ""} till Ladda ner`.replace(/  /g, " ");
+    }
     const hide = document.getElementById("hideSelected");
     if (hide) {
       hide.disabled = selectedCount === 0;
@@ -354,6 +359,10 @@
   function quickAssignMeters(ids, type) {
     const meters = ids.map((id) => state.meters.find((meter) => meter.id === id)).filter(Boolean);
     if (!meters.length) return;
+    if (type === "download") {
+      window.LeakTripList?.add(meters);
+      return;
+    }
     if (["leak", "repaired"].includes(type)) {
       window.labelMeter(meters[0].id, type);
       feedbackBatchIds = meters.map(m => m.id);
@@ -681,6 +690,7 @@
     return `
       <select class="row-action" aria-label="Flytta ${address}" onchange="if(this.value){quickGroupMeter(${inlineArg(id)},this.value);this.value=\'\'}">
         <option value="">Välj grupp...</option>
+        <option value="download">Ladda ner</option>
         <option value="auto">Ta bort manuell grupp</option>
         ${types.map((type) => `<option value="${escapeAttr(type)}">${feedbackButtons[type] || workflowTypes[type] || type}</option>`).join("")}
       </select>
@@ -2162,6 +2172,10 @@
   document.getElementById("bulkSave")?.addEventListener("click", () => {
     const searchTerms = terms(els.search.value);
     const type = document.getElementById("bulkType").value;
+    if (type === "download" && !selectedMeters.size) {
+      els.importStatus.textContent = "Markera mätare innan du flyttar dem till Ladda ner.";
+      return;
+    }
     const rows = selectedMeters.size > 0
       ? state.meters.filter((meter) => selectedMeters.has(meter.id))
       : matchingRows();
@@ -2171,3 +2185,4 @@
 
   analyze();
 }());
+

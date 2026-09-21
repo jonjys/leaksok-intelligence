@@ -126,3 +126,10 @@ Arbetsvyn använder `styles.css` för grundkomponenter och `workspace-v3.css` me
 Grafen ritas med verkliga avläsningsdatum och uppmätta SVG-dimensioner. Luckor över 14 dagar visas som saknat underlag i både minigraf och detaljgraf. Inga mätvärden interpoleras över sådana luckor. Grå yta efter sista avläsningen visar hur länge nya värden saknas fram till sista exportdatumet. Förändringstal jämför observerade värden; tidigare nollvärde ger ingen påhittad procentsats. Diagrammet zoomar inte vid vanlig scroll.
 
 Kontroll: `TZ=UTC node tests/chart-render.test.js`, `node tests/ui-structure.test.js` och den befintliga import-/motorsviten.
+
+
+## Ladda ner – separat exporturval
+
+Markera mätare och välj **Flytta till Ladda ner**, eller välj **Ladda ner** i radens Flytta-meny. Öppna listan från sidomenyn eller toppfältet. Markeringarna i exportlistan är separata från huvudtabellens markeringar och återställs när listan öppnas. **Markera alla i listan** omfattar endast dess sparade rader. Excel och kopiering inkluderar endast kryssade rader; noll markeringar ger ingen export. Knappen visar exakt antal.
+
+Tidigare åklistor bevaras. Ta bort markerade eller töm listan för att rensa gamla exportposter utan att ändra mätardata, facit eller historik. Listan sparas i befintlig lokal profil. `node tests/download-browser.cjs` verifierar 2 900 importerade mätare, urval, återläst XLSX, omladdning, dubbletter och tidigare stora åklistor.
