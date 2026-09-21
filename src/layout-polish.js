@@ -1,5 +1,6 @@
 (function applyLayoutPolish() {
   const compactBulkOptions = [
+    ["download", "Ladda ner"],
     ["manual_dispatch", "Akut / åk ut"],
     ["suspect", "Misstänk"],
     ["interesting", "Bevaka"],
