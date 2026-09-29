@@ -13,7 +13,12 @@
   const DAY = 86400000;
   const RULES = Object.freeze({
     absMin: 2,            // smallest change in export units that can count
-    relMin: 0.25,         // smallest relative change that can count
+    relMin: 0.25,         // smallest relative change for a level shift (two or more readings)
+    signalAbs: 3,         // a single new reading must exceed max(signalAbs, 3σ, signalRel × level)
+    signalRel: 0.5,       // calibrated on real exports: ~p98–p99 of normal reading-to-reading rises
+    priorSigmaRel: 0.08,  // normal variation used until a meter has 8 comparable reading pairs
+    minOwnPairs: 8,
+    longTermDays: 30,     // below this own history, Kamstrup's average F gives longer context
     sigmaK: 3,            // times the meter's normal day-to-day variation
     sigmaFloor: 2 / 3,
     levelWindow: 21,      // readings used for a segment's current level
@@ -115,8 +120,23 @@
     for (let i = 1; i < recent.length; i++) {
       if (days(recent[i - 1].date, recent[i].date) <= RULES.gapDays) diffs.push(Math.abs(recent[i].value - recent[i - 1].value));
     }
-    const m = diffs.length >= 3 ? median(diffs) : 0;
-    return Math.max(RULES.sigmaFloor, (1.4826 * m) / Math.SQRT2);
+    // Too few pairs: one level change dominates the estimate. Use a level-based
+    // prior measured on real exports (median day-to-day change ≈ 8 % of level).
+    if (diffs.length < RULES.minOwnPairs) {
+      const level = median(recent.map((p) => p.value)) || 0;
+      return Math.max(RULES.sigmaFloor, RULES.priorSigmaRel * level);
+    }
+    return Math.max(RULES.sigmaFloor, (1.4826 * median(diffs)) / Math.SQRT2);
+  }
+  function ownVariation(series) {
+    let pairs = 0;
+    const recent = series.slice(-90);
+    for (let i = 1; i < recent.length; i++) if (days(recent[i - 1].date, recent[i].date) <= RULES.gapDays) pairs++;
+    return pairs >= RULES.minOwnPairs;
+  }
+  // Threshold for calling one reading a new signal (stricter than a level shift).
+  function signalTolerance(level, sigma) {
+    return Math.max(RULES.signalAbs, RULES.sigmaK * sigma, RULES.signalRel * Math.max(0, level));
   }
 
   function tolerance(level, sigma) {
@@ -233,8 +253,8 @@
       if (cand) transients.push({ points: cand.points, dir: cand.dir, base: segLevel(cur), returnedAt: null });
       cand = { points: [p], dir };
     }
-    // A lone first reading is not a reliable reference level.
-    while (segments.length && segments[0].points.length < 2) {
+    // A lone first reading is only kept as reference when the change is clear.
+    while (segments.length && segments[0].points.length < 2 && !validShift(segments[0], segments[1] || cur, sigma)) {
       const first = segments.shift();
       (segments[0] || cur).points.unshift(...first.points);
     }
@@ -374,6 +394,8 @@
       acousticLeak: /läckage|\bleak(age)?\b/i.test(events),
       acousticOther: /annat\s*brus|other\s*noise/i.test(events),
       acousticUndetermined: /ej\s*fastställ|undetermined/i.test(events),
+      closedEvents: String(row?.closedEvents || "").trim(),
+      follow: row?.follow === true,
     };
   }
 
@@ -507,9 +529,11 @@
       const cur = describeSeg(seg.cur, RULES.levelWindow);
       const trend = trendOf(series);
       result.season = seasonProfile(history.series, latest);
-      const recentTransients = seg.transients.filter((t) => t.returnedAt && t.dir > 0 && days(t.points[0].date, latest.date) <= RULES.transientDays);
+      // A peak counts only when it would have been a signal on its own.
+      const clearPeak = (t) => Math.max(...t.points.map((p) => p.value)) - t.base > signalTolerance(t.base, sigma);
+      const recentTransients = seg.transients.filter((t) => t.returnedAt && t.dir > 0 && days(t.points[0].date, latest.date) <= RULES.transientDays && clearPeak(t));
       // Recurring short peaks that return are this meter's normal pattern (pump-like).
-      const patternPeaks = seg.transients.filter((t) => t.returnedAt && t.dir > 0 && days(t.points[0].date, latest.date) <= 30);
+      const patternPeaks = seg.transients.filter((t) => t.returnedAt && t.dir > 0 && days(t.points[0].date, latest.date) <= 30 && clearPeak(t));
       result.intermittent = patternPeaks.length >= 2 ? {
         count: patternPeaks.length,
         peak: Math.max(...patternPeaks.flatMap((t) => t.points.map((p) => p.value))),
@@ -523,6 +547,9 @@
 
       if (n === 1) {
         result.finding = { type: "single", direction: null, now: { level: latest.value, from: latest.date, to: latest.date, n: 1 } };
+      } else if (seg.cand && Math.abs(latest.value - cur.level) <= signalTolerance(cur.level, sigma)) {
+        // Outside the level band but within normal variation for one reading.
+        result.finding = { type: "stable", direction: null, ref: cur, now: cur, minorChange: latest.value - cur.level };
       } else if (seg.cand) {
         const prevSeg = seg.segments.length ? describeSeg(seg.segments[seg.segments.length - 1]) : null;
         result.finding = {
@@ -571,6 +598,14 @@
         fnd.withinPattern = run < 5 && run <= result.intermittent.longest + 1 && fnd.now.level <= result.intermittent.peak * 1.25;
       }
       if ((fnd.type === "new_signal" || fnd.type === "level_shift" || fnd.type === "trend") && fnd.direction === "up" && !fnd.withinPattern) upFinding = fnd;
+      // Short own history: Kamstrup's average F reflects a longer period.
+      // Only when F reflects a period the app has not seen: before the change the own history never reached F.
+      if (upFinding && result.history.spanDays < RULES.longTermDays && excel.F > 0 && upFinding.now.level <= excel.F * 1.1
+        && Math.max(...series.filter((p) => p.date < upFinding.now.from).map((p) => p.value)) < excel.F) {
+        fnd.belowLongTerm = true;
+        upFinding = null;
+      }
+      result.variationSource = ownVariation(series) ? "egen" : "schablon";
       result.baseline = fnd.ref ? { ...fnd.ref, definition: baselineDefinition(fnd) } : null;
       result.level = { current: cur.level, from: cur.from, to: cur.to, n: cur.n };
     }
@@ -578,6 +613,7 @@
     // ---------- text: observation / explanation / action ----------
     const f = result.finding;
     const lv = (v) => fmtNum(v);
+    const refSpan = (r) => (r.n === 1 ? `${D(r.from)}, 1 avläsning – osäker referens` : `median ${P(r.from, r.to)}, ${r.n} avläsningar`);
     const pctText = (x) => (x.pct != null ? fmtPct(x.pct) : x.ref && x.ref.level === 0 ? "ingen procent, från 0" : "–");
     let summary = "";
     if (!latest && reset) {
@@ -592,7 +628,7 @@
       const ref = f.ref;
       const word = f.direction === "up" ? "steg" : "sjönk";
       summary = `${f.direction === "up" ? "Ny signal" : "Lägre värde"} ${D(latest.date)}: ${lv(ref.level)} → ${lv(latest.value)} (${pctText(f)})`;
-      obs.push(`Senaste avläsningen (${D(latest.date)}) ${word} till ${lv(latest.value)} från nivån ${lv(ref.level)} (median ${P(ref.from, ref.to)}, ${ref.n} avläsningar): ${fmtSigned(f.delta)} (${pctText(f)}).`);
+      obs.push(`Senaste avläsningen (${D(latest.date)}) ${word} till ${lv(latest.value)} från nivån ${lv(ref.level)} (${refSpan(ref)}): ${fmtSigned(f.delta)} (${pctText(f)}).`);
       if (f.older && f.direction === "up" && f.older.level > latest.value) {
         obs.push(`Nivån är fortfarande lägre än den äldre nivån ${lv(f.older.level)} (${P(f.older.from, f.older.to)}).`);
       } else if (f.older && f.direction === "up") {
@@ -603,7 +639,7 @@
       const per = f.persistence;
       const word = f.direction === "up" ? "Ny högre nivå" : "Lägre nivå";
       summary = `${word} sedan ${D(f.onset.at)}: ${lv(f.ref.level)} → ${lv(f.now.level)} (${pctText(f)}), ${per.n} avläsningar på ${per.days + 1} dagar`;
-      obs.push(`Nivån före förändringen: ${lv(f.ref.level)} (median ${P(f.ref.from, f.ref.to)}, ${f.ref.n} avläsningar).`);
+      obs.push(`Nivån före förändringen: ${lv(f.ref.level)} (${refSpan(f.ref)}).`);
       obs.push(`Nivån sedan ${D(f.onset.at)}: ${lv(f.now.level)} (median av ${Math.min(per.n, RULES.levelWindow)} senaste), ${fmtSigned(f.delta)} (${pctText(f)}). Observerad i ${per.n} avläsningar under ${per.days + 1} dagar.`);
       if (f.onset.uncertainDays > RULES.gapDays) obs.push(`Förändringen skedde någon gång mellan ${D(f.onset.after)} och ${D(f.onset.at)} – inga avläsningar däremellan.`);
       if (per.maxGap > RULES.gapDays) quality.push(`Lucka på ${per.maxGap} dagar inom den nya nivån – beständigheten under luckan är okänd.`);
@@ -620,7 +656,15 @@
       summary = high
         ? `Stabilt hög nivå ca ${lv(f.ref.level)} sedan ${D(result.history.firstDate)} – ingen ny förändring`
         : `Oförändrad nivå ca ${lv(f.ref.level)}`;
-      obs.push(`Nivå ${lv(f.ref.level)} (median ${P(f.ref.from, f.ref.to)}, ${f.ref.n} avläsningar). Ingen förändring utanför mätarens normala variation.`);
+      obs.push(`Nivå ${lv(f.ref.level)} (${refSpan(f.ref)}). Ingen förändring utanför mätarens normala variation.`);
+    }
+    if (f.minorChange) obs.push(`Senaste avläsningen ${lv(latest.value)} (${fmtSigned(f.minorChange)}) ligger inom normal variation för en enstaka avläsning.`);
+    if (f.belowLongTerm) {
+      obs.push(`Ökningen ${lv(f.ref.level)} → ${lv(f.now.level)} når inte över Kamstrups genomsnitt F ${lv(excel.F)}. Appens egen historik är bara ${result.history.spanDays + 1} dagar, så nivån är inte förhöjd jämfört med mätarens längre period.`);
+      summary = `${summary} – inte över Kamstrups snitt F ${lv(excel.F)}`;
+    }
+    if (f.type === "new_signal" && result.changePrev?.gapDays > RULES.gapDays) {
+      obs.push(`Föregående avläsning var ${result.changePrev.gapDays} dagar tidigare (${D(result.changePrev.fromDate)}); avläsningar däremellan finns inte i de importerade exporterna.`);
     }
     if (f.withinPattern) {
       obs.push(`I nivå med mätarens återkommande kortvariga toppar (${result.intermittent.count} st senaste 30 dagarna, högst ${lv(result.intermittent.peak)}).`);
@@ -629,6 +673,16 @@
     if (result.intermittent && upFinding) obs.push(`Mätaren har haft ${result.intermittent.count} kortvariga toppar med återgång senaste 30 dagarna (högst ${lv(result.intermittent.peak)}); förändringen är längre än dessa.`);
     if (f.transients && f.type !== "transient") obs.push(`${f.transients} kortvarig${f.transients > 1 ? "a toppar" : " topp"} med återgång senaste ${RULES.transientDays} dagarna.`);
 
+    // Short own history: a level clearly above Kamstrup's longer average F is a
+    // signal of its own (a change that may have started before the first import).
+    const shortHistory = n < 3 || result.history.spanDays < RULES.longTermDays;
+    const recentForF = series.slice(-7).map((p) => p.value);
+    const levelForF = median(recentForF);
+    const excelSignal = Boolean(!upFinding && shortHistory && latest && excel.F > 0 && levelForF >= Math.max(2 * excel.F, excel.F + 5) && latest.value >= excel.F * 2);
+    if (excelSignal) {
+      obs.push(`Median av ${recentForF.length} senaste avläsningar ${lv(levelForF)} är ${fmtPct(levelForF / excel.F - 1)} över Kamstrups genomsnitt F ${lv(excel.F)} (P för senaste raden ${fmtPct(excel.P)}). Appens egen historik (${result.history.spanDays + 1} dagar) räcker inte för att se när nivån ändrades.`);
+      summary = `Över Kamstrups snitt: nivå ${lv(levelForF)} mot F ${lv(excel.F)} (${fmtPct(levelForF / excel.F - 1)}) – kort egen historik`;
+    }
     // Freshness and export coverage.
     const stale = latest && ageDays >= RULES.staleDays;
     const lowerFirst = (text) => text ? text[0].toLowerCase() + text.slice(1) : text;
@@ -648,7 +702,7 @@
     if (history.conflicts) quality.push(`${history.conflicts} avläsningar exporterades med olika värden; senaste exporten används.`);
     for (const gap of result.history.gaps.slice(-2)) quality.push(`Inga avläsningar ${D(gap.from)}–${D(gap.to)} (${gap.days} dagar).`);
     if (history.undated) quality.push(`${history.undated} exportrader saknar avläsningsdatum och används inte.`);
-    if (result.history.readings && result.history.spanDays < 14 && (n < 3 || upFinding)) quality.push(`Historiken i appen omfattar ${result.history.spanDays + 1} dagar sedan första import – inte samma sak som mätarens ålder.`);
+    if (result.history.readings && result.history.spanDays < 14 && (n < 3 || upFinding)) quality.push(`Historiken i appen omfattar ${result.history.spanDays + 1} ${result.history.spanDays ? "dagar" : "dag"} sedan första import – inte samma sak som mätarens ålder.`);
     if (excel.E != null && !(excel.F > 0)) quality.push(excel.F === 0 ? "Genomsnittsvärde F är 0 – P beräknas inte." : "Genomsnittsvärde F saknas – P beräknas inte.");
     if (result.baseline && result.baseline.n < 3 && upFinding) quality.push(`Tunt underlag: nivån före ökningen bygger på ${result.baseline.n} avläsning${result.baseline.n > 1 ? "ar" : ""}.`);
 
@@ -661,6 +715,12 @@
     if (codes.noConsumption) quality.push("Infokod: ingen förbrukning senaste 15 dagarna.");
     if (codes.acousticLeak) obs.push(`Leak Detector-händelse: ${codes.activeEvents}. Anger inte om läckan finns före eller efter mätaren.`);
     else if (codes.acousticOther) obs.push(`Leak Detector-händelse: ${codes.activeEvents}.`);
+    else if (codes.acousticUndetermined) obs.push("Leak Detector-händelse: Ej fastställt – Kamstrup har inte klassat bruset.");
+    if (codes.closedEvents) obs.push(`Stängd Leak Detector-händelse tidigare: ${codes.closedEvents}.`);
+    if (codes.follow) obs.push("Markerad Följ i Kamstrup.");
+    if (!result.variationSource || result.variationSource === "schablon") {
+      if (upFinding) quality.push(`Mätarens egen variation går inte att skatta ännu (färre än ${RULES.minOwnPairs} jämförbara avläsningspar); schablon ${Math.round(RULES.priorSigmaRel * 100)} % av nivån används.`);
+    }
     if (interference.any) explain.push(interference.districtHeating ? "Känd störmiljö (fjärrvärme) på adressen – kräver tydligare förändring." : "Höghus/större undercentral – pumpar kan ge brus.");
 
     // Season.
@@ -671,9 +731,6 @@
     else if (upFinding && result.history.spanDays < 300) missing.push("Samma årstid föregående år saknas i historiken.");
 
     // Excel P as a hint only when own history is too thin.
-    const thinHistory = n < 3 || (result.baseline && result.baseline.n < 3);
-    const excelSignal = thinHistory && excel.P != null && excel.P >= 1 && excel.E - excel.F >= 5;
-    if (excelSignal) obs.push(`Kamstrups genomsnitt F ${lv(excel.F)} mot senaste E ${lv(excel.E)}: P ${fmtPct(excel.P)}. Egen historik är för kort för egen jämförelse.`);
 
     // ---------- priority (ranking) ----------
     const parts = [];
@@ -734,7 +791,7 @@
       category = fresh && persistent && strongEnough && interferenceOk && provisional >= 70 ? "dispatch" : "suspect_auto";
     } else if (codes.acousticLeak && levelNow >= 25) category = "suspect_auto";
     else if (excelSignal) category = "suspect_auto";
-    else if (f.type === "single" && latest.value >= 100) category = "suspect_auto";
+    else if (f.type === "single" && latest.value >= 100 && ageDays <= 1) category = "suspect_auto";
     else if (f.type === "transient" || f.withinPattern) category = "noise";
     else if (season?.status === "verified") category = "seasonal";
     else if (n < 3 || result.history.spanDays < 2) category = "learning";
@@ -860,8 +917,8 @@
     }
     const onsetWindow = (r) => {
       const u = r.upFinding;
-      if (!u || u.type === "trend") return null;
-      if (u.type === "new_signal") return [r.previous?.date || r.latest.date, r.latest.date];
+      // Single readings rise together by chance on busy days; only confirmed levels count.
+      if (!u || u.type !== "level_shift") return null;
       return [u.onset.after, u.onset.at];
     };
     for (const r of results) {
