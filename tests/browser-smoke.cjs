@@ -173,6 +173,16 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.deepEqual(check.dots, check.tail, "Chart dots are exactly the meter's readings in the shown period");
     await page.locator("#chartDialog [data-close]").click();
 
+    // Visible copy button right after the address copies the street address.
+    await page.evaluate(() => { window.__copied = []; navigator.clipboard.writeText = async (t) => { window.__copied.push(t); }; });
+    const copyId = await target.getAttribute("data-id");
+    await target.locator(".copy-addr").click();
+    await page.locator("#focusCopy").click();
+    const copied = await page.evaluate(() => window.__copied);
+    const street = await page.evaluate((id) => state.byId.get(id).address.split(/\s+\d/)[0], copyId);
+    assert.equal(copied.length, 2);
+    assert.ok(copied.every((t) => t.startsWith(street)), "Copied text is the street address");
+
     // Phone: cards, list picker, no horizontal page overflow.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator("#listSelect").selectOption("suspect");

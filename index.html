@@ -83,7 +83,7 @@
 
       <section class="focus" id="focus" hidden aria-label="Vald mätare">
         <div class="focus-head">
-          <div><b id="focusTitle"></b><span id="focusMeta"></span></div>
+          <div><b id="focusTitle"></b><button type="button" class="copy-addr" id="focusCopy" title="Kopiera adress" aria-label="Kopiera adress"></button><span id="focusMeta"></span></div>
           <div class="focus-actions">
             <button type="button" class="secondary" id="focusNavigate">Kör hit</button>
             <button type="button" class="secondary" id="focusMenu">Flytta till…</button>
@@ -141,7 +141,7 @@
 
   <dialog id="chartDialog" class="wide-dialog" aria-labelledby="chartDialogTitle">
     <div class="dialog-head">
-      <div><h2 id="chartDialogTitle"></h2><p id="chartDialogMeta"></p></div>
+      <div><h2 class="title-line"><span id="chartDialogTitle"></span><button type="button" class="copy-addr" id="chartCopy" title="Kopiera adress" aria-label="Kopiera adress"></button></h2><p id="chartDialogMeta"></p></div>
       <button type="button" class="secondary" data-close>Stäng</button>
     </div>
     <div class="chart-large" id="chartDialogChart"></div>

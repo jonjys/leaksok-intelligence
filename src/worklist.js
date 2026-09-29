@@ -40,7 +40,7 @@
       if (!m) return "";
       return `<tr data-id="${esc(entry.id)}" class="${picked.has(entry.id) ? "is-picked" : ""}">
           <td class="c-check"><input type="checkbox" data-pick ${picked.has(entry.id) ? "checked" : ""} aria-label="Välj ${esc(m.address)}"></td>
-          <td><b>${esc(m.address)}</b><span class="sub">${esc(m.serial || m.id)}</span></td>
+          <td><span class="addr-line"><b>${esc(m.address)}</b>${api.copyButton ? api.copyButton(m) : ""}</span><span class="sub">${esc(m.serial || m.id)}</span></td>
           <td><span class="pill cat-${esc(m.category)}">${esc(m.status)}</span></td>
           <td class="wl-reason">${esc(m.summary)}<span class="sub">${esc(m.action)}</span>${entry.reason ? `<span class="sub legacy">Sparad text från tidigare lista: ${esc(entry.reason)}</span>` : ""}</td>
           <td><textarea data-comment rows="2" aria-label="Kommentar för ${esc(m.address)}">${esc(api.getComment(entry.id))}</textarea></td>
