@@ -6,282 +6,186 @@
   <title>LeakSök · Morgonanalys</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="./src/styles.css">
-  <link rel="stylesheet" href="./src/workspace-v3.css">
-  <link rel="stylesheet" href="./src/desk-layout.css">
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="./src/network-events.css">
-  <link rel="stylesheet" href="./src/season-controls.css">
-  <link rel="stylesheet" href="./src/trip-list.css">
 </head>
-<body>
+<body data-view="list">
   <header class="topbar">
     <div class="brand">
-      <p class="eyebrow">BOTKYRKA · VATTEN</p>
-      <h1>LeakSök<span class="brand-sub"> / Intelligence</span></h1>
+      <span class="eyebrow">Botkyrka · Vatten</span>
+      <h1>LeakSök</h1>
     </div>
-    <div class="actions">
-      <button id="openTripList" class="secondary" type="button">Ladda ner</button>
-      <button id="profileButton" class="secondary" title="Lås appen">Fredde - lås</button>
-      <button id="pickFiles">＋ Importera Excel</button>
-      <button id="exportJson" class="secondary">Export facit</button>
-      <button id="resetAll" class="danger">Rensa</button>
-    </div>
-  </header>
-  <main>
-    <aside class="left-rail">
-      <section class="summary" id="summary">
-        <div><b>0</b><span>mätare</span></div>
-        <div><b>0</b><span>åk ut</span></div>
-        <div><b>0</b><span>misstänk</span></div>
-        <div><b>0</b><span>aktiva läckor</span></div>
-      </section>
-      <nav class="list-tabs" id="listTabs" aria-label="Listor">
-        <button type="button" id="openDownloadList">Ladda ner ↗</button>
-        <button type="button" data-filter="all">Alla mätare <b>0</b></button>
-        <button type="button" data-filter="dispatch">Åk ut <b>0</b></button>
-        <button type="button" data-filter="suspect">Misstänk <b>0</b></button>
-        <button type="button" data-filter="watch">Bevaka <b>0</b></button>
-        <button type="button" data-filter="confirmed">Aktiva läckor <b>0</b></button>
-        <button type="button" data-filter="repaired">Lagade <b>0</b></button>
-        <button type="button" data-filter="ignored">Ignorera <b>0</b></button>
-        <button type="button" data-filter="seasonal">Säsong / falsklarm <b>0</b></button>
-        <button type="button" data-filter="customer_side">Efter mätare <b>0</b></button>
-        <button type="button" data-filter="learning">Nyuppsatt, avvakta <b>0</b></button>
-        <button type="button" data-filter="stale_contact">Utan avläsning <b>0</b></button>
-        <button type="button" data-filter="hidden">Gömda <b>0</b></button>
-      </nav>
-    </aside>
-    <div class="content-column">
-      <section id="morningBrief" class="morning-brief" aria-label="Morgonanalys"></section>
-      <section class="dropzone" id="dropzone">
-        <input id="fileInput" type="file" multiple accept=".xlsx,.xls,.csv" hidden>
-        <div>
-          <strong>Ladda Excel</strong>
-          <span>Släpp senaste 24-timmarsexporten här. Tidigare historik behålls.</span>
+    <div class="top-actions">
+      <div class="view-toggle" role="group" aria-label="Arbetsyta">
+        <button type="button" data-view="list" aria-pressed="true">Lista</button>
+        <button type="button" data-view="map" aria-pressed="false">Karta</button>
+      </div>
+      <button type="button" id="openWorklist" class="secondary">Arbetslista <b id="worklistCount">0</b></button>
+      <button type="button" id="pickFiles" class="primary">＋ Importera Excel</button>
+      <details class="menu" id="infoMenu">
+        <summary aria-label="Info och inställningar">Info</summary>
+        <div class="menu-panel" role="menu">
+          <button type="button" data-info="rules" role="menuitem">Om analysen</button>
+          <button type="button" data-info="backup" role="menuitem">Säkerhetskopia av beslut (JSON)</button>
+          <button type="button" data-info="lock" role="menuitem" id="profileButton">Lås</button>
+          <button type="button" data-info="clear" role="menuitem" class="danger-text">Rensa importerade filer…</button>
         </div>
-        <p id="importStatus" class="import-status" role="status" aria-live="polite"></p>
+      </details>
+    </div>
+    <input id="fileInput" type="file" multiple accept=".xlsx,.xls,.csv" hidden>
+  </header>
+
+  <div class="layout">
+    <nav class="rail" id="rail" aria-label="Listor"></nav>
+
+    <main class="work" id="dropzone">
+      <section id="brief" class="brief" aria-label="Morgonöversikt"></section>
+
+      <section class="import-line" id="importLine" hidden>
+        <p id="importStatus" role="status" aria-live="polite"></p>
         <details id="importLog" class="import-log" hidden>
           <summary id="importLogSummary">Importlogg</summary>
-          <ul id="importLogEntries" aria-label="Varningar och filer som inte kunde läsas"></ul>
+          <ul id="importLogEntries"></ul>
         </details>
       </section>
-      <section class="meter-preview" id="meterPreview" data-mobile-view="chart" hidden>
-        <div class="preview-head">
-          <div class="preview-heading">
-            <b id="previewTitle">Markerad mätare</b>
-            <span id="previewMeta">Välj en eller flera rader i listan</span>
+
+      <section class="toolbar" aria-label="Sök och filter">
+        <input id="search" type="search" placeholder="Sök adress eller serienummer (flera: radbrytning eller komma)" aria-label="Sök">
+        <label class="field"><span>Sortera</span>
+          <select id="sort">
+            <option value="priority">Prioritet</option>
+            <option value="change">Förändring sedan föregående</option>
+            <option value="baseline">Förändring mot jämförelsenivå</option>
+            <option value="lastRead">Senast avläst</option>
+            <option value="value">Senaste värde</option>
+            <option value="address">Adress A–Ö</option>
+            <option value="area">Område och adress</option>
+          </select>
+        </label>
+        <label class="field"><span>Område</span><select id="areaFilter"><option value="all">Alla</option></select></label>
+        <details class="menu" id="groupFilter">
+          <summary>Dölj grupper <span id="groupFilterCount"></span></summary>
+          <div class="menu-panel">
+            <p class="hint">Döljs i Alla mätare och på kartan</p>
+            <label><input type="checkbox" value="customer_side"> Efter mätare</label>
+            <label><input type="checkbox" value="stable_high"> Stabilt hög</label>
+            <label><input type="checkbox" value="noise"> Störning / tillfällig</label>
+            <label><input type="checkbox" value="seasonal"> Säsong</label>
+            <label><input type="checkbox" value="repaired"> Lagade</label>
+            <label><input type="checkbox" value="learning"> Kort historik</label>
+            <label><input type="checkbox" value="ignored"> Ignorerade</label>
           </div>
-          <div class="preview-actions">
-            <div class="preview-view-toggle" role="group" aria-label="Visa graf eller karta">
-              <button type="button" class="secondary active" id="showPreviewChart" aria-pressed="true">Graf</button>
-              <button type="button" class="secondary" id="showPreviewMap" aria-pressed="false">Karta</button>
-            </div>
-            <button type="button" class="secondary" id="openNavigation">Kör hit</button>
-            <button type="button" class="secondary" id="clearSelection">Översikt</button>
+        </details>
+      </section>
+
+      <div class="sticky-stack">
+      <section class="selection-bar" id="selectionBar" aria-label="Markering"></section>
+
+      <section class="focus" id="focus" hidden aria-label="Vald mätare">
+        <div class="focus-head">
+          <div><b id="focusTitle"></b><span id="focusMeta"></span></div>
+          <div class="focus-actions">
+            <button type="button" class="secondary" id="focusNavigate">Kör hit</button>
+            <button type="button" class="secondary" id="focusMenu">Flytta till…</button>
+            <button type="button" class="secondary" id="focusClose" aria-label="Stäng vald mätare">Stäng</button>
           </div>
         </div>
-        <div class="preview-grid">
-          <div class="preview-chart preview-pane">
-            <canvas id="selectedChart"></canvas>
-          </div>
-          <div class="preview-map-wrap preview-pane">
-            <div class="map-toolbar">
-              <div role="group" aria-label="Karttyp">
-                <button type="button" class="secondary" id="streetMap">Karta</button>
-                <button type="button" class="secondary active" id="satelliteMap">Satellit</button>
-              </div>
-              <button type="button" class="secondary" id="locateMe">Min GPS</button>
+        <div class="focus-grid">
+          <div class="focus-chart" id="focusChart"></div>
+          <div class="focus-map">
+            <div class="map-tools" role="toolbar" aria-label="Karta">
+              <button type="button" data-map-style="street" aria-pressed="true">Karta</button>
+              <button type="button" data-map-style="satellite" aria-pressed="false">Satellit</button>
+              <button type="button" data-map-tool="select" aria-pressed="false" title="Dra en ruta för att markera flera">Välj ruta</button>
+              <button type="button" data-map-tool="valve" aria-pressed="false">Ventil</button>
+              <button type="button" data-map-tool="leak" aria-pressed="false">Läckpunkt</button>
+              <button type="button" data-map-action="locate">Min position</button>
             </div>
-            <div id="selectedMap" class="selected-map" aria-label="Karta över markerade mätare"></div>
+            <div id="map" class="map" aria-label="Karta"></div>
             <p id="mapStatus" class="map-status" role="status" aria-live="polite"></p>
           </div>
         </div>
-        <div id="selectedMeterChips" class="meter-chips" aria-label="Markerade mätare"></div>
       </section>
-      <div id="networkBriefHost"></div>
-      <section class="controls">
-        <input id="search" type="search" placeholder="Sök adress, serienummer, område. Klistra in flera adresser med radbrytning eller kommatecken">
-        <select id="filter" aria-label="Visa bara">
-          <option value="all">Visa bara: Alla mätare</option>
-          <option value="actionable">Akuta + misstänkta</option>
-          <option value="dispatch">Åk ut</option>
-          <option value="suspect">Misstänk</option><option value="watch">Bevaka</option><option value="hidden">Gömda</option><option value="learning">Nyuppsatt, avvakta</option><option value="stale_contact">Utan avläsning</option>
-          <option value="confirmed">Aktiva läckor</option>
-          <option value="repaired">Lagade</option>
-          <option value="ignored">Ignorera</option>
-          <option value="seasonal">Säsong / falsklarm</option>
-          <option value="customer_side">Efter mätare</option>
-        </select>
-        <label class="sort-control"><span>Sortera efter</span>
-        <select id="sort" aria-label="Sortera efter">
-          <option value="risk">Prioritet högst först</option>
-          <option value="group">Lista / status</option>
-          <option value="name">Namn A–Ö</option>
-          <option value="lastRead">Senast avläst</option>
-          <option value="area">Ort A–Ö och namn</option>
-          <option value="robustRise">Ökning från basnivå</option><option value="p">P% högst först</option>
-          <option value="lastJump">Senaste hopp högst först</option>
-          <option value="current">Högst aktuellt värde</option>
-          <option value="max">Högsta uppmätta värde</option>
-          <option value="persistence">Längst beständig nivå</option>
-          <option value="confidence">Säkerhet högst först</option>
-        </select>
+      </div>
+
+      <section class="table-wrap">
+        <table class="meters">
+          <thead>
+            <tr>
+              <th class="c-check"><input type="checkbox" id="checkPage" aria-label="Markera alla på sidan"></th>
+              <th><button type="button" data-sort="priority">Status</button></th>
+              <th><button type="button" data-sort="address">Adress</button></th>
+              <th><button type="button" data-sort="change">Senaste</button></th>
+              <th>Huvudorsak</th>
+              <th class="c-spark"><button type="button" data-sort="lastRead">60 dagar</button></th>
+              <th class="c-menu"><span class="sr-only">Åtgärder</span></th>
+            </tr>
+          </thead>
+          <tbody id="rows"><tr><td colspan="7" class="empty">Importera Kamstrup-exporter för att starta.</td></tr></tbody>
+        </table>
+      </section>
+
+      <section class="pager" id="pager" aria-label="Sidor">
+        <label class="field"><span>Visa</span>
+          <select id="pageSize"><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option></select>
         </label>
-        <select id="areaFilter" aria-label="Kommundel"><option value="all">Alla kommundelar</option></select>
-        <details id="excludeFilter" class="hide-menu">
-          <summary>Göm mätare <span id="excludedCount"></span></summary>
-          <div class="hide-menu-options">
-            <p>Göm valda grupper från listan och kartan</p>
-            <label><input type="checkbox" value="customer_side"> Efter mätare</label>
-            <label><input type="checkbox" value="seasonal"> Säsong / falsklarm</label>
-            <label><input type="checkbox" value="repaired"> Lagade</label>
-            <label><input type="checkbox" value="ignored"> Ignorerade</label>
-            <label><input type="checkbox" value="learning"> Nyuppsatta, avvakta</label>
-            <button type="button" id="clearExcluded" class="secondary">Visa alla grupper</button>
-          </div>
-        </details>
-        <button type="button" class="secondary select-all-matches" id="selectAllMatches">Markera alla</button>
-        <button type="button" class="secondary clear-all-selection" id="clearAllSelection" hidden>Avmarkera</button>
-        <div class="pager-controls" id="pagerControls">
-          <label>Visa
-            <select id="pageSize">
-              <option value="25">25</option>
-              <option value="50" selected>50</option>
-              <option value="100">100</option>
-            </select>
-          </label>
-          <button type="button" class="secondary" id="prevPage">Förra</button>
-          <span id="pageInfo">1/1</span>
-          <button type="button" class="secondary" id="nextPage">Nästa</button>
-        </div>
+        <span id="pageInfo" aria-live="polite"></span>
+        <button type="button" class="secondary" id="prevPage">Förra</button>
+        <button type="button" class="secondary" id="nextPage">Nästa</button>
       </section>
-      <section class="bulk-actions" id="bulkActions" hidden>
-        <span id="bulkCount">0 träffar</span>
-        <select id="bulkType">
-          <option value="download">Ladda ner</option>
-          <option value="manual_dispatch">Åk ut</option>
-          <option value="suspect">Misstänkt / bevaka</option>
-          <option value="leak">Konstaterad läcka → Aktiva läckor</option>
-          <option value="customer_contact">Kontakta FÄ / Efter mätare</option>
-          <option value="repaired">Lagad</option>
-          <option value="seasonal">Värmepanna / säsong</option>
-          <option value="new_install">Nyuppsatt, avvakta</option>
-          <option value="ignored">Ignorera</option>
-        </select>
-        <button type="button" id="addToTripList">Flytta till Ladda ner</button>
-        <button type="button" id="hideSelected" class="secondary">Göm markerade</button>
-        <button id="bulkSave" class="secondary">Flytta</button>
-        
-      </section>
-      <section class="workspace">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th><button type="button" class="table-sort" data-sort-table="select">Välj</button></th>
-                <th><button type="button" class="table-sort" data-sort-table="risk">Prioritet</button></th>
-                <th><button type="button" class="table-sort" data-sort-table="name">Adress</button></th>
-                <th><button type="button" class="table-sort" data-sort-table="lastJump">Förändring</button></th>
-                <th><button type="button" class="table-sort" data-sort-table="lastJump">Trend</button></th>
-                <th><button type="button" class="table-sort" data-sort-table="lastRead">Historik</button></th>
-                <th>Varför</th>
-                <th>Facit</th>
-              </tr>
-            </thead>
-            <tbody id="rows">
-              <tr><td colspan="8" class="empty">Ladda Excel-filer för analys.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-      <aside class="panel">
-        <h2>Motor</h2>
-        <ul>
-          <li>Dagligt lägsta brusvärde används som kurvpunkt.</li>
-          <li>Absolutvärde räcker inte. Kurvbeteende väger tyngst.</li>
-          <li>Facit och tolkade mätvärden sparas på denna enhet.</li>
-        </ul>
-        <h2>Facitcase</h2>
-        <div id="labels" class="labels"></div>
-      </aside>
-    </div>
-  </main>
-  <dialog id="detailDialog">
+    </main>
+  </div>
+
+  <div id="contextMenu" class="context-menu" role="menu" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <dialog id="chartDialog" class="wide-dialog" aria-labelledby="chartDialogTitle">
     <div class="dialog-head">
-      <div>
-        <h2 id="detailTitle">Mätare</h2>
-        <p id="detailMeta"></p>
-      </div>
-      <button id="closeDetail" class="secondary">Stäng</button>
+      <div><h2 id="chartDialogTitle"></h2><p id="chartDialogMeta"></p></div>
+      <button type="button" class="secondary" data-close>Stäng</button>
     </div>
-    <div class="chart-box"><canvas id="detailChart"></canvas></div>
-    <div id="detailText" class="detail-text"></div>
+    <div class="chart-large" id="chartDialogChart"></div>
+    <div id="chartDialogDetail"></div>
   </dialog>
-  <dialog id="feedbackDialog" class="form-dialog">
-    <form id="feedbackForm">
+
+  <dialog id="decisionDialog" class="form-dialog" aria-labelledby="decisionTitle">
+    <form id="decisionForm" method="dialog">
       <div class="dialog-head">
-        <div>
-          <h2 id="feedbackTitle">Facit</h2>
-          <p id="feedbackAddress"></p>
-        </div>
-        <button type="button" id="cancelFeedback" class="secondary">Stäng</button>
+        <div><h2 id="decisionTitle">Beslut</h2><p id="decisionTarget"></p></div>
+        <button type="button" class="secondary" data-close>Avbryt</button>
       </div>
-      <input id="feedbackMeterId" type="hidden">
-      <input id="feedbackType" type="hidden">
-      <label id="confirmedDateField"><span id="feedbackDateLabel">Datum hittad</span>
-        <input id="confirmedDate" type="date">
-      </label>
-      <fieldset id="confirmedFields">
-        <legend>Konstaterad läcka</legend>
-        <label><input type="radio" name="lineType" value="AV"> AV</label>
-        <label><input type="radio" name="lineType" value="SV"> SV</label>
-        <label><input type="radio" name="lineType" value="Vet ej" checked> Vet ej</label>
-        <label><input id="confirmedDateUncertain" type="checkbox"> Osäkert datum</label>
-      </fieldset>
-      <div id="repairFields" class="form-grid" hidden>
-        <label>Datum lagad<input id="repairedDate" type="date"></label>
-        <fieldset id="repairLineFields">
-          <legend>Ledning</legend>
-          <label><input type="radio" name="repairLineType" value="AV"> AV</label>
-          <label><input type="radio" name="repairLineType" value="SV"> SV</label>
-        </fieldset>
-        <label>Ca meter från mätaren<input id="distanceMeters" type="number" min="0" step="1" inputmode="numeric" placeholder="t.ex. 55"></label>
-        <label class="check-row"><input id="distanceUncertain" type="checkbox"> Avstånd osäkert</label>
-      </div>
-      <div id="noiseFields" hidden></div>
-      <label>Notering<textarea id="feedbackNote" rows="2" placeholder="Valfritt"></textarea></label>
-      <button type="submit" id="saveFeedback">Spara facit</button>
+      <div id="decisionFields"></div>
+      <label class="stack">Kommentar<textarea id="decisionComment" rows="3" placeholder="Valfritt"></textarea></label>
+      <p id="decisionError" class="form-error" role="alert"></p>
+      <button type="submit" class="primary" id="decisionSave">Spara</button>
     </form>
   </dialog>
+
+  <dialog id="worklistDialog" class="wide-dialog" aria-labelledby="worklistTitle"></dialog>
+  <dialog id="exportDialog" class="form-dialog" aria-labelledby="exportTitle"></dialog>
+  <dialog id="rulesDialog" class="wide-dialog" aria-labelledby="rulesTitle"></dialog>
+
   <dialog id="profileDialog" class="form-dialog profile-dialog">
     <form id="profileForm">
       <p class="eyebrow">Din lokala arbetsyta</p>
-      <h2 id="profileTitle">Öppna Läcksök</h2>
+      <h2 id="profileTitle">Öppna LeakSök</h2>
       <p class="small" id="profileHelp">Namn och kod låser historiken på den här enheten.</p>
-      <label>Namn<input id="profileName" autocomplete="username" required></label>
-      <label>Kod<input id="profileCode" type="password" inputmode="numeric" autocomplete="current-password" minlength="4" required></label>
-      <p id="profileStatus" class="import-status" role="status"></p>
-      <button type="submit">Öppna</button>
+      <label class="stack">Namn<input id="profileName" autocomplete="username" required></label>
+      <label class="stack">Kod<input id="profileCode" type="password" inputmode="numeric" autocomplete="current-password" minlength="4" required></label>
+      <p id="profileStatus" class="form-error" role="status"></p>
+      <button type="submit" class="primary">Öppna</button>
     </form>
   </dialog>
+
   <script src="./src/storage.js"></script>
-  <script src="./src/intelligence.js"></script>
+  <script src="./src/parse.js"></script>
+  <script src="./src/history.js"></script>
+  <script src="./src/engine.js"></script>
+  <script src="./src/xlsx-writer.js"></script>
+  <script src="./src/field-export.js"></script>
+  <script src="./src/chart.js"></script>
+  <script src="./src/map.js"></script>
+  <script src="./src/worklist.js"></script>
   <script src="./src/app.js"></script>
-  <script src="./src/map-tools.js"></script>
-  <script src="./src/meter-visibility.js"></script>
-  <script src="./src/history-comparison.js"></script>
-  <script src="./src/field-workflow.js"></script>
-  <script src="./src/smart-engine.js"></script>
-  <script src="./src/site-meters.js"></script>
-  <script src="./src/kamstrup-codes.js"></script>
-  <script src="./src/layout-polish.js"></script>
-  <script src="./src/map-workspace.js"></script>
-  <script src="./src/network-events.js"></script>
-  <script src="./src/network-events-ui.js"></script>
-  <script src="./src/morning-brief.js"></script>
-  <script src="./src/trip-list.js"></script>
 </body>
 </html>
-

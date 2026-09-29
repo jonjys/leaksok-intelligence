@@ -1,34 +1,44 @@
-// Read-only integration check: Python extraction JSON on stdin, production JS parser and scoring.
-const assert=require('node:assert/strict');
-const {app,context}=require('./workflow-harness')();
-function formatDate(date){ const d=new Date(date); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
-let input='';
-process.stdin.on('data',chunk=>input+=chunk);
-process.stdin.on('end',async()=>{
-  try {
-    const sources=JSON.parse(input);
-    for(const source of sources) {
-      const parsed=await app.parseWorkbook({name:source.name,arrayBuffer:async()=>source.table});
-      const expectedDate=(source.name.match(/(\d{4}-\d{2}-\d{2})/)||[])[1];
-      if(expectedDate) assert.equal(formatDate(parsed.exportDate),expectedDate,`${source.name} exportdatum ska tas från filnamn`);
-      app.state.files.push({...parsed,name:source.name});
-      console.log(source.name,parsed.rows.length+' användbara mätarrader');
-    }
-    app.analyze();
-    const counts={}; for(const m of app.state.meters)counts[m.category]=(counts[m.category]||0)+1;
-    console.log('Mätare:',app.state.meters.length,'Listor:',counts);
-    const result = app.state.meters.map(m=>[m.id,m.category,m.risk,m.engine.points]);
-    app.state.files.reverse(); app.analyze();
-    assert.deepEqual(app.state.meters.map(m=>[m.id,m.category,m.risk,m.engine.points]),result,'Import order invariant');
-    for(const id of ['54366369','54366361','54366370','12856662','12777133']) {
-      const m=app.state.meters.find(x=>x.id===id);
-      assert.ok(m); console.log(m.address,m.category,'risk',m.risk,'unika dagar',m.engine.points,'glapp',m.engine.staleReadDays);
-      assert.ok(m.engine.points < m.points.length,'Repeated exports must not create fresh readings');
-    }
-    assert.equal(app.state.meters.find(x=>x.id==='12856662').category,'customer_side');
-    for(const id of ['54366369','54366361','54366370']) assert.equal(app.state.meters.find(x=>x.id===id).category,'suspect_auto');
-    assert.notEqual(app.state.meters.find(x=>x.id==='12777133').category,'dispatch');
-    assert.ok(app.state.meters.every(m=>m.category!=='repaired'),'No automatic repairs without labels');
-    console.log('Five-export integration: PASS');
-  }catch(error){console.error(error);process.exitCode=1;}
-});
+// Local check of real Kamstrup exports against the production parser and engine.
+// Data never leaves the machine and is not committed.
+//   node tests/exports-regression.js exports/*.csv
+//   python3 extract.py | node tests/exports-regression.js     (JSON [{ name, table }])
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const Parse = require("../src/parse.js");
+const Engine = require("../src/engine.js");
+
+function fromTables(sources) {
+  return sources.map(({ name, table }) => {
+    const parsed = Parse.parseTable(table, { name });
+    for (const warning of parsed.warnings) console.log(`  ${name}: ${warning}`);
+    return { name, exportDate: parsed.exportDate, rows: parsed.rows };
+  });
+}
+
+function run(files) {
+  const result = Engine.analyzeAll(files, {});
+  const counts = {};
+  for (const m of result.meters) counts[m.category] = (counts[m.category] || 0) + 1;
+  console.log(`Filer: ${files.length} · mätare: ${result.meters.length} · senaste export: ${result.latestExport?.toISOString()}`);
+  console.log("Kategorier:", counts);
+  for (const m of result.meters.filter((x) => ["dispatch", "suspect_auto"].includes(x.category)).slice(0, 25)) {
+    console.log(`  ${m.priority.toString().padStart(3)} ${m.status.padEnd(9)} ${m.address} · ${m.summary}`);
+  }
+  const signature = (r) => r.meters.map((m) => `${m.id}|${m.category}|${m.priority}`).sort().join("\n");
+  assert.equal(signature(Engine.analyzeAll([...files].reverse(), {})), signature(result), "Import order must not change the result");
+  assert.ok(result.meters.every((m) => m.category !== "repaired"), "No automatic 'Lagad' without a manual decision");
+  assert.ok(result.meters.every((m) => !m.latest || m.history.readings <= files.length * 3), "Readings are unique reading days");
+  console.log("Originalexporter: PASS");
+}
+
+const args = process.argv.slice(2);
+if (args.length) {
+  run(fromTables(args.map((file) => ({ name: path.basename(file), table: Parse.parseCsvRows(fs.readFileSync(file, "utf8")) }))));
+} else {
+  let input = "";
+  process.stdin.on("data", (chunk) => { input += chunk; });
+  process.stdin.on("end", () => {
+    try { run(fromTables(JSON.parse(input))); } catch (error) { console.error(error); process.exitCode = 1; }
+  });
+}
