@@ -370,6 +370,11 @@
     els.groupFilterCount.textContent = state.excluded.size ? `(${state.excluded.size})` : "";
   }
 
+  const COPY_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="9" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h1"/></svg>';
+  for (const id of ["focusCopy", "chartCopy"]) document.getElementById(id).innerHTML = COPY_ICON;
+  function copyButton(m) {
+    return `<button type="button" class="copy-addr" data-copy="${esc(m.id)}" title="Kopiera adress" aria-label="Kopiera adress ${esc(shortAddress(m))}">${COPY_ICON}</button>`;
+  }
   function shortAddress(m) { return String(m.address || m.id).replace(/\s+\d{3}\s?\d{2}$/, ""); }
 
   function changeHtml(m) {
@@ -396,7 +401,7 @@
     return `<tr data-id="${esc(m.id)}" class="row${marked ? " is-marked" : ""}${state.focusId === m.id ? " is-focus" : ""}">
       <td class="c-check"><input type="checkbox" data-mark ${marked ? "checked" : ""} aria-label="Markera ${esc(m.address)}"></td>
       <td class="c-status"><span class="pill cat-${esc(m.category)}">${esc(m.status)}</span><span class="prio" title="Prioritet: rangordning 0–100, inte sannolikhet för läcka">${m.priority}</span><span class="conf">underlag ${esc(m.confidence)}</span></td>
-      <td class="c-addr"><button type="button" class="addr" data-act="focus">${esc(shortAddress(m))}</button><span class="sub">${esc(m.serial || m.id)} · ${esc(districtOf(m))}</span>${tags.length ? `<span class="tags">${tags.join("")}</span>` : ""}</td>
+      <td class="c-addr"><span class="addr-line"><button type="button" class="addr" data-act="focus">${esc(shortAddress(m))}</button>${copyButton(m)}</span><span class="sub">${esc(m.serial || m.id)} · ${esc(districtOf(m))}</span>${tags.length ? `<span class="tags">${tags.join("")}</span>` : ""}</td>
       <td class="c-latest">${changeHtml(m)}</td>
       <td class="c-reason"><p class="summary">${esc(m.summary)}</p><p class="action">${esc(m.action)}</p><button type="button" class="link" data-act="expand" aria-expanded="${expanded}">${expanded ? "Dölj underlag" : "Visa underlag"}</button></td>
       <td class="c-spark" data-act="chart" title="Öppna graf">${Chart.sparkline(m)}</td>
@@ -517,6 +522,8 @@
     if (els.focus.hidden) return;
     if (m) {
       els.focusTitle.textContent = m.address;
+      $("focusCopy").dataset.copy = m.id;
+      $("focusCopy").hidden = false;
       els.focusMeta.textContent = ` · ${m.serial || m.id} · ${m.status} · prioritet ${m.priority}`;
       if (els.focusChart.__chart?.id !== m.id || els.focusChart.__version !== m) {
         Chart.render(els.focusChart, m, { compact: true, onEnlarge: openChart });
@@ -524,6 +531,7 @@
       }
     } else {
       els.focusTitle.textContent = `Karta · ${LIST[state.list].label}`;
+      $("focusCopy").hidden = true;
       els.focusMeta.textContent = ` · ${state.visible.length.toLocaleString("sv-SE")} mätare i listan`;
     }
     const view = ensureMap();
@@ -555,6 +563,7 @@
     const m = state.byId.get(id);
     if (!m) return;
     $("chartDialogTitle").textContent = m.address;
+    $("chartCopy").dataset.copy = m.id;
     $("chartDialogMeta").textContent = `${m.serial || m.id} · ${m.status} · prioritet ${m.priority} (rangordning) · ${m.summary}`;
     $("chartDialogDetail").innerHTML = detailHtml(m);
     $("chartDialogDetail").dataset.id = m.id;
@@ -717,12 +726,32 @@
   // Row actions apply to all marked meters when the row itself is marked.
   const targetIds = (id) => (state.marked.has(id) ? [...state.marked] : [id]);
 
-  async function copyAddress(m) {
+  async function copyAddress(m, button) {
     if (!m) return;
     const text = shortAddress(m).replace(new RegExp(`\\s+(${Parse.DISTRICTS.flatMap(([, n]) => n).join("|")})\\s*$`, "i"), "").trim();
-    try { await navigator.clipboard.writeText(text); toast(`Kopierat: ${text}`); }
-    catch { toast(`Kunde inte kopiera automatiskt: ${text}`); }
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; }
+    catch {
+      // Fallback for browsers without the async clipboard (e.g. plain http).
+      const area = document.createElement("textarea");
+      area.value = text; area.setAttribute("readonly", ""); area.style.position = "fixed"; area.style.opacity = "0";
+      document.body.appendChild(area); area.select();
+      try { ok = document.execCommand("copy"); } catch { ok = false; }
+      area.remove();
+    }
+    toast(ok ? `Kopierat: ${text}` : `Kunde inte kopiera automatiskt: ${text}`);
+    if (ok && button) {
+      button.classList.add("copied");
+      setTimeout(() => button.classList.remove("copied"), 1200);
+    }
   }
+  // Visible copy buttons next to addresses (list, focus, chart, work list).
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-copy]");
+    if (!button) return;
+    event.preventDefault();
+    copyAddress(state.byId.get(button.dataset.copy), button);
+  });
 
   // ---------------- toast ----------------
   let toastTimer = 0;
@@ -745,7 +774,7 @@
   const worklist = LeakWorklist.create({
     dialog: $("worklistDialog"), exportDialog: $("exportDialog"),
     getEntries: () => state.tripList, setEntries: (list) => { state.tripList = list; },
-    getMeter: (id) => state.byId.get(id), getLabels: () => state.labels,
+    getMeter: (id) => state.byId.get(id), getLabels: () => state.labels, copyButton,
     getComment: (id) => state.labels[id]?.comment ?? state.labels[id]?.note ?? "",
     setComment: (id, text) => { setComment(id, text); },
     persist: () => persist(), onChange: () => render(), notify: (t) => toast(t),

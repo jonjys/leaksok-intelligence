@@ -375,3 +375,13 @@ body[data-view="map"] .focus.no-meter .focus-grid { min-height: 380px; }
   .wl-table td:nth-child(4) { display: none; }
   dialog { padding: 12px; }
 }
+
+/* Copy address: small visible button right after the address. */
+.addr-line { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
+.title-line { display: flex; align-items: center; gap: 6px; }
+.copy-addr { flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); cursor: pointer; vertical-align: middle; }
+.copy-addr svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+.copy-addr:hover, .copy-addr:focus-visible { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.copy-addr.copied { color: #fff; background: var(--accent); border-color: var(--accent); }
+#focusCopy { margin: 0 4px 0 8px; }
+.copy-addr[hidden] { display: none; }
