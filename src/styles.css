@@ -78,7 +78,8 @@ details.menu > summary::after { content: "▾"; font-size: 11px; color: var(--mu
 .menu-panel .hint { padding: 4px 10px; }
 
 /* Layout */
-.layout { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 16px; padding: 12px 16px 32px; max-width: 1760px; margin: 0 auto; }
+/* Fills the window at every width: narrow gutters, the rail keeps a steady width and the work area takes the rest. */
+.layout { display: grid; grid-template-columns: clamp(184px, 10vw, 232px) minmax(0, 1fr); gap: 14px; padding: 12px 14px 32px; }
 .rail { position: sticky; top: 68px; align-self: start; display: grid; gap: 6px; }
 .rail-lists { display: grid; gap: 2px; }
 .rail button {
@@ -134,11 +135,8 @@ details.menu > summary::after { content: "▾"; font-size: 11px; color: var(--mu
   .sticky-stack .focus { box-shadow: var(--shadow); }
 }
 @media (min-width: 761px) and (max-height: 860px) {
-  .focus-grid { min-height: 270px; }
-  .focus-chart .ch-stage { min-height: 170px; }
-  .focus-map { grid-template-rows: auto minmax(200px, 1fr) auto; }
-  .map { min-height: 200px; }
-  .ch-legend { display: none; }
+  .focus-chart .ch-stage { min-height: 150px; }
+  .focus-chart .ch-legend { display: none; }
 }
 .sel-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 
@@ -148,11 +146,17 @@ details.menu > summary::after { content: "▾"; font-size: 11px; color: var(--mu
 .focus-head b { font-size: 16px; }
 .focus-head span { color: var(--muted); }
 .focus-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-.focus-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; min-height: 330px; }
+/* Chart | handle | map. Height follows the window height so the panel never takes over the screen. */
+.focus-grid { display: grid; grid-template-columns: minmax(0, var(--chart-w, 50%)) 10px minmax(0, 1fr); column-gap: 4px; height: clamp(280px, 31vh, 470px); }
 .focus.no-meter .focus-grid { grid-template-columns: minmax(0, 1fr); }
+.split-handle { cursor: col-resize; border-radius: 4px; position: relative; touch-action: none; }
+.split-handle::after { content: ""; position: absolute; inset: 20% 4px; border-radius: 2px; background: var(--line-strong); }
+.split-handle:hover::after, .split-handle:focus-visible::after, .split-handle.is-drag::after { background: var(--accent); inset: 8% 3px; }
+.focus.no-meter .split-handle { display: none; }
+body.is-splitting { cursor: col-resize; user-select: none; }
 .focus.no-meter .focus-chart, .focus.no-meter #focusNavigate, .focus.no-meter #focusMenu, .focus.no-meter #focusClose { display: none; }
-.focus-map { display: grid; grid-template-rows: auto minmax(260px, 1fr) auto; gap: 6px; min-width: 0; }
-.map { width: 100%; height: 100%; min-height: 260px; border-radius: 6px; border: 1px solid var(--line); position: relative; z-index: 0; }
+.focus-map { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 6px; min-width: 0; min-height: 0; }
+.map { width: 100%; height: 100%; min-height: 180px; border-radius: 6px; border: 1px solid var(--line); position: relative; z-index: 0; }
 .map-tools { display: flex; gap: 4px; flex-wrap: wrap; }
 .map-tools button { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 6px; padding: 3px 9px; font-size: 12.5px; font-weight: 600; min-height: 28px; }
 .map-tools button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
@@ -165,7 +169,7 @@ details.menu > summary::after { content: "▾"; font-size: 11px; color: var(--mu
 .map-mark.valve span { background: #0f5e6e; }
 
 /* Charts */
-.focus-chart, .chart-large { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 6px; min-width: 0; position: relative; }
+.focus-chart, .chart-large { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 6px; min-width: 0; min-height: 0; position: relative; }
 .chart-large { min-height: 420px; }
 .ch-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .ch-latest b { font-size: 22px; font-variant-numeric: tabular-nums; }
@@ -219,6 +223,7 @@ table.meters { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .meters th:nth-child(3) { width: 23%; }
 .meters th:nth-child(4) { width: 150px; }
 .meters th:nth-child(6), .c-spark { width: 134px; }
+.c-spark .spark { width: 100%; }
 .meters th:nth-child(7), .c-menu { width: 50px; }
 .row { cursor: pointer; }
 .row:hover { background: #fafcfd; }
@@ -318,7 +323,38 @@ fieldset.inline legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
 .wl-copy textarea { width: 100%; }
 
 /* Map view (desktop): overview map above the list */
-body[data-view="map"] .focus.no-meter .focus-grid { min-height: 380px; }
+body[data-view="map"] .focus.no-meter .focus-grid { height: clamp(320px, 52vh, 900px); }
+
+
+/* Wide windows: the table uses the full width. Fixed columns stay compact, address,
+   reason and the 60-day graph grow, and rows get denser by using the width instead of
+   extra lines – text size is unchanged. */
+@media (min-width: 1500px) {
+  .meters th:nth-child(2) { width: 150px; }
+  .meters th:nth-child(3) { width: 20%; }
+  .meters th:nth-child(4) { width: 215px; }
+  .meters th:nth-child(6), .c-spark { width: 220px; }
+  .c-status { grid-template-columns: auto auto; column-gap: 8px; align-items: baseline; }
+  .c-status .conf { grid-column: 1 / -1; }
+  .c-latest .date::after { content: ""; display: block; }
+  .c-latest .chg { display: inline; margin-right: 6px; }
+  .c-latest .sub { display: inline; }
+  .c-reason .action { display: inline; margin-right: 8px; }
+  .c-reason .link { display: inline; }
+  .meters > tbody > tr > td { padding: 6px 8px; }
+}
+@media (min-width: 2300px) {
+  .meters th:nth-child(3) { width: 18%; }
+  .meters th:nth-child(4) { width: 240px; }
+  .meters th:nth-child(6), .c-spark { width: 320px; }
+}
+@media (min-width: 3000px) {
+  .meters th:nth-child(3) { width: 16%; }
+  .meters th:nth-child(6), .c-spark { width: 420px; }
+}
+@media (min-width: 1500px) {
+  .wide-dialog { width: min(max(1180px, 72vw), 1900px, calc(100vw - 24px)); }
+}
 
 /* Tablet */
 @media (max-width: 1180px) {
@@ -350,7 +386,8 @@ body[data-view="map"] .focus.no-meter .focus-grid { min-height: 380px; }
   .brief-item:nth-child(n+4) { display: none; }
   .import-line { font-size: 12.5px; }
   .toolbar input[type="search"] { flex-basis: 100%; }
-  .focus-grid { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .focus-grid { grid-template-columns: minmax(0, 1fr); height: auto; row-gap: 12px; }
+  .split-handle { display: none; }
   .focus-chart { min-height: 300px; }
   .focus-map { grid-template-rows: auto 230px auto; }
   .map { min-height: 230px; }
