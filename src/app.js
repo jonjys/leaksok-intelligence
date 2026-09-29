@@ -1,1362 +1,960 @@
-const knownCases = {
-  "53843859": {
-    type: "repaired",
-    address: "ALHAGSVÄGEN 58 -60 NORSBORG 14559",
-    serial: "53843859",
-    note: "Bekräftad läcka cirka 50-55 m från servisventilen vid nr 58. Lagad 2026-08-23 cirka 12:30; avläsning 17 kl. 13:01.",
-    at: "2026-08-23T12:30:00+02:00",
-    confirmedDate: "2026-08-23",
-    repairedDate: "2026-08-23",
-    distanceMeters: 55,
-    lineType: "SV",
-    source: "inbyggt facit",
-  },
-  "23571762": {
-    type: "seasonal",
-    address: "ALICE TEGNÉRS VÄG 23 TULLINGE 14638",
-    serial: "23571762",
-    note: "Känt värmepanne-/säsongsmönster.",
-    at: "2026-08-23T00:00:00+02:00",
-    source: "inbyggt facit",
-  },
-  "23571905": {
-    type: "repaired",
-    address: "BROÄNGSVÄGEN 22 TUMBA 14732",
-    serial: "23571905",
-    note: "Historisk läcka lagad. Högt gammalt max ska inte ensamt ge aktiv varning.",
-    at: "2026-08-23T00:00:00+02:00",
-    source: "inbyggt facit",
-  },
-  "12777229": {
-    type: "leak",
-    address: "VATTRAVÄGEN 8 UTTRAN 14763",
-    serial: "12777229",
-    note: "Bekräftat aktivt exempel i träningsunderlaget.",
-    at: "2026-08-23T00:00:00+02:00",
-    source: "inbyggt facit",
-  },
-};
+/* LeakSök app: state, import, analysis orchestration and the work list UI.
+   Analysis lives in engine.js; this file only presents and records decisions. */
+(function () {
+  const Engine = window.LeakEngine;
+  const History = window.LeakHistory;
+  const Parse = window.LeakParse;
+  const Chart = window.LeakChart;
+  const LABEL_BACKUP_KEY = "leaksok-intelligence-labels";
+  const PROFILE_KEY = "leaksok-intelligence-profile";
+  const VIEW_KEY = "leaksok_workspace_view_v1";
 
-const state = {
-  tripList: [],
-  files: [],
-  meters: [],
-  labels: loadLabels(),
-  chart: null,
-  profileId: null,
-  profileName: null,
-  importing: false,
-  storageError: "",
-  lastImport: null,
-};
+  // Field facts registered before the app existed. Saved decisions override them.
+  const knownCases = {
+    "53843859": { type: "repaired", address: "ALHAGSVÄGEN 58 -60 NORSBORG 14559", serial: "53843859", note: "Bekräftad läcka cirka 50-55 m från servisventilen vid nr 58. Lagad 2026-08-23 cirka 12:30; avläsning 17 kl. 13:01.", at: "2026-08-23T12:30:00+02:00", confirmedDate: "2026-08-23", repairedDate: "2026-08-23", distanceMeters: 55, lineType: "SV", source: "inbyggt facit" },
+    "23571762": { type: "seasonal", address: "ALICE TEGNÉRS VÄG 23 TULLINGE 14638", serial: "23571762", note: "Känt värmepanne-/säsongsmönster.", at: "2026-08-23T00:00:00+02:00", notedDate: "2026-08-23", source: "inbyggt facit" },
+    "23571905": { type: "repaired", address: "BROÄNGSVÄGEN 22 TUMBA 14732", serial: "23571905", note: "Historisk läcka lagad. Högt gammalt max ska inte ensamt ge aktiv varning.", at: "2026-08-23T00:00:00+02:00", repairedDate: "2026-08-23", source: "inbyggt facit" },
+    "12777229": { type: "leak", address: "VATTRAVÄGEN 8 UTTRAN 14763", serial: "12777229", note: "Bekräftat aktivt exempel i träningsunderlaget.", at: "2026-08-23T00:00:00+02:00", confirmedDate: "2026-08-23", source: "inbyggt facit" },
+  };
 
-const categoryText = {
-  dispatch: "TROLIG LÄCKA - ÅK UT",
-  leak_likely: "TROLIG LÄCKA - ÅK UT",
-  watch: "BEVAKA",
-  learning: "NY MÄTARE",
-  new_high: "NY MÄTARE",
-  new_unknown: "NY MÄTARE",
-  seasonal: "SÄSONG / KÄND",
-  repaired: "LAGAD",
-  noise: "PUMP / STÖRNING",
-  normal: "NORMAL",
-};
+  const LISTS = [
+    { key: "today", label: "Nytt i dag", test: (m) => m.isNewToday, hint: "Nya signaler i senaste exporten" },
+    { key: "all", label: "Alla mätare", test: () => true },
+    { key: "dispatch", label: "Åk ut", test: (m) => m.category === "dispatch" },
+    { key: "suspect", label: "Misstänk", test: (m) => m.category === "suspect_auto", hint: "Automatisk upptäckt" },
+    { key: "watch", label: "Bevaka", test: (m) => m.category === "watch", hint: "Din manuella lista" },
+    { key: "customer_side", label: "Efter mätare", test: (m) => m.category === "customer_side" },
+    { key: "confirmed", label: "Aktiva läckor", test: (m) => m.category === "confirmed" },
+    { key: "repaired", label: "Lagade", test: (m) => m.label?.type === "repaired" },
+    { key: "stable_high", label: "Stabilt hög", test: (m) => m.category === "stable_high", more: true },
+    { key: "noise", label: "Störning / tillfällig", test: (m) => m.category === "noise", more: true },
+    { key: "seasonal", label: "Säsong", test: (m) => m.category === "seasonal", more: true },
+    { key: "learning", label: "Kort historik", test: (m) => m.category === "learning", more: true },
+    { key: "stale_contact", label: "Utan färsk avläsning", test: (m) => m.category === "stale_contact", more: true },
+    { key: "ignored", label: "Ignorerade", test: (m) => m.category === "ignored", more: true },
+    { key: "hidden", label: "Gömda", test: () => true, more: true },
+  ];
+  const LIST = Object.fromEntries(LISTS.map((l) => [l.key, l]));
 
-const labelTypes = {
-  leak: "Konstaterad läcka",
-  repaired: "Lagad",
-  seasonal: "Säsong/känd",
-  known_noise: "Störning/falsklarm",
-  pump: "Störning/falsklarm",
-  false_alarm: "Störning/falsklarm",
-};
+  const DECISIONS = [
+    { type: "manual_dispatch", label: "Åk ut" },
+    { type: "interesting", label: "Bevaka" },
+    { type: "customer_contact", label: "Efter mätare / kontakta FÄ" },
+    { type: "leak", label: "Konstaterad läcka…", form: true },
+    { type: "repaired", label: "Lagad…", form: true },
+    { type: "seasonal", label: "Säsong / känd värmepanna" },
+    { type: "known_noise", label: "Störning / falsklarm" },
+    { type: "new_install", label: "Nyuppsatt, avvakta" },
+    { type: "reset_baseline", label: "Nollställ…", form: true },
+    { type: "ignored", label: "Ignorera" },
+  ];
+  const DECISION_FIELDS = ["confirmedDate", "confirmedDateUncertain", "repairedDate", "lineType", "distanceMeters", "distanceUncertain", "valveToLeakMeters", "mapMarks", "resetAfter", "noiseTags", "notedDate"];
 
-const feedbackButtons = {
-  leak: "Konstaterad läcka",
-  repaired: "Lagad",
-  seasonal: "Säsong/känd",
-  known_noise: "Störning/falsklarm",
-};
+  const state = {
+    files: [], labels: loadLabelBackup(), tripList: [], profileId: null, profileName: null,
+    prepared: null, cache: new Map(), meters: [], byId: new Map(), latestExport: null,
+    list: "all", search: "", sort: "priority", area: "all", excluded: new Set(),
+    page: 1, pageSize: 50, marked: new Set(), focusId: "", expanded: new Set(),
+    view: readView(), importing: false, storageError: "", visible: [],
+  };
+  window.state = state; // read-only inspection in tests and the browser console
 
-const els = {
-  fileInput: document.getElementById("fileInput"),
-  pickFiles: document.getElementById("pickFiles"),
-  dropzone: document.getElementById("dropzone"),
-  rows: document.getElementById("rows"),
-  summary: document.getElementById("summary"),
-  search: document.getElementById("search"),
-  filter: document.getElementById("filter"),
-  sort: document.getElementById("sort"),
-  labels: document.getElementById("labels"),
-  resetAll: document.getElementById("resetAll"),
-  exportJson: document.getElementById("exportJson"),
-  importStatus: document.getElementById("importStatus"),
-  detailDialog: document.getElementById("detailDialog"),
-  detailTitle: document.getElementById("detailTitle"),
-  detailMeta: document.getElementById("detailMeta"),
-  detailText: document.getElementById("detailText"),
-  closeDetail: document.getElementById("closeDetail"),
-  profileButton: document.getElementById("profileButton"),
-  profileDialog: document.getElementById("profileDialog"),
-  profileForm: document.getElementById("profileForm"),
-  profileTitle: document.getElementById("profileTitle"),
-  profileHelp: document.getElementById("profileHelp"),
-  profileName: document.getElementById("profileName"),
-  profileCode: document.getElementById("profileCode"),
-  profileStatus: document.getElementById("profileStatus"),
-  feedbackDialog: document.getElementById("feedbackDialog"),
-  feedbackForm: document.getElementById("feedbackForm"),
-  feedbackTitle: document.getElementById("feedbackTitle"),
-  feedbackAddress: document.getElementById("feedbackAddress"),
-  feedbackMeterId: document.getElementById("feedbackMeterId"),
-  feedbackType: document.getElementById("feedbackType"),
-  confirmedDateField: document.getElementById("confirmedDateField"),
-  feedbackDateLabel: document.getElementById("feedbackDateLabel"),
-  confirmedDate: document.getElementById("confirmedDate"),
-  repairFields: document.getElementById("repairFields"),
-  repairedDate: document.getElementById("repairedDate"),
-  distanceMeters: document.getElementById("distanceMeters"),
-  feedbackNote: document.getElementById("feedbackNote"),
-  cancelFeedback: document.getElementById("cancelFeedback"),
-};
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    rail: $("rail"), brief: $("brief"), rows: $("rows"), search: $("search"), sort: $("sort"), area: $("areaFilter"),
+    groupFilter: $("groupFilter"), groupFilterCount: $("groupFilterCount"), selection: $("selectionBar"), pager: $("pager"),
+    pageSize: $("pageSize"), pageInfo: $("pageInfo"), prev: $("prevPage"), next: $("nextPage"), checkPage: $("checkPage"),
+    focus: $("focus"), focusTitle: $("focusTitle"), focusMeta: $("focusMeta"), focusChart: $("focusChart"), map: $("map"), mapStatus: $("mapStatus"),
+    fileInput: $("fileInput"), pickFiles: $("pickFiles"), importLine: $("importLine"), importStatus: $("importStatus"),
+    importLog: $("importLog"), importLogSummary: $("importLogSummary"), importLogEntries: $("importLogEntries"),
+    menu: $("contextMenu"), toast: $("toast"), worklistCount: $("worklistCount"),
+    profileDialog: $("profileDialog"), profileForm: $("profileForm"), profileName: $("profileName"), profileCode: $("profileCode"),
+    profileStatus: $("profileStatus"), profileTitle: $("profileTitle"), profileHelp: $("profileHelp"), profileButton: $("profileButton"),
+    decisionDialog: $("decisionDialog"), decisionForm: $("decisionForm"), decisionTitle: $("decisionTitle"), decisionTarget: $("decisionTarget"),
+    decisionFields: $("decisionFields"), decisionComment: $("decisionComment"), decisionError: $("decisionError"),
+    chartDialog: $("chartDialog"), rulesDialog: $("rulesDialog"),
+  };
 
-els.pickFiles.addEventListener("click", () => els.fileInput.click());
-els.fileInput.addEventListener("change", (event) => handleFiles([...event.target.files]));
-els.search.addEventListener("input", render);
-els.filter.addEventListener("change", render);
-els.sort.addEventListener("change", render);
-els.closeDetail.addEventListener("click", () => els.detailDialog.close());
-els.resetAll.addEventListener("click", resetAll);
-els.exportJson.addEventListener("click", exportLabels);
-els.profileButton.addEventListener("click", lockProfile);
-els.profileForm.addEventListener("submit", unlockProfile);
-els.feedbackForm.addEventListener("submit", saveFeedback);
-els.cancelFeedback.addEventListener("click", () => els.feedbackDialog.close());
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const norm = (v) => String(v || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
+  const num = Engine.fmtNum;
 
-["dragenter", "dragover"].forEach((name) => {
-  els.dropzone.addEventListener(name, (event) => {
-    event.preventDefault();
-    els.dropzone.classList.add("drag");
-  });
-});
-["dragleave", "drop"].forEach((name) => {
-  els.dropzone.addEventListener(name, (event) => {
-    event.preventDefault();
-    els.dropzone.classList.remove("drag");
-  });
-});
-els.dropzone.addEventListener("drop", (event) => handleFiles([...event.dataTransfer.files]));
-
-function loadLabels() {
-  try {
-    const saved = JSON.parse(localStorage.getItem("leaksok-intelligence-labels") || "{}");
-    return { ...knownCases, ...saved };
-  } catch {
-    return { ...knownCases };
+  // ---------------- storage ----------------
+  function loadLabelBackup() {
+    try { return { ...knownCases, ...JSON.parse(localStorage.getItem(LABEL_BACKUP_KEY) || "{}") }; }
+    catch { return { ...knownCases }; }
   }
-}
+  function readView() { try { return localStorage.getItem(VIEW_KEY) === "map" ? "map" : "list"; } catch { return "list"; } }
+  function profileConfig() { try { return JSON.parse(localStorage.getItem(PROFILE_KEY) || "null"); } catch { return null; } }
 
-function saveLabels() {
-  try { localStorage.setItem("leaksok-intelligence-labels", JSON.stringify(state.labels)); }
-  catch (error) { els.importStatus.textContent = "Facit visas men lokal reservkopia kunde inte sparas: " + error.message; }
-  return persistState();
-}
-
-function profileConfig() {
-  try {
-    return JSON.parse(localStorage.getItem("leaksok-intelligence-profile") || "null");
-  } catch {
-    return null;
-  }
-}
-
-async function bootstrap() {
-  if (!window.indexedDB || !window.LeakStorage) {
-    render();
-    return;
-  }
-  const config = profileConfig();
-  els.profileTitle.textContent = config ? "Öppna Läcksök" : "Skapa lokal profil";
-  els.profileHelp.textContent = config
-    ? "Ange din kod. Historik och facit ligger kvar på denna enhet."
-    : "Välj namn och minst fyra tecken som kod. Detta låser appen på denna enhet.";
-  els.profileName.value = config?.name || "";
-  els.profileName.readOnly = Boolean(config);
-  els.profileDialog.addEventListener("cancel", (event) => event.preventDefault());
-  els.profileDialog.showModal();
-}
-
-async function unlockProfile(event) {
-  event.preventDefault();
-  const name = els.profileName.value.trim();
-  const code = els.profileCode.value;
-  const config = profileConfig();
-  if (!name || code.length < 4) {
-    els.profileStatus.textContent = "Skriv namn och en kod med minst fyra tecken.";
-    return;
-  }
-
-  const salt = config?.salt || randomSalt();
-  const hash = await hashCode(`${name.toLowerCase()}|${code}|${salt}`);
-  if (config && (config.name.toLowerCase() !== name.toLowerCase() || config.hash !== hash)) {
-    els.profileStatus.textContent = "Fel kod.";
-    return;
-  }
-
-  const nextConfig = config || { name, salt, hash, profileId: profileKey(name) };
-  localStorage.setItem("leaksok-intelligence-profile", JSON.stringify(nextConfig));
-  state.profileId = nextConfig.profileId;
-  state.profileName = nextConfig.name;
-  els.profileButton.textContent = `${state.profileName} · Lås`;
-  els.profileCode.value = "";
-  els.profileStatus.textContent = "";
-
-  try {
-    const snapshot = await window.LeakStorage.load(state.profileId);
-    if (snapshot) {
-      state.tripList = Array.isArray(snapshot.tripList) ? snapshot.tripList : [];
-      state.files = hydrateFiles(snapshot.files || []);
-      const localLabels = state.labels;
-      state.labels = { ...knownCases, ...(snapshot.labels || {}) };
-      for (const [id, label] of Object.entries(localLabels)) {
-        const time = l => Math.max(Date.parse(l?.at || "") || 0, Date.parse(l?.visibilityUpdatedAt || "") || 0);
-        if (time(label) > time(state.labels[id])) state.labels[id] = label;
-      }
+  async function persist(full = false) {
+    try { localStorage.setItem(LABEL_BACKUP_KEY, JSON.stringify(state.labels)); } catch { /* IndexedDB is primary */ }
+    if (!state.profileId || !window.LeakStorage?.available) {
+      state.storageError = "Historiken sparas inte i en lokal profil. Spara en säkerhetskopia.";
+      return false;
     }
-  } catch (error) {
-    state.profileId = null;
-    els.profileStatus.textContent = `Historiken kunde inte öppnas: ${error.message}. Försök igen; sparade data har inte skrivits över.`;
-    return;
+    try {
+      const snapshot = { files: state.files, labels: state.labels, tripList: state.tripList };
+      await (full ? LeakStorage.saveAll(state.profileId, snapshot) : LeakStorage.saveState(state.profileId, snapshot));
+      state.storageError = "";
+      return true;
+    } catch (error) {
+      state.storageError = `Kunde inte spara lokalt: ${error.message}`;
+      toast(state.storageError);
+      return false;
+    }
   }
-  els.profileDialog.close();
-  analyze();
-  await persistState();
-}
 
-function lockProfile() {
-  if (!window.indexedDB || !window.LeakStorage) return;
-  const config = profileConfig();
-  els.profileName.value = config?.name || "";
-  els.profileName.readOnly = Boolean(config);
-  els.profileCode.value = "";
-  els.profileStatus.textContent = "";
-  els.profileDialog.showModal();
-}
-
-async function persistState() {
-  if (!state.profileId || !window.LeakStorage) {
-    state.storageError = "Historiken är inte sparad i en lokal profil. Håll sidan öppen och spara en säkerhetskopia.";
-    return false;
+  function hydrateFiles(files) {
+    return (files || []).map((file) => {
+      const stored = History.validDate(file.exportDate);
+      const fromName = Parse.dateFromFileName(file.name);
+      const exportDate = fromName && (!stored || fromName >= stored) ? fromName : stored || fromName;
+      if (!exportDate) return null;
+      return { ...file, exportDate, rows: (file.rows || []).map((row) => ({ ...row, exportDate, readAt: row.readAt ? new Date(row.readAt) : null })) };
+    }).filter(Boolean);
   }
-  try {
-    await window.LeakStorage.save(state.profileId, {
-      files: state.files, labels: state.labels, tripList: state.tripList, savedAt: new Date(),
-    });
-    state.storageError = "";
-    return true;
-  } catch (error) {
-    state.storageError = "Kunde inte spara lokalt: " + error.message;
-    els.importStatus.textContent = state.storageError;
-    return false;
+
+  // ---------------- profile ----------------
+  async function hashCode(value) {
+    if (window.crypto?.subtle) {
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+      return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+    let hash = 0;
+    for (let i = 0; i < value.length; i++) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+    return String(hash);
   }
-}
-
-function hydrateFiles(files) {
-  return files.map((file) => {
-    const storedDate = new Date(file.exportDate);
-    const filenameDate = dateFromFile({ name: file.name || "", lastModified: Number.isNaN(storedDate.getTime()) ? Date.now() : storedDate.getTime() });
-    const exportDate = !Number.isNaN(filenameDate.getTime()) ? filenameDate : storedDate;
-    return {
-      ...file,
-      exportDate,
-      rows: (file.rows || []).map((row) => ({
-        ...row,
-        exportDate,
-        readAt: row.readAt ? new Date(row.readAt) : null,
-      })),
-    };
-  }).filter((file) => !Number.isNaN(file.exportDate.getTime()));
-}
-
-async function hashCode(value) {
-  if (window.crypto?.subtle) {
-    const bytes = new TextEncoder().encode(value);
-    const digest = await window.crypto.subtle.digest("SHA-256", bytes);
-    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  }
-  let hash = 0;
-  for (let i = 0; i < value.length; i++) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
-  return String(hash);
-}
-
-function randomSalt() {
-  if (window.crypto?.getRandomValues) {
+  function randomSalt() {
     const bytes = new Uint8Array(16);
-    window.crypto.getRandomValues(bytes);
-    return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    crypto.getRandomValues(bytes);
+    return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
   }
-  return `${Date.now()}-${Math.random()}`;
-}
+  const profileKey = (name) => name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "lokal";
 
-function profileKey(name) {
-  return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "lokal";
-}
-
-
-function renderImportLog(warnings = [], errors = []) {
-  const log = document.getElementById("importLog");
-  const summary = document.getElementById("importLogSummary");
-  const entries = document.getElementById("importLogEntries");
-  if (!log || !summary || !entries) return;
-  entries.replaceChildren();
-  log.open = false;
-  log.hidden = warnings.length + errors.length === 0;
-  summary.textContent = `Importlogg · ${warnings.length} varningar · ${errors.length} filer kunde inte läsas`;
-  for (const [prefix, messages] of [["Kunde inte läsa", errors], ["Varning", warnings]]) {
-    for (const message of messages) {
-      const item = document.createElement("li");
-      item.textContent = prefix + ": " + message;
-      entries.appendChild(item);
+  function showProfile() {
+    const config = profileConfig();
+    els.profileTitle.textContent = config ? "Öppna LeakSök" : "Skapa lokal profil";
+    els.profileHelp.textContent = config ? "Ange din kod. Historik och beslut ligger kvar på denna enhet." : "Välj namn och en kod med minst fyra tecken. Det låser appen på denna enhet.";
+    els.profileName.value = config?.name || "";
+    els.profileName.readOnly = Boolean(config);
+    els.profileCode.value = "";
+    els.profileStatus.textContent = "";
+    if (!els.profileDialog.open) els.profileDialog.showModal();
+  }
+  els.profileDialog.addEventListener("cancel", (e) => e.preventDefault());
+  els.profileForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const name = els.profileName.value.trim();
+    const code = els.profileCode.value;
+    const config = profileConfig();
+    if (!name || code.length < 4) { els.profileStatus.textContent = "Skriv namn och en kod med minst fyra tecken."; return; }
+    const salt = config?.salt || randomSalt();
+    const hash = await hashCode(`${name.toLowerCase()}|${code}|${salt}`);
+    if (config && (config.name.toLowerCase() !== name.toLowerCase() || config.hash !== hash)) { els.profileStatus.textContent = "Fel kod."; return; }
+    const next = config || { name, salt, hash, profileId: profileKey(name) };
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(next));
+    state.profileId = next.profileId;
+    state.profileName = next.name;
+    els.profileButton.textContent = `Lås (${next.name})`;
+    try {
+      els.profileStatus.textContent = "Öppnar historik…";
+      const snapshot = await LeakStorage.load(state.profileId);
+      if (snapshot) {
+        state.files = hydrateFiles(snapshot.files);
+        state.tripList = Array.isArray(snapshot.tripList) ? snapshot.tripList : [];
+        const local = state.labels;
+        state.labels = { ...knownCases, ...(snapshot.labels || {}) };
+        const time = (l) => Math.max(Date.parse(l?.at || "") || 0, Date.parse(l?.visibilityUpdatedAt || "") || 0, Date.parse(l?.commentAt || "") || 0);
+        for (const [id, label] of Object.entries(local)) if (time(label) > time(state.labels[id])) state.labels[id] = label;
+      }
+    } catch (error) {
+      state.profileId = null;
+      els.profileStatus.textContent = `Historiken kunde inte öppnas: ${error.message}. Inget har skrivits över.`;
+      return;
     }
-  }
-}
-
-async function handleFiles(files) {
-  if (state.importing) {
-    els.importStatus.textContent = "En import pågår. Vänta tills den är färdig.";
-    return;
-  }
-  const excelFiles = files.filter((file) => /\.(xlsx|xls|csv)$/i.test(file.name));
-  if (!excelFiles.length) {
-    els.importStatus.textContent = "Ingen Excel- eller CSV-fil vald.";
-    return;
-  }
-  state.importing = true;
-  els.pickFiles.disabled = true;
-  els.resetAll.disabled = true;
-  els.profileButton.disabled = true;
-  renderImportLog();
-  const previousFiles = state.files;
-  const nextFiles = [...previousFiles];
-  const errors = [], warnings = [];
-  let imported = 0, duplicates = 0;
-  try {
-    for (let index = 0; index < excelFiles.length; index++) {
-      const file = excelFiles[index];
-      els.importStatus.textContent = `Läser ${index + 1}/${excelFiles.length}: ${file.name}`;
-      try {
-        const parsed = await parseWorkbook(file);
-        if (!parsed.rows.length) throw new Error("inga mätarrader hittades");
-        const fingerprint = JSON.stringify(parsed.rows);
-        const same = nextFiles.find(old => old.name === file.name && new Date(old.exportDate).getTime() === parsed.exportDate.getTime());
-        if (same && JSON.stringify(same.rows) === fingerprint) { duplicates++; continue; }
-        // An overlapping or same-name export must not erase earlier readings.
-        nextFiles.push({ name: file.name, exportDate: parsed.exportDate, rows: parsed.rows });
-        if (parsed.skippedRows) warnings.push(`${file.name}: ${parsed.skippedRows} rader saknar giltigt brusvärde`);
-        if (parsed.unknownReadDates) warnings.push(`${file.name}: ${parsed.unknownReadDates} rader saknar giltigt avläsningsdatum`);
-        imported++;
-      } catch (error) { errors.push(`${file.name}: ${error.message}`); }
+    els.profileDialog.close();
+    if (state.files.length) {
+      setImportStatus(`Analyserar ${state.files.length} exporter…`);
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     }
-    state.files = nextFiles.sort((a, b) => a.exportDate - b.exportDate);
-    try { analyze(); }
-    catch (error) { state.files = previousFiles; analyze(); throw error; }
-    const saved = await persistState();
-    state.lastImport = { at: new Date().toISOString(), imported, duplicates, errors, warnings, saved };
-    els.importStatus.textContent = `${imported} nya filer · ${duplicates} dubbletter · ${state.meters.length.toLocaleString("sv-SE")} mätare. ${saved ? "Sparat på denna enhet." : state.storageError}${warnings.length ? ` ${warnings.length} varningar.` : ""}${errors.length ? ` ${errors.length} filer kunde inte läsas.` : ""}`;
-    renderImportLog(warnings, errors);
-    render();
-  } catch (error) {
-    els.importStatus.textContent = "Importen kunde inte slutföras: " + error.message;
-  } finally {
-    state.importing = false;
-    els.pickFiles.disabled = false;
-    els.resetAll.disabled = false;
-    els.profileButton.disabled = false;
-    els.fileInput.value = "";
-  }
-}
+    reanalyze(true);
+    if (state.files.length) setImportStatus(`${state.files.length} exporter i historiken · ${state.meters.length.toLocaleString("sv-SE")} mätare.`);
+  });
 
-async function parseWorkbook(file) {
-  let rows;
-  if (/\.csv$/i.test(file.name)) {
-    rows = parseCsvRows(await file.text());
-  } else {
-    if (typeof XLSX === "undefined") {
-      throw new Error("Excel-läsaren kunde inte laddas; använd CSV eller ladda om sidan");
-    }
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-    rows = [];
+  // ---------------- import ----------------
+  function tableFromWorkbook(buffer) {
+    if (typeof XLSX === "undefined") throw new Error("Excel-läsaren är inte laddad; ladda om sidan eller använd CSV");
+    const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
     for (const name of workbook.SheetNames) {
-      const table = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: null });
-      if (findHeaderIndex(table) >= 0) { rows = table; break; }
+      const table = XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: null, raw: true });
+      if (Parse.findHeaderIndex(table) >= 0) return table;
+    }
+    throw new Error("hittade inget blad med Kamstrup-rubriker");
+  }
+
+  async function handleFiles(list) {
+    const files = [...list].filter((f) => /\.(xlsx|xls|csv)$/i.test(f.name));
+    if (state.importing) { setImportStatus("En import pågår redan."); return; }
+    if (!files.length) { setImportStatus("Ingen Excel- eller CSV-fil vald."); return; }
+    state.importing = true;
+    els.pickFiles.disabled = true;
+    const warnings = [], errors = [];
+    let added = 0, duplicates = 0;
+    const next = [...state.files];
+    const signature = (rows) => rows.map((r) => `${r.id}|${r.readAt?.getTime?.() ?? ""}|${r.current}`).join(";");
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setImportStatus(`Läser ${i + 1}/${files.length}: ${file.name}`);
+        try {
+          const table = /\.csv$/i.test(file.name) ? Parse.parseCsvRows(await file.text()) : tableFromWorkbook(await file.arrayBuffer());
+          const parsed = Parse.parseTable(table, { name: file.name, lastModified: file.lastModified });
+          if (!parsed.rows.length) throw new Error("inga mätarrader hittades");
+          const sig = signature(parsed.rows);
+          if (next.some((f) => f.exportDate.getTime() === parsed.exportDate.getTime() && f.rows.length === parsed.rows.length && signature(f.rows) === sig)) { duplicates++; continue; }
+          // A same-named file from another day, or with other content, is kept: history is never dropped.
+          next.push({ name: file.name, exportDate: parsed.exportDate, exportDateSource: parsed.exportDateSource, importedAt: new Date().toISOString(), rows: parsed.rows });
+          parsed.warnings.forEach((w) => warnings.push(`${file.name}: ${w}`));
+          added++;
+        } catch (error) { errors.push(`${file.name}: ${error.message}`); }
+      }
+      const previous = state.files;
+      state.files = next.sort((a, b) => a.exportDate - b.exportDate || a.name.localeCompare(b.name));
+      setImportStatus("Analyserar…");
+      await new Promise((r) => setTimeout(r, 0));
+      try { reanalyze(true); }
+      catch (error) {
+        // Never keep (or save) an import the engine cannot analyse.
+        state.files = previous;
+        reanalyze(true);
+        setImportStatus(`Importen avbröts, inget sparades: ${error.message}`);
+        return;
+      }
+      const saved = added ? await persist(true) : true;
+      const latest = state.latestExport ? `senaste export ${Engine.fmtDate(state.latestExport, true)} ${String(state.latestExport.getHours()).padStart(2, "0")}:${String(state.latestExport.getMinutes()).padStart(2, "0")}` : "";
+      setImportStatus(`${added} nya filer · ${duplicates} dubbletter · ${latest} · ${state.meters.length.toLocaleString("sv-SE")} mätare. ${saved ? "Sparat på denna enhet." : state.storageError}`);
+      renderImportLog(warnings, errors);
+    } finally {
+      state.importing = false;
+      els.pickFiles.disabled = false;
+      els.fileInput.value = "";
     }
   }
-  const headerIndex = findHeaderIndex(rows);
-  if (headerIndex < 0) return { exportDate: dateFromFile(file), rows: [] };
-
-  const header = rows[headerIndex].map((value) => String(value || "").trim().toLowerCase());
-  const col = {
-    address: findColumn(header, ["adress", "address", "plats"]),
-    serial: findColumn(header, ["serienummer", "serienr", "serie", "mätarnummer", "meter"]),
-    readAt: findColumn(header, ["senaste avläsning", "avläsning", "date", "datum"]),
-    current: findColumn(header, ["senaste värde", "brus", "noise", "value"]),
-    average: findColumn(header, ["genomsnittsvärde", "genomsnitt", "average", "avg"]),
-    max: findColumn(header, ["maxvärde", "max", "högsta"]),
-    info: findColumn(header, ["infokod", "status", "alarm", "larm"]),
-    activeEvents: findColumn(header, ["aktiva händelser", "active events"]),
-    closedEvents: findColumn(header, ["stängda händelser", "closed events"]),
-    area: findColumn(header, ["område", "area", "ort"]),
-  };
-  if (col.current < 0 || (col.serial < 0 && col.address < 0)) {
-    throw new Error("Kamstrup-kolumnerna Serienummer/Adress/Senaste värde saknas");
+  function setImportStatus(text) { els.importLine.hidden = !text; els.importStatus.textContent = text; }
+  function renderImportLog(warnings, errors) {
+    els.importLogEntries.replaceChildren(...[...errors.map((e) => `Kunde inte läsa: ${e}`), ...warnings.map((w) => `Varning: ${w}`)].map((t) => { const li = document.createElement("li"); li.textContent = t; return li; }));
+    els.importLog.hidden = !warnings.length && !errors.length;
+    els.importLog.open = false;
+    els.importLogSummary.textContent = `Importlogg · ${warnings.length} varningar · ${errors.length} filer kunde inte läsas`;
   }
 
-  const exportDate = /\d{4}-\d{2}-\d{2}/.test(file.name) ? dateFromFile(file) : (findExportDate(rows.slice(0, headerIndex)) || dateFromFile(file));
-  const parsed = [];
-  let skippedRows = 0, unknownReadDates = 0;
-  for (let r = headerIndex + 1; r < rows.length; r++) {
-    const row = rows[r] || [];
-    const serial = cleanText(row[col.serial]);
-    const address = cleanText(row[col.address]);
-    if (!serial && !address) continue;
-    const current = parseNumber(row[col.current]);
-    if (current == null || current < 0) { skippedRows++; continue; }
-    const average = parseNumber(row[col.average]);
-    const max = parseNumber(row[col.max]);
-    const parsedReadAt = parseDate(row[col.readAt]);
-    // Unknown dates never establish persistence or fresh evidence.
-    const readAt = parsedReadAt && parsedReadAt <= new Date(exportDate.getTime() + 86400000) ? parsedReadAt : null;
-    if (!readAt) unknownReadDates++;
-    parsed.push({
-      id: serial || normalizeAddress(address),
-      serial,
-      address,
-      area: areaOf(`${address} ${cleanText(row[col.area])}`),
-      readAt,
-      readAtUnknown: !readAt,
-      exportDate,
-      current,
-      average,
-      infoCode: cleanText(row[col.info]),
-      activeEvents: cleanText(row[col.activeEvents]),
-      max: max ?? current,
-      info: [row[col.info], row[col.activeEvents]].map(cleanText).filter(Boolean).join(" · "),
-      closedEvents: cleanText(row[col.closedEvents]),
-      source: file.name,
+  // ---------------- analysis ----------------
+  function reanalyze(filesChanged = false) {
+    if (filesChanged || !state.prepared) state.prepared = Engine.prepare(state.files);
+    const coords = window.LeakMap ? LeakMap.coordinates([...state.prepared.histories.values()]) : new Map();
+    const result = Engine.analyzePrepared(state.prepared, state.labels, { cache: state.cache, coordinates: coords });
+    state.meters = result.meters;
+    state.byId = new Map(result.meters.map((m) => [m.id, m]));
+    state.latestExport = result.latestExport;
+    for (const id of [...state.marked]) if (!state.byId.has(id)) state.marked.delete(id);
+    if (state.focusId && !state.byId.has(state.focusId)) state.focusId = "";
+    render();
+  }
+
+  // ---------------- filtering ----------------
+  const districtCache = new Map();
+  function districtOf(m) {
+    const key = `${m.area}|${m.address}`;
+    if (!districtCache.has(key)) districtCache.set(key, Parse.districtOf(m.area, m.address));
+    return districtCache.get(key);
+  }
+  const hidden = (m) => state.labels[m.id]?.hidden === true;
+
+  function inList(m, key) {
+    if (key === "hidden") return hidden(m);
+    if (hidden(m)) return false;
+    return LIST[key].test(m);
+  }
+
+  function visibleRows() {
+    const terms = state.search.split(/[\n,;]+/).map(norm).filter(Boolean);
+    const rows = state.meters.filter((m) => {
+      if (!inList(m, state.list)) return false;
+      if (state.list === "all" && state.excluded.size && [...state.excluded].some((g) => (g === "repaired" ? m.label?.type === "repaired" : m.category === g))) return false;
+      if (state.area !== "all" && districtOf(m) !== state.area) return false;
+      if (terms.length && !terms.some((t) => norm(`${m.address} ${m.serial} ${m.id} ${m.area}`).includes(t))) return false;
+      return true;
     });
+    const by = {
+      priority: (a, b) => b.sortRank - a.sortRank,
+      change: (a, b) => (b.changePrev?.pct ?? -Infinity) - (a.changePrev?.pct ?? -Infinity) || (b.changePrev?.delta ?? -Infinity) - (a.changePrev?.delta ?? -Infinity),
+      baseline: (a, b) => (b.finding?.pct ?? -Infinity) - (a.finding?.pct ?? -Infinity),
+      lastRead: (a, b) => (b.latest?.date?.getTime() ?? 0) - (a.latest?.date?.getTime() ?? 0),
+      value: (a, b) => (b.latest?.value ?? -1) - (a.latest?.value ?? -1),
+      address: (a, b) => a.address.localeCompare(b.address, "sv", { numeric: true }),
+      area: (a, b) => districtOf(a).localeCompare(districtOf(b), "sv") || a.address.localeCompare(b.address, "sv", { numeric: true }),
+    }[state.sort] || ((a, b) => b.sortRank - a.sortRank);
+    return rows.sort((a, b) => by(a, b) || b.sortRank - a.sortRank || a.address.localeCompare(b.address, "sv"));
   }
-  return { exportDate, rows: parsed, skippedRows, unknownReadDates };
-}
 
-function parseCsvRows(text) {
-  const source = String(text || "").replace(/^\uFEFF/, "");
-  const firstLine = source.split(/\r?\n/).slice(0, 60).find(line => /serie|mätar|meter/i.test(line) && /värde|noise|brus|value/i.test(line)) || source.split(/\r?\n/, 1)[0] || "";
-  const candidates = [",", ";", "\t"];
-  const separator = candidates
-    .map((value) => ({ value, count: firstLine.split(value).length - 1 }))
-    .sort((a, b) => b.count - a.count)[0].value;
-  const rows = [];
-  let row = [];
-  let value = "";
-  let quoted = false;
+  // ---------------- render ----------------
+  function render() {
+    document.body.dataset.view = state.view;
+    document.querySelectorAll("[data-view]").forEach((b) => b.tagName === "BUTTON" && b.setAttribute("aria-pressed", String(b.dataset.view === state.view)));
+    state.visible = visibleRows();
+    const pages = Math.max(1, Math.ceil(state.visible.length / state.pageSize));
+    state.page = Math.min(Math.max(1, state.page), pages);
+    renderRail();
+    renderBrief();
+    renderAreas();
+    renderTable();
+    renderSelection();
+    renderPager(pages);
+    renderFocus();
+    if (els.chartDialog.open && $("chartDialogDetail").dataset.id) {
+      const open = state.byId.get($("chartDialogDetail").dataset.id);
+      if (open) $("chartDialogDetail").innerHTML = detailHtml(open);
+    }
+    els.worklistCount.textContent = String(state.tripList.filter((e) => state.byId.has(e.id)).length);
+  }
 
-  for (let index = 0; index < source.length; index++) {
-    const char = source[index];
-    if (char === '"') {
-      if (quoted && source[index + 1] === '"') {
-        value += '"';
-        index++;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (char === separator && !quoted) {
-      row.push(value);
-      value = "";
-    } else if ((char === "\n" || char === "\r") && !quoted) {
-      if (char === "\r" && source[index + 1] === "\n") index++;
-      row.push(value);
-      if (row.some((cell) => cell !== "")) rows.push(row);
-      row = [];
-      value = "";
+  function renderRail() {
+    const counts = Object.fromEntries(LISTS.map((l) => [l.key, 0]));
+    for (const m of state.meters) for (const l of LISTS) if (inList(m, l.key)) counts[l.key]++;
+    const button = (l) => `<button type="button" data-list="${l.key}" aria-pressed="${state.list === l.key}"${l.hint ? ` title="${esc(l.hint)}"` : ""}><span>${esc(l.label)}</span><b>${counts[l.key].toLocaleString("sv-SE")}</b></button>`;
+    const more = LISTS.filter((l) => l.more);
+    const moreOpen = more.some((l) => l.key === state.list);
+    els.rail.innerHTML = `
+      <div class="rail-lists">${LISTS.filter((l) => !l.more).map(button).join("")}</div>
+      <details class="rail-more"${moreOpen ? " open" : ""}><summary>Fler listor <b>${more.reduce((s, l) => s + (l.key === "hidden" ? 0 : counts[l.key]), 0).toLocaleString("sv-SE")}</b></summary><div class="rail-lists">${more.map(button).join("")}</div></details>
+      <label class="rail-select"><span class="sr-only">Lista</span><select id="listSelect">${LISTS.map((l) => `<option value="${l.key}"${state.list === l.key ? " selected" : ""}>${esc(l.label)} (${counts[l.key]})</option>`).join("")}</select></label>`;
+  }
+
+  function renderBrief() {
+    if (!state.files.length) {
+      els.brief.innerHTML = `<div class="brief-empty"><h2>Morgonanalys</h2><p>Importera senaste 24-timmarsexporten från Kamstrup. Appen jämför med historiken som sparats på den här enheten och visar vad som förändrats.</p><button type="button" class="primary" data-act="import">＋ Importera Excel</button></div>`;
+      return;
+    }
+    const report = Engine.morning(state.meters, state.labels, state.latestExport);
+    const exportAt = state.latestExport;
+    const ageHours = exportAt ? (Date.now() - exportAt.getTime()) / 3600000 : Infinity;
+    const time = exportAt ? `${Engine.fmtDate(exportAt, true)} ${String(exportAt.getHours()).padStart(2, "0")}:${String(exportAt.getMinutes()).padStart(2, "0")}` : "okänt";
+    const items = report.newToday.slice(0, 4).map((m) => {
+      const f = m.upFinding;
+      return `<button type="button" class="brief-item" data-focus="${esc(m.id)}"><span>${esc(shortAddress(m))}</span><b>${num(f.ref.level)} → ${num(f.now.level)}</b><em>${f.pct != null ? Engine.fmtPct(f.pct) : Engine.fmtSigned(f.delta)}</em></button>`;
+    }).join("");
+    els.brief.innerHTML = `
+      <div class="brief-row">
+        <p class="brief-date${ageHours > 30 ? " is-old" : ""}">${ageHours > 30 ? "Äldre export" : "Senaste export"} <b>${esc(time)}</b> · ${report.fresh.toLocaleString("sv-SE")} av ${report.total.toLocaleString("sv-SE")} avlästa senaste dygnet</p>
+        <div class="brief-stats">
+          <button type="button" data-list="today"><b>${report.newToday.length}</b> nya signaler</button>
+          <button type="button" data-list="dispatch"><b>${report.dispatch}</b> åk ut</button>
+          <button type="button" data-list="suspect"><b>${report.suspect}</b> misstänk</button>
+          <button type="button" data-list="stale_contact"><b>${report.stale}</b> utan färsk avläsning</button>
+        </div>
+      </div>
+      ${items ? `<div class="brief-items">${items}${report.newToday.length > 4 ? `<button type="button" class="brief-more" data-list="today">Alla ${report.newToday.length} →</button>` : ""}</div>` : ""}`;
+  }
+
+  function renderAreas() {
+    const wanted = ["all", ...Parse.DISTRICTS.map(([n]) => n), "Övrigt"];
+    if (els.area.options.length !== wanted.length) {
+      els.area.innerHTML = wanted.map((v) => `<option value="${esc(v)}">${v === "all" ? "Alla" : esc(v)}</option>`).join("");
+    }
+    els.area.value = state.area;
+    els.search.value !== state.search && document.activeElement !== els.search && (els.search.value = state.search);
+    els.sort.value = state.sort;
+    els.pageSize.value = String(state.pageSize);
+    els.groupFilterCount.textContent = state.excluded.size ? `(${state.excluded.size})` : "";
+  }
+
+  function shortAddress(m) { return String(m.address || m.id).replace(/\s+\d{3}\s?\d{2}$/, ""); }
+
+  function changeHtml(m) {
+    const c = m.changePrev;
+    if (!m.latest) return `<span class="muted">Inga avläsningar</span>`;
+    const old = m.latest.ageDays >= Engine.RULES.oldDays;
+    const value = `<span class="val">${num(m.latest.value)}</span><span class="date${old ? " old" : ""}" title="Avläsningsdatum">${esc(Engine.fmtDate(m.latest.date))}${old ? ` · ${m.latest.ageDays} d` : ""}</span>`;
+    if (!c) return `${value}<span class="chg muted">ingen tidigare</span>`;
+    const dir = c.delta > 0 ? "up" : c.delta < 0 ? "down" : "flat";
+    const pct = c.pct != null ? Engine.fmtPct(c.pct) : c.from === 0 ? "ingen %, från 0" : "–";
+    return `${value}<span class="chg ${dir}" title="Sedan föregående avläsning ${esc(Engine.fmtDate(c.fromDate))}: ${num(c.from)}">${Engine.fmtSigned(c.delta)} (${pct})</span><span class="sub">från ${num(c.from)} · ${esc(Engine.fmtDate(c.fromDate))}</span>`;
+  }
+
+  function rowHtml(m) {
+    const marked = state.marked.has(m.id);
+    const expanded = state.expanded.has(m.id);
+    const tags = [];
+    if (m.label?.type) tags.push(`<span class="tag manual">${esc(Engine.LABELS[m.label.type] || m.label.type)}</span>`);
+    if (m.codes.leak || m.codes.burst || m.codes.dry) tags.push(`<span class="tag code">Infokod ${esc(m.codes.infoCode)}</span>`);
+    if (m.codes.acousticLeak) tags.push(`<span class="tag code">Händelse: ${esc(m.codes.activeEvents)}</span>`);
+    if (hidden(m)) tags.push(`<span class="tag">Gömd</span>`);
+    if (state.tripList.some((e) => e.id === m.id)) tags.push(`<span class="tag">I arbetslista</span>`);
+    return `<tr data-id="${esc(m.id)}" class="row${marked ? " is-marked" : ""}${state.focusId === m.id ? " is-focus" : ""}">
+      <td class="c-check"><input type="checkbox" data-mark ${marked ? "checked" : ""} aria-label="Markera ${esc(m.address)}"></td>
+      <td class="c-status"><span class="pill cat-${esc(m.category)}">${esc(m.status)}</span><span class="prio" title="Prioritet: rangordning 0–100, inte sannolikhet för läcka">${m.priority}</span><span class="conf">underlag ${esc(m.confidence)}</span></td>
+      <td class="c-addr"><button type="button" class="addr" data-act="focus">${esc(shortAddress(m))}</button><span class="sub">${esc(m.serial || m.id)} · ${esc(districtOf(m))}</span>${tags.length ? `<span class="tags">${tags.join("")}</span>` : ""}</td>
+      <td class="c-latest">${changeHtml(m)}</td>
+      <td class="c-reason"><p class="summary">${esc(m.summary)}</p><p class="action">${esc(m.action)}</p><button type="button" class="link" data-act="expand" aria-expanded="${expanded}">${expanded ? "Dölj underlag" : "Visa underlag"}</button></td>
+      <td class="c-spark" data-act="chart" title="Öppna graf">${Chart.sparkline(m)}</td>
+      <td class="c-menu"><button type="button" class="icon" data-act="menu" aria-label="Åtgärder för ${esc(m.address)}">⋯</button></td>
+    </tr>${expanded ? `<tr class="detail-row" data-detail="${esc(m.id)}"><td colspan="7">${detailHtml(m)}</td></tr>` : ""}`;
+  }
+
+  function comparisonRows(m) {
+    const rows = [];
+    const c = m.changePrev;
+    const year = state.latestExport?.getFullYear();
+    const D = (d) => Engine.fmtDate(d, d && d.getFullYear() !== year);
+    if (c) rows.push(["Sedan föregående avläsning", `${D(c.fromDate)} → ${D(c.toDate)}`, `${num(c.from)} → ${num(c.to)}`, Engine.fmtSigned(c.delta), c.pct != null ? Engine.fmtPct(c.pct) : "ingen procent"]);
+    const f = m.finding;
+    if (f?.ref && f.now) {
+      const label = { new_signal: "Mot nuvarande nivå", level_shift: "Mot nivån före förändringen", trend: "Trend senaste 60 dagarna", stable: "Nuvarande nivå", transient: "Mot normal nivå" }[f.type] || "Jämförelse";
+      rows.push([`${label}<span class="sub">${esc(m.baseline?.definition || "")}</span>`, `${Engine.fmtPeriod(f.ref.from, f.ref.to, year)} (${f.ref.n} avl.)`, `${num(f.ref.level)} → ${num(f.now.level)}`, Engine.fmtSigned(f.delta), f.pct != null ? Engine.fmtPct(f.pct) : "ingen procent"]);
+    }
+    if (f?.older) rows.push(["Äldre nivå", `${Engine.fmtPeriod(f.older.from, f.older.to, year)} (${f.older.n} avl.)`, num(f.older.level), "", ""]);
+    if (m.excel.E != null) rows.push(["P = E/F − 1 (senaste exportraden)", m.excel.exportDate ? D(m.excel.exportDate) : "", `F ${num(m.excel.F)} · E ${num(m.excel.E)} · G ${num(m.excel.G)}`, "", m.excel.P != null ? Engine.fmtPct(m.excel.P) : "beräknas inte"]);
+    if (m.season?.sameTimeLastYear) rows.push(["Samma tid i fjol", Engine.fmtPeriod(m.season.sameTimeLastYear.from, m.season.sameTimeLastYear.to, 0), num(m.season.sameTimeLastYear.level), "", ""]);
+    return rows.map((r) => `<tr><th scope="row">${r[0]}</th><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td>${esc(r[3])}</td><td>${esc(r[4])}</td></tr>`).join("");
+  }
+
+  function list(items) { return items.length ? `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : `<p class="muted">–</p>`; }
+
+  function detailHtml(m) {
+    const label = state.labels[m.id] || {};
+    const comment = label.comment ?? label.note ?? "";
+    return `<div class="detail">
+      <section>
+        <h4>Observation</h4>${list(m.observations)}
+        <h4>Möjlig förklaring</h4>${list(m.explanations)}
+        <h4>Rekommenderad åtgärd</h4><p>${esc(m.action)}</p>
+      </section>
+      <section>
+        <h4>Jämförelser</h4>
+        <table class="cmp"><thead><tr><th>Mått</th><th>Period</th><th>Värden</th><th>Skillnad</th><th>%</th></tr></thead><tbody>${comparisonRows(m)}</tbody></table>
+        <h4>Datakvalitet</h4>${list(m.dataQuality)}
+        ${m.missing.length ? `<h4>Vad saknas för säkrare slutsats</h4>${list(m.missing)}` : ""}
+        <h4>Prioritet ${m.priority} (rangordning, inte sannolikhet)</h4><p class="parts">${m.priorityParts.map((p) => `${esc(p.name)} ${p.points > 0 ? "+" : ""}${p.points}`).join(" · ")}</p>
+      </section>
+      <section>
+        <h4>Beslut</h4><p>${m.label ? esc(Engine.LABELS[m.label.type] || m.label.type) + (m.label.at ? ` · ${esc(String(m.label.at).slice(0, 10))}` : "") : "Inget manuellt beslut – automatisk bedömning."}</p>
+        <button type="button" class="secondary" data-act="menu">Flytta till…</button>
+        <label class="stack">Kommentar<textarea data-comment rows="3" placeholder="Följer med i arbetslistan och Excel">${esc(comment)}</textarea></label>
+        <div class="detail-actions"><button type="button" class="secondary" data-act="chart">Stor graf</button><button type="button" class="secondary" data-act="worklist">Lägg i arbetslista</button></div>
+      </section>
+    </div>`;
+  }
+
+  function renderTable() {
+    const start = (state.page - 1) * state.pageSize;
+    const page = state.visible.slice(start, start + state.pageSize);
+    if (!state.files.length) {
+      els.rows.innerHTML = `<tr><td colspan="7" class="empty">Importera Kamstrup-exporter för att starta.</td></tr>`;
+    } else if (!page.length) {
+      els.rows.innerHTML = `<tr><td colspan="7" class="empty">Inga mätare i ${esc(LIST[state.list].label)} med nuvarande sökning och filter.</td></tr>`;
     } else {
-      value += char;
+      els.rows.innerHTML = page.map(rowHtml).join("");
     }
+    const onPage = page.filter((m) => state.marked.has(m.id)).length;
+    els.checkPage.checked = page.length > 0 && onPage === page.length;
+    els.checkPage.indeterminate = onPage > 0 && onPage < page.length;
+    document.querySelectorAll("[data-sort]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.sort === state.sort)));
   }
-  row.push(value);
-  if (row.some((cell) => cell !== "")) rows.push(row);
-  return rows;
-}
 
-function findHeaderIndex(rows) {
-  for (let i = 0; i < Math.min(rows.length, 60); i++) {
-    const cells = (rows[i] || []).map((value) => String(value || "").toLowerCase());
-    const hasAddress = cells.some((cell) => cell.includes("adress") || cell.includes("address"));
-    const hasValue = cells.some((cell) => cell.includes("senaste värde") || cell.includes("brus") || cell.includes("noise") || cell.includes("value"));
-    const hasSerial = cells.some((cell) => cell.includes("serie") || cell.includes("mätar") || cell.includes("meter"));
-    if ((hasAddress || hasSerial) && hasValue) return i;
+  function renderSelection() {
+    const total = state.visible.length;
+    const start = (state.page - 1) * state.pageSize;
+    const pageCount = Math.min(state.pageSize, Math.max(0, total - start));
+    const marked = state.marked.size;
+    const visibleIds = new Set(state.visible.map((m) => m.id));
+    const outside = [...state.marked].filter((id) => !visibleIds.has(id)).length;
+    const allMarked = total > 0 && state.visible.every((m) => state.marked.has(m.id));
+    els.selection.classList.toggle("has-marked", marked > 0);
+    els.selection.innerHTML = !state.files.length ? "" : `
+      <p><b>${marked ? `${marked.toLocaleString("sv-SE")} markerade` : "Inga markerade"}</b>${outside ? ` <span class="muted">(${outside} syns inte i nuvarande lista/filter)</span>` : ""}</p>
+      <div class="sel-actions">
+        <button type="button" class="secondary" data-sel="page" ${pageCount ? "" : "disabled"}>Markera sidan (${pageCount})</button>
+        <button type="button" class="secondary" data-sel="all" ${total && !allMarked ? "" : "disabled"}>Markera alla ${total.toLocaleString("sv-SE")} träffar</button>
+        ${marked ? `
+        <button type="button" class="secondary" data-sel="move">Flytta till…</button>
+        <button type="button" class="secondary" data-sel="worklist">Lägg i arbetslista (${marked})</button>
+        <button type="button" class="primary" data-sel="excel">Excel (${marked})</button>
+        <button type="button" class="secondary" data-sel="hide">${state.list === "hidden" ? "Visa igen" : "Göm"} (${marked})</button>
+        <button type="button" class="link" data-sel="clear">Avmarkera</button>` : ""}
+      </div>`;
   }
-  return -1;
-}
 
-function findColumn(header, names) {
-  for (const name of names) {
-    const exact = header.findIndex(cell => cell === name);
-    if (exact >= 0) return exact;
+  function renderPager(pages) {
+    const total = state.visible.length;
+    const start = total ? (state.page - 1) * state.pageSize + 1 : 0;
+    const end = Math.min(total, state.page * state.pageSize);
+    els.pageInfo.textContent = total ? `Visar ${start.toLocaleString("sv-SE")}–${end.toLocaleString("sv-SE")} av ${total.toLocaleString("sv-SE")} träffar · sida ${state.page}/${pages}` : "Inga träffar";
+    els.prev.disabled = state.page <= 1;
+    els.next.disabled = state.page >= pages;
   }
-  for (const name of names) {
-    const match = header.findIndex(cell => cell.includes(name));
-    if (match >= 0) return match;
+
+  // ---------------- focus: chart + map ----------------
+  let mapView = null;
+  let lastMapKey = "";
+  function ensureMap() {
+    if (mapView || !window.LeakMap) return mapView;
+    mapView = LeakMap.create({
+      element: els.map, statusElement: els.mapStatus,
+      onFocus: (id) => setFocus(id, { scroll: false }),
+      onMarkMany: (ids) => { ids.forEach((id) => state.marked.add(id)); render(); },
+      label: (m) => shortAddress(m),
+    });
+    return mapView;
   }
-  return -1;
-}
-
-function findExportDate(rows) {
-  for (let r = 0; r < Math.min(rows.length, 6); r++) {
-    for (const cell of rows[r] || []) {
-      const date = parseDate(cell);
-      if (date) return date;
-    }
-  }
-  return null;
-}
-
-function parseDate(value) {
-  if (!value) return null;
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
-  if (typeof value === "number" && Number.isFinite(value) && value > 0 && value < 100000) {
-    const wholeDays = Math.floor(value);
-    const fraction = value - wholeDays;
-    const date = new Date(1899, 11, 30);
-    date.setDate(date.getDate() + wholeDays);
-    date.setSeconds(Math.round(fraction * 86400));
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-  const text = String(value).trim();
-  const iso = text.match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
-  if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3], +(iso[4] || 0), +(iso[5] || 0));
-  const swedish = text.match(/(?:^|\D)(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:[ T](\d{1,2}):(\d{2}))?(?:\D|$)/);
-  if (swedish) return new Date(+swedish[3], +swedish[2] - 1, +swedish[1], +(swedish[4] || 0), +(swedish[5] || 0));
-  return null;
-}
-
-function dateFromFile(file) {
-  const match = file.name.match(/(\d{4})-(\d{2})-(\d{2})(?:[ _-](\d{2})-(\d{2}))?/);
-  if (match) return new Date(+match[1], +match[2] - 1, +match[3], +(match[4] || 0), +(match[5] || 0));
-  return new Date(file.lastModified || Date.now());
-}
-
-function analyze() {
-  const byId = new Map();
-  for (const file of [...state.files].sort((a, b) => new Date(a.exportDate) - new Date(b.exportDate))) {
-    for (const row of file.rows) {
-      if (!byId.has(row.id)) {
-        byId.set(row.id, {
-          id: row.id,
-          serial: row.serial,
-          address: row.address,
-          area: row.area,
-          info: row.info,
-          points: [],
-        });
+  function renderFocus() {
+    const m = state.byId.get(state.focusId);
+    const showMap = state.view === "map" || m;
+    els.focus.hidden = !state.files.length || !showMap;
+    els.focus.classList.toggle("no-meter", !m);
+    if (els.focus.hidden) return;
+    if (m) {
+      els.focusTitle.textContent = m.address;
+      els.focusMeta.textContent = ` · ${m.serial || m.id} · ${m.status} · prioritet ${m.priority}`;
+      if (els.focusChart.__chart?.id !== m.id || els.focusChart.__version !== m) {
+        Chart.render(els.focusChart, m, { compact: true, onEnlarge: openChart });
+        els.focusChart.__version = m;
       }
-      const meter = byId.get(row.id);
-      meter.address = row.address || meter.address;
-      meter.area = row.area || meter.area;
-      meter.info = row.info;
-      meter.infoCode = row.infoCode;
-      meter.activeEvents = row.activeEvents;
-      meter.points.push({
-        date: row.exportDate,
-        readAt: row.readAt,
-        readAtUnknown: row.readAtUnknown,
-        current: row.current,
-        average: row.average,
-        max: row.max,
-        info: row.info,
-        infoCode: row.infoCode,
-        activeEvents: row.activeEvents,
-        source: row.source,
-      });
+    } else {
+      els.focusTitle.textContent = `Karta · ${LIST[state.list].label}`;
+      els.focusMeta.textContent = ` · ${state.visible.length.toLocaleString("sv-SE")} mätare i listan`;
     }
+    const view = ensureMap();
+    if (!view) return;
+    const mode = m ? "focus" : "overview";
+    const meters = m ? [...new Set([m, ...[...state.marked].map((id) => state.byId.get(id)).filter(Boolean)])] : state.visible.slice(0, 600);
+    const key = `${mode}|${state.focusId}|${[...state.marked].join(",")}|${meters.length}|${state.list}|${state.search}|${state.area}|${meters[0]?.id}`;
+    if (key === lastMapKey) return;
+    lastMapKey = key;
+    requestAnimationFrame(() => { view.invalidate(); view.update({ meters, focusId: state.focusId, marked: state.marked, mode }); });
   }
 
-  const meters = [...byId.values()].map((meter) => {
-    meter.points = dedupePoints(meter.points);
-    return meter;
-  });
-  const sharedContexts = detectSharedSignals(meters);
-  state.meters = meters.map((meter) => scoreMeter(meter, sharedContexts.get(meter.id)));
-  for (const step of window.LeakAnalysisSteps || []) step();
-  const weights = { dispatch:9000, confirmed:8500, customer_side:7000, suspect_auto:6000, watch:5900, learning:3000, normal:2000, seasonal:1200, noise:1100, repaired:500, ignored:0 };
-  for (const meter of state.meters) meter.enginePriority = (weights[meter.category] || 0) + meter.risk * 10 + Math.min(meter.engine?.persistenceDays || 0, 180);
-  render();
-}
-
-function dedupePoints(points) {
-  const byKey = new Map();
-  for (const point of [...points].sort((a,b) => a.date-b.date)) {
-    // Preserve distinct readings even when several exports share a calendar day.
-    const key = point.readAt ? new Date(point.readAt).getTime() : new Date(point.date).getTime();
-    byKey.set(key, point);
-  }
-  return [...byKey.values()].sort((a,b) => a.date-b.date);
-}
-
-function scoreMeter(meter, networkContext = null) {
-  const points = meter.points;
-  const values = points.map((p) => p.current);
-  const last = points[points.length - 1];
-  const prev = points[points.length - 2] || null;
-  const first = points[0];
-  const pDeviation = last.average > 0 ? (last.current / last.average) - 1 : null;
-  const firstChange = first.current > 0 ? (last.current / first.current) - 1 : null;
-  const lastJump = prev && prev.current > 0 ? (last.current / prev.current) - 1 : null;
-  const maxSeen = Math.max(...points.map((p) => p.max || p.current));
-  const label = state.labels[meter.id]?.type ? state.labels[meter.id] : null;
-  const infrastructure = infrastructureProfile(meter);
-  const profile = patternProfile(points, infrastructure);
-  const newMeter = profile.coverage.points <= 1 || profile.coverage.days <= 1;
-  const lowRelativeRise = LeakIntelligence.detectLowRelativeRise(readingTimeline(points).points.map(p => ({ ...p, date: p.readingDate })));
-  const freshAnomaly = Boolean(
-    profile.newLevel
-    || lowRelativeRise?.persistent
-    || (last.current >= 30 && lastJump >= 0.6)
-    || (last.current >= 50 && pDeviation >= 0.5)
-  );
-
-  let risk = 8;
-  const reasons = [];
-  let category = "normal";
-
-  if (/burst|rörbrott/i.test(meter.info)) {
-    risk += 70; reasons.push("Infokod/rörbrott");
-  }
-  if (/leak|läcka/i.test(meter.info)) {
-    risk += infrastructure.customerSide ? 24 : 40;
-    reasons.push(infrastructure.customerSide ? "LEAK i Excel: troligen kundsida efter mätaren" : "Infokod LEAK");
-  }
-  if (/dry|torr/i.test(meter.info)) {
-    risk -= infrastructure.summerWaterMeter ? 22 : 10;
-    reasons.push(infrastructure.summerWaterMeter ? "DRY/torr: trolig avstängd sommarvattenmätare" : "DRY/torr i Excel - kontrollera driftstatus innan läcksök");
+  // Selecting a meter only updates the focus panel; the table is not rebuilt.
+  function setFocus(id, { scroll = true } = {}) {
+    state.focusId = id;
+    els.rows.querySelectorAll("tr.row").forEach((tr) => tr.classList.toggle("is-focus", tr.dataset.id === id));
+    renderFocus();
+    if (scroll && window.matchMedia("(max-width: 760px)").matches) els.focus.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  if (last.current >= 80) { risk += 34; reasons.push(`Mycket högt senaste E=${round(last.current)}`); }
-  else if (last.current >= 50) { risk += 22; reasons.push(`Högt senaste E=${round(last.current)}`); }
-  else if (last.current >= 30) { risk += 10; reasons.push(`Förhöjt senaste E=${round(last.current)}`); }
-
-  if (maxSeen >= 90) { risk += 12; reasons.push(`Högt historiskt max G=${round(maxSeen)}`); }
-  if (pDeviation >= 4) { risk += 18; reasons.push(`P ${(pDeviation * 100).toFixed(0)}% mot genomsnitt`); }
-  else if (pDeviation >= 1) { risk += 8; reasons.push(`P ${(pDeviation * 100).toFixed(0)}% mot genomsnitt`); }
-
-  if (lastJump >= 0.6) { risk += 22; reasons.push(`Senaste hopp ${(lastJump * 100).toFixed(0)}%`); }
-  else if (lastJump >= 0.25) { risk += 10; reasons.push(`Senaste ökning ${(lastJump * 100).toFixed(0)}%`); }
-
-  if (lowRelativeRise) {
-    risk += lowRelativeRise.persistent ? 20 : 10;
-    const persistence = lowRelativeRise.persistent
-      ? `har hållit ${lowRelativeRise.persistenceDays} dagar över ${lowRelativeRise.elevatedReadings} avläsningar`
-      : "ny signal - behöver fler dagar";
-    reasons.push(`Låg nivå men stor relativ ökning: ${round(lowRelativeRise.from)} → ${round(lowRelativeRise.to)} (${(lowRelativeRise.change * 100).toFixed(0)}%), ${persistence}`);
+  function openChart(id) {
+    const m = state.byId.get(id);
+    if (!m) return;
+    $("chartDialogTitle").textContent = m.address;
+    $("chartDialogMeta").textContent = `${m.serial || m.id} · ${m.status} · prioritet ${m.priority} (rangordning) · ${m.summary}`;
+    $("chartDialogDetail").innerHTML = detailHtml(m);
+    $("chartDialogDetail").dataset.id = m.id;
+    if (!els.chartDialog.open) els.chartDialog.showModal();
+    requestAnimationFrame(() => Chart.render($("chartDialogChart"), m, { compact: false }));
   }
 
-  if (profile.newLevel) { risk += 26; reasons.push(`Ny nivå från ${profile.newLevel.date}`); }
-  if (profile.slowRise) { risk += 14; reasons.push("Långsam stigande kurva"); }
-  if (profile.repeatedPattern) {
-    risk -= profile.heatingSeason?.cycles >= 2 ? 34 : 25;
-    reasons.push(profile.heatingSeason
-      ? `Värmepannemönster: upp höst, ner vår (${profile.heatingSeason.cycles} årscykler)`
-      : "Återkommande årsmönster");
-  }
-  if (profile.fluctuating) { risk -= 12; reasons.push("Fladdrig/pump-lik kurva"); }
-  if (profile.repairedDrop) { risk -= 40; reasons.push("Har fallit tillbaka efter hög nivå"); }
-
-  if (infrastructure.districtHeating) {
-    const penalty = freshAnomaly ? 6 : 18;
-    risk -= penalty;
-    reasons.push("Fjärrvärmeområde/känd störkälla - kräver starkare kurvbevis");
-  }
-  if (infrastructure.largeSubstation) {
-    const penalty = freshAnomaly ? 4 : 14;
-    risk -= penalty;
-    reasons.push("Höghus/större undercentral - kräver annan kontroll på plats");
-  }
-  if (infrastructure.summerWaterMeter && !freshAnomaly) {
-    risk -= 18;
-    reasons.push("Sommarvatten/off-season - ska inte läckprioriteras utan ny stark nivå");
-  }
-  if (networkContext?.sharedSignal) {
-    if (freshAnomaly) risk += 6;
-    reasons.push(`Samma kurvrörelse på ${networkContext.meterCount} mätare vid ${networkContext.place} - möjlig gemensam servis före mätarna`);
-  }
-
-  if (newMeter) {
-    risk -= 10;
-    reasons.push(`Ny mätare: ${profile.coverage.points} avläsning`);
-  }
-  if (profile.coverage.seasons < 2) {
-    reasons.push("Har inte sett tillräckligt många säsonger");
-  }
-
-  if (label) {
-    reasons.unshift(`Facit: ${labelTypes[label.type] || label.type}`);
-    if (label.type === "leak") risk += 24;
-    if (label.type === "repaired") risk += freshAnomaly ? -20 : -45;
-    if (["seasonal", "known_noise", "pump", "false_alarm"].includes(label.type)) risk -= freshAnomaly ? 8 : 35;
-    if (freshAnomaly && label.type !== "leak") reasons.push("Ny ihållande avvikelse trots tidigare facit");
-  }
-
-  risk = clamp(Math.round(risk), 0, 100);
-  const repairAge = label?.repairedDate
-    ? Math.floor((last.date - new Date(`${label.repairedDate}T23:59:59`)) / (24 * 60 * 60 * 1000))
-    : 0;
-  if (label?.type === "leak") category = "dispatch";
-  else if ((label?.type === "repaired" && (!freshAnomaly || repairAge < 7)) || profile.repairedDrop) category = "repaired";
-  else if ((label?.type === "seasonal" && !freshAnomaly) || (profile.repeatedPattern && !freshAnomaly)) category = "seasonal";
-  else if ((["known_noise", "pump", "false_alarm"].includes(label?.type) && !freshAnomaly) || ((profile.fluctuating || infrastructure.districtHeating || infrastructure.largeSubstation || infrastructure.summerWaterMeter) && !freshAnomaly)) category = "noise";
-  else if (newMeter && risk >= 58 && !infrastructure.customerSide) category = "dispatch";
-  else if (newMeter) category = "learning";
-  else if (lowRelativeRise && last.current < 15 && !profile.slowRise && !/burst|rörbrott|leak|läcka/i.test(meter.info)) category = "watch";
-  else if (risk >= 58 && !infrastructure.customerSide) category = "dispatch";
-  else if (infrastructure.customerSide && risk >= 38) category = "watch";
-  else if (networkContext?.sharedSignal && freshAnomaly) category = "watch";
-  else if (risk >= 38 || lowRelativeRise) category = "watch";
-  else category = "normal";
-
-  const confidence = confidenceFor(points, profile);
-  return { ...meter, last, prev, first, pDeviation, firstChange, lastJump, lowRelativeRise, maxSeen, profile, infrastructure, networkContext, risk, reasons, category, confidence, label };
-}
-
-function detectSharedSignals(meters) {
-  const groups = new Map();
-  const result = new Map();
-  for (const meter of meters) {
-    const key = addressClusterKey(meter.address);
-    if (!key) continue;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(meter);
-  }
-  for (const [place, group] of groups) {
-    if (group.length < 2) continue;
-    for (const meter of group) {
-      const matching = group.filter((peer) => peer.id !== meter.id && curveCorrelation(meter.points, peer.points) >= 0.65);
-      if (!matching.length) continue;
-      result.set(meter.id, {
-        sharedSignal: true,
-        meterCount: matching.length + 1,
-        place,
-      });
+  // ---------------- decisions ----------------
+  let undo = null;
+  function applyDecision(ids, type, fields = {}, comment) {
+    const before = Object.fromEntries(ids.map((id) => [id, state.labels[id] ? structuredClone(state.labels[id]) : null]));
+    const now = new Date().toISOString();
+    for (const id of ids) {
+      const m = state.byId.get(id);
+      const existing = { ...(state.labels[id] || {}) };
+      // Keep the replaced decision with its details; undo covers immediate mistakes.
+      if (existing.type) existing.previous = Object.fromEntries(["type", "at", "source", ...DECISION_FIELDS].filter((k) => existing[k] !== undefined).map((k) => [k, existing[k]]));
+      for (const key of DECISION_FIELDS) delete existing[key];
+      const next = type === "auto"
+        ? (() => { delete existing.type; delete existing.at; delete existing.source; return existing; })()
+        : { ...existing, ...fields, type, at: now, source: "fältbeslut", address: m?.address || existing.address, serial: m?.serial || existing.serial };
+      if (type !== "auto" && !next.notedDate && !["leak", "repaired"].includes(type)) next.notedDate = today();
+      if (comment !== undefined) { next.comment = comment; next.commentAt = now; }
+      state.labels[id] = next;
     }
+    undo = before;
+    persist();
+    reanalyze();
+    const label = type === "auto" ? "automatisk bedömning" : Engine.LABELS[type] || type;
+    toast(`${ids.length} mätare → ${label}.`, true);
   }
-  return result;
-}
 
-function addressClusterKey(address) {
-  const cleaned = cleanText(address).toUpperCase().replace(/\b\d{5}\b/g, "").replace(/\s+/g, " ").trim();
-  const match = cleaned.match(/^(.+?\b\d+)\b/);
-  return match?.[1] || null;
-}
-
-function curveCorrelation(firstPoints, secondPoints) {
-  const secondByDate = new Map(readingTimeline(secondPoints).points.map(point => [localDate(point.readingDate), point.current]));
-  const pairs = readingTimeline(firstPoints).points
-    .map((point) => [point.current, secondByDate.get(localDate(point.readingDate))])
-    .filter((pair) => Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
-  if (pairs.length < 5) return 0;
-  const first = pairs.map((pair) => pair[0]);
-  const second = pairs.map((pair) => pair[1]);
-  const firstMean = avg(first);
-  const secondMean = avg(second);
-  const numerator = first.reduce((sum, value, index) => sum + (value - firstMean) * (second[index] - secondMean), 0);
-  const denominator = Math.sqrt(
-    first.reduce((sum, value) => sum + (value - firstMean) ** 2, 0)
-    * second.reduce((sum, value) => sum + (value - secondMean) ** 2, 0)
-  );
-  return denominator ? numerator / denominator : 0;
-}
-
-function infrastructureProfile(meter) {
-  const text = `${meter.address || ""} ${meter.area || ""} ${meter.info || ""}`.toUpperCase();
-  const districtHeating = [
-    "ADLER SALVIUS VÄG",
-    "BLOCKVÄGEN",
-  ].some((name) => text.includes(name));
-  const largeSubstation = (
-    text.includes("NORSBORG")
-    && ["BALDERS VÄG", "LOKES VÄG", "ODENS VÄG", "TORS VÄG", "THORS VÄG"].some((name) => text.includes(name))
-  );
-  const customerSide = /LÄCKA\s+EFTER|KUNDSIDA|KUNDENS\s+SIDA|EFTER\s+MÄTAR(?:E|EN)|CUSTOMER(?:\s+SIDE)?|AFTER\s+(?:THE\s+)?METER/i.test(meter.info || "");
-  const summerWaterMeter = /SOMMARVATTEN|SOMMAR\s*VATTEN|\bDRY\b|TORR/i.test(meter.info || "");
-  return { districtHeating, largeSubstation, customerSide, summerWaterMeter };
-}
-
-function patternProfile(points, infrastructure = {}) {
-  const observed = readingTimeline(points).points;
-  const signalPoints = observed.length
-    ? observed.map((point) => ({ ...point, date: point.readingDate }))
-    : points;
-  const values = signalPoints.map((p) => p.current);
-  const mean = avg(values);
-  const cv = mean ? stdev(values) / mean : 0;
-  const months = new Map();
-  for (const p of signalPoints) {
-    const month = p.date.getMonth();
-    if (!months.has(month)) months.set(month, []);
-    months.get(month).push(p.current);
+  function setHidden(ids, value) {
+    const before = Object.fromEntries(ids.map((id) => [id, state.labels[id] ? structuredClone(state.labels[id]) : null]));
+    for (const id of ids) state.labels[id] = { ...(state.labels[id] || {}), hidden: value, visibilityUpdatedAt: new Date().toISOString() };
+    undo = before;
+    ids.forEach((id) => state.marked.delete(id));
+    persist();
+    render();
+    toast(value ? `${ids.length} mätare gömda. Beslut och historik finns kvar under Gömda.` : `${ids.length} mätare visas igen.`, true);
   }
-  const activeMonths = [...months.keys()];
-  const seasons = new Set(activeMonths.map((m) => {
-    if ([11, 0, 1].includes(m)) return "winter";
-    if ([2, 3, 4].includes(m)) return "spring";
-    if ([5, 6, 7].includes(m)) return "summer";
-    return "autumn";
-  })).size;
 
-  const warm = avgMonths(months, [4, 5, 6, 7, 8]);
-  const cold = avgMonths(months, [9, 10, 11, 0, 1, 2, 3]);
-  const summerWaterPattern = avgMonths(months, [3, 4, 5, 6, 7]) > avgMonths(months, [8, 9, 10, 11, 0, 1, 2]) * 1.45;
-  const summerWater = Boolean(infrastructure.summerWaterMeter && summerWaterPattern);
-  const heatingSeason = LeakIntelligence.detectHeatingSeason(signalPoints);
-  const heating = Boolean(heatingSeason || (cold > warm * 1.45 && cold > 12));
-  const annualRepeat = LeakIntelligence.detectAnnualRepeat(signalPoints);
-  const repeatedHeating = Boolean(heatingSeason?.cycles >= 2);
-  const repeatedPattern = Boolean(
-    repeatedHeating
-    || (annualRepeat && (heating || summerWater) && Math.max(...values) < 160)
-  );
-  const fluctuating = signalPoints.length >= 5 && cv > 0.55 && !isLastPartElevated(values);
-  const newLevel = detectNewLevel(signalPoints);
-  const repairedDrop = detectRepairedDrop(values);
-  const slowRise = detectSlowRise(values);
-  return {
-    mean,
-    cv,
-    heating,
-    heatingSeason,
-    summerWater,
-    summerWaterPattern,
-    annualRepeat,
-    repeatedPattern,
-    fluctuating,
-    newLevel,
-    repairedDrop,
-    slowRise,
-    coverage: {
-      points: signalPoints.length,
-      seasons,
-      months: activeMonths.length,
-      years: new Set(signalPoints.map((point) => point.date.getFullYear())).size,
-      days: Math.max(0, Math.round((signalPoints[signalPoints.length - 1].date - signalPoints[0].date) / (24 * 60 * 60 * 1000))),
-    },
-  };
-}
+  function setComment(id, text) {
+    state.labels[id] = { ...(state.labels[id] || {}), comment: text, commentAt: new Date().toISOString() };
+    persist();
+  }
 
-function detectNewLevel(points) {
-  if (points.length < 4) return null;
-  const values = points.map((p) => p.current);
-  let best = null;
-  for (let split = 2; split <= values.length - 2; split++) {
-    const before = values.slice(0, split);
-    const after = values.slice(split);
-    const beforeAvg = avg(before);
-    const afterAvg = avg(after);
-    if (beforeAvg <= 0) continue;
-    const ratio = afterAvg / beforeAvg;
-    const afterStillHigh = avg(after.slice(-Math.min(3, after.length))) >= beforeAvg * 1.7;
-    const beforeStable = before.every((v) => v <= Math.max(beforeAvg * 1.7, beforeAvg + 8));
-    const meaningfulLevel = afterAvg >= 15 || (beforeAvg <= 12 && afterAvg >= 8 && ratio >= 2.5);
-    if (ratio >= 2.3 && meaningfulLevel && afterStillHigh && beforeStable) {
-      const candidate = { split, ratio, date: localDate(points[split].date) };
-      if (!best || candidate.ratio > best.ratio) best = candidate;
+  function openDecision(ids, type) {
+    const meters = ids.map((id) => state.byId.get(id)).filter(Boolean);
+    if (!meters.length) return;
+    const first = meters[0];
+    const existing = state.labels[first.id] || {};
+    const mark = window.LeakMap?.markFor(first.id);
+    els.decisionForm.dataset.ids = JSON.stringify(ids);
+    els.decisionForm.dataset.type = type;
+    els.decisionTarget.textContent = meters.length > 1 ? `${meters.length} markerade mätare – samma uppgifter sparas på alla` : first.address;
+    els.decisionComment.value = existing.comment ?? existing.note ?? "";
+    els.decisionError.textContent = "";
+    if (type === "leak") {
+      els.decisionTitle.textContent = "Konstaterad läcka";
+      els.decisionFields.innerHTML = `
+        <label class="stack">Datum konstaterad<input type="date" name="confirmedDate" required value="${esc(existing.confirmedDate || today())}"></label>
+        <label class="check"><input type="checkbox" name="confirmedDateUncertain" ${existing.confirmedDateUncertain ? "checked" : ""}> Osäkert datum</label>
+        <fieldset class="inline"><legend>Ledning (valfritt)</legend>${["AV", "SV", "Vet ej"].map((v) => `<label><input type="radio" name="lineType" value="${v}" ${existing.lineType === v ? "checked" : ""}> ${v}</label>`).join("")}</fieldset>
+        <p class="hint">Reparationsuppgifter fylls i först när läckan är lagad.</p>`;
+    } else if (type === "repaired") {
+      els.decisionTitle.textContent = "Lagad";
+      const distance = existing.distanceMeters ?? mark?.distanceFromMeter ?? "";
+      els.decisionFields.innerHTML = `
+        <label class="stack">Reparationsdatum<input type="date" name="repairedDate" required value="${esc(existing.repairedDate || today())}"></label>
+        <fieldset class="inline"><legend>Ledning</legend>${["AV", "SV"].map((v) => `<label><input type="radio" name="lineType" value="${v}" ${existing.lineType === v ? "checked" : ""}> ${v}</label>`).join("")}</fieldset>
+        <label class="stack">Ungefärligt avstånd från mätaren (m)<input type="number" name="distanceMeters" min="0" step="1" inputmode="numeric" value="${esc(distance)}" placeholder="t.ex. 55"></label>
+        <label class="check"><input type="checkbox" name="distanceUncertain" ${existing.distanceUncertain || (mark?.distanceFromMeter != null && existing.distanceMeters == null) ? "checked" : ""}> Avstånd osäkert${mark?.distanceFromMeter != null ? " (förifyllt från kartans läckpunkt, fågelväg)" : ""}</label>`;
+    } else if (type === "reset_baseline") {
+      const now = new Date();
+      els.decisionTitle.textContent = "Nollställ";
+      els.decisionFields.innerHTML = `<p>Från och med <b>${esc(Engine.fmtDate(now, true))} kl. ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}</b> bedöms bara avläsningar som tas efter denna tidpunkt. Äldre historik finns kvar i grafen men påverkar inte bedömningen.</p><p class="hint">Minst två nya avläsningar behövs innan förändringar kan upptäckas.</p>`;
     }
+    els.decisionDialog.showModal();
   }
-  return best;
-}
 
-function detectRepairedDrop(values) {
-  if (values.length < 3) return false;
-  const max = Math.max(...values);
-  const last = values[values.length - 1];
-  const earlyQuiet = median(values) || 1;
-  return max >= Math.max(50, earlyQuiet * 3) && last <= Math.max(18, earlyQuiet * 1.4) && last <= max * 0.45;
-}
-
-function detectSlowRise(values) {
-  if (values.length < 5) return false;
-  const first = avg(values.slice(0, Math.ceil(values.length / 3)));
-  const last = avg(values.slice(-Math.ceil(values.length / 3)));
-  return last >= first * 2 && last >= 25 && values[values.length - 1] >= values[0];
-}
-
-function isLastPartElevated(values) {
-  if (values.length < 5) return false;
-  const first = avg(values.slice(0, Math.floor(values.length / 2)));
-  const last = avg(values.slice(Math.floor(values.length / 2)));
-  return last > first * 1.7;
-}
-
-function confidenceFor(points, profile) {
-  let score = 0;
-  if (points.length >= 12 && profile.coverage.days >= 90) score += 2;
-  else if (points.length >= 5 && profile.coverage.days >= 30) score += 1;
-  if (profile.coverage.seasons >= 3) score += 2;
-  else if (profile.coverage.seasons >= 2) score += 1;
-  if (profile.annualRepeat) score += 2;
-  if (profile.newLevel || profile.repairedDrop) score += 1;
-  if (score >= 4) return "hög";
-  if (score >= 2) return "medel";
-  return "låg";
-}
-
-function render() {
-  const q = els.search.value.trim().toLowerCase();
-  const filter = els.filter.value;
-  const sort = els.sort.value;
-  let rows = [...state.meters];
-  if (filter !== "all") rows = rows.filter((r) => {
-    if (filter === "learning") return ["learning", "new_high", "new_unknown"].includes(r.category);
-    return r.category === filter;
-  });
-  if (q) {
-    rows = rows.filter((r) => `${r.address} ${r.serial} ${r.area}`.toLowerCase().includes(q));
-  }
-  rows.sort((a, b) => sortValue(b, sort) - sortValue(a, sort));
-  renderSummary();
-  renderLabels();
-  renderRows(rows);
-}
-
-function sortValue(row, sort) {
-  if (sort === "p") return row.pDeviation || 0;
-  if (sort === "lastJump") return row.lastJump || 0;
-  if (sort === "current") return row.last.current || 0;
-  if (sort === "max") return row.maxSeen || 0;
-  if (sort === "confidence") return { låg: 1, medel: 2, hög: 3 }[row.confidence] || 0;
-  return row.risk || 0;
-}
-
-function renderSummary() {
-  const counts = {
-    files: state.files.length,
-    meters: state.meters.length,
-    dispatch: state.meters.filter((m) => m.category === "dispatch").length,
-    watch: state.meters.filter((m) => m.category === "watch").length,
-    seasonal: state.meters.filter((m) => ["seasonal", "noise", "repaired"].includes(m.category)).length,
-  };
-  els.summary.innerHTML = `
-    <div><b>${counts.files}</b><span>filer</span></div>
-    <div><b>${counts.meters}</b><span>mätare</span></div>
-    <div><b>${counts.dispatch}</b><span>åk ut</span></div>
-    <div><b>${counts.watch}</b><span>bevaka</span></div>
-    <div><b>${counts.seasonal}</b><span>säsong/känd</span></div>
-  `;
-}
-
-function renderLabels() {
-  const entries = Object.entries(state.labels).filter(([, label]) => label?.type);
-  if (!entries.length) {
-    els.labels.innerHTML = `<p class="small">Inga facit sparade ännu.</p>`;
-    return;
-  }
-  els.labels.innerHTML = entries.slice(-12).reverse().map(([id, label]) => `
-    <div class="label-item">
-      <b>${labelTypes[label.type] || label.type}</b>
-      <div class="small">${escapeHtml(label.address || id)}</div>
-      <div class="small">${escapeHtml(labelSummary(label))}</div>
-    </div>
-  `).join("");
-}
-
-function renderRows(rows) {
-  if (!rows.length) {
-    els.rows.innerHTML = `<tr><td colspan="7" class="empty">Ingen mätare matchar filtret.</td></tr>`;
-    return;
-  }
-  els.rows.innerHTML = rows.map((r) => `
-    <tr>
-      <td data-label="Beslut" class="decision-cell">
-        <span class="pill ${r.category}">${categoryText[r.category]}</span>
-        <div class="score">${r.risk}</div>
-        <div class="small">säkerhet: ${r.confidence}</div>
-      </td>
-      <td data-label="Adress" class="address-cell">
-        <div class="address-line"><b>${escapeHtml(r.address || "-")}</b>${customerSideMark(r)}<button class="copy-address secondary" title="Kopiera adress" onclick="copyAddress(${inlineArg(r.id)}, event)">Kopiera</button></div>
-        <div class="small">${escapeHtml(r.serial || r.id)} · ${escapeHtml(r.area || "ÖVRIGT")}</div>
-        ${tagLine(r)}
-      </td>
-      <td data-label="E/F/P" class="metrics-cell">
-        <b>E ${round(r.last.current)}</b> · F ${round(r.last.average)} · G ${round(r.maxSeen)}
-        <div class="small">P ${(r.pDeviation * 100).toFixed(0)}% · ${signedPct(r.lastJump)} senast</div>
-      </td>
-      <td data-label="Trend" class="trend-cell">
-        <b>${signedPct(r.lastJump)}</b> senast
-        <div class="small">${signedPct(r.firstChange)} från första filen</div>
-      </td>
-      <td data-label="Historik" class="history-cell">
-        <svg class="spark" viewBox="0 0 160 42" onclick="openDetail(${inlineArg(r.id)})">${sparkPath(r.points)}</svg>
-        <div class="small">${r.points.length} punkter · ${r.profile.coverage.days} dagar · ${r.profile.coverage.months} månader · ${r.profile.coverage.seasons} säsonger</div>
-      </td>
-      <td data-label="Varför" class="reason-cell">
-        <ul class="reasons">${r.reasons.slice(0, 5).map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
-      </td>
-      <td data-label="Facit" class="feedback-cell"><div class="feedback">${feedbackActions(r.id)}</div></td>
-    </tr>
-  `).join("");
-}
-
-function tagLine(row) {
-  const tags = [];
-  if (row.infrastructure?.districtHeating) tags.push("fjärrvärme");
-  if (row.infrastructure?.largeSubstation) tags.push("undercentral/höghus");
-  if (row.infrastructure?.summerWaterMeter) tags.push("sommarvatten");
-  if (row.networkContext?.sharedSignal) tags.push(`gemensam signal ${row.networkContext.meterCount} mätare`);
-  return tags.length ? `<div class="tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : "";
-}
-
-function customerSideMark(row) {
-  return row.infrastructure?.customerSide
-    ? `<span class="info-mark" title="Leak i Excel: läckage efter mätaren, på kundens sida" aria-label="Läckage efter mätaren">i</span>`
-    : "";
-}
-
-function feedbackActions(id) {
-  return Object.entries(feedbackButtons)
-    .map(([type, text]) => `<button class="secondary" onclick="labelMeter(${inlineArg(id)},'${type}')">${text}</button>`)
-    .join("");
-}
-
-function readingTimeline(points) {
-  if (!points.length) {
-    return { points: [], endDate: null, lastReadingDate: "-", gapDays: 0, hasGap: false };
-  }
-  const validDate = (value) => value instanceof Date && !Number.isNaN(value.getTime());
-  const exportDates = points.map((point) => point.date).filter(validDate);
-  const endDate = exportDates.length ? new Date(Math.max(...exportDates.map((date) => date.getTime()))) : new Date();
-  const byReadingDate = new Map();
-  for (const point of points) {
-    if (point.readAtUnknown) continue;
-    const readingDate = validDate(point.readAt) && point.readAt <= endDate ? point.readAt : point.date;
-    if (!validDate(readingDate)) continue;
-    const key = localDate(readingDate);
-    const existing = byReadingDate.get(key);
-    if (!existing || point.current < existing.current || (point.current === existing.current && point.date > existing.date)) {
-      byReadingDate.set(key, { ...point, readingDate });
+  els.decisionForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const ids = JSON.parse(els.decisionForm.dataset.ids || "[]");
+    const type = els.decisionForm.dataset.type;
+    const data = new FormData(els.decisionForm);
+    const fields = {};
+    if (type === "leak") {
+      fields.confirmedDate = data.get("confirmedDate");
+      if (!fields.confirmedDate) { els.decisionError.textContent = "Ange datum (markera Osäkert datum vid behov)."; return; }
+      fields.confirmedDateUncertain = data.get("confirmedDateUncertain") === "on";
+      if (data.get("lineType")) fields.lineType = data.get("lineType");
     }
-  }
-  const observed = [...byReadingDate.values()].sort((a, b) => a.readingDate - b.readingDate);
-  const last = observed[observed.length - 1];
-  const gapDays = last ? calendarDaysBetween(last.readingDate, endDate) : 0;
-  return {
-    points: observed,
-    endDate,
-    lastReadingDate: last ? localDate(last.readingDate) : "-",
-    gapDays,
-    hasGap: gapDays >= 14,
-  };
-}
-
-function sparkPath(points) {
-  const timeline = readingTimeline(points);
-  const observations = timeline.points.filter(p => p.current !== null && p.current !== "" && Number.isFinite(Number(p.current)) && p.current >= 0);
-  if (!observations.length) return "";
-  const start = observations[0].readingDate.getTime();
-  const end = Math.max(observations.at(-1).readingDate.getTime(), timeline.endDate.getTime());
-  const duration = Math.max(86400000, end - start);
-  const max = Math.max(10, ...observations.map(p => Number(p.current))) * 1.08;
-  const x = p => 4 + (p.readingDate.getTime() - start) / duration * 152;
-  const y = p => 38 - Number(p.current) / max * 34;
-  let gaps = "", line = "", dots = "";
-  observations.forEach((point, i) => {
-    const previous = observations[i - 1];
-    const gap = previous && point.readingDate - previous.readingDate > 14 * 86400000;
-    if (gap) gaps += `<rect x="${x(previous)}" y="4" width="${x(point)-x(previous)}" height="34" fill="#e9eef3"><title>Ingen avläsning i underlaget</title></rect>`;
-    line += `${!i || gap ? "M" : "L"}${x(point).toFixed(1)},${y(point).toFixed(1)} `;
-    if (!i || i === observations.length-1 || gap) dots += `<circle cx="${x(point)}" cy="${y(point)}" r="2" fill="#099cbd"/>`;
+    if (type === "repaired") {
+      fields.repairedDate = data.get("repairedDate");
+      if (!fields.repairedDate) { els.decisionError.textContent = "Ange reparationsdatum."; return; }
+      if (data.get("lineType")) fields.lineType = data.get("lineType");
+      const distance = Parse.parseNumber(data.get("distanceMeters"));
+      if (distance != null) fields.distanceMeters = distance;
+      fields.distanceUncertain = data.get("distanceUncertain") === "on";
+      const mark = window.LeakMap?.markFor(ids[0]);
+      if (mark?.leak) fields.mapMarks = { valve: mark.valve || null, leak: mark.leak };
+    }
+    if (type === "reset_baseline") fields.resetAfter = new Date().toISOString();
+    applyDecision(ids, type, fields, els.decisionComment.value.trim());
+    els.decisionDialog.close();
   });
-  const last = observations.at(-1);
-  if (timeline.gapDays >= 2) gaps += `<rect x="${x(last)}" y="4" width="${156-x(last)}" height="34" fill="#e9eef3"><title>Inga nya värden · ${timeline.gapDays} dagar</title></rect>`;
-  return `<line x1="4" y1="38" x2="156" y2="38" stroke="#d9e3eb"/>${gaps}<path d="${line}" fill="none" stroke="#099cbd" stroke-width="2" stroke-linejoin="round"/>${dots}`;
-}
 
-window.labelMeter = function labelMeter(id, type) {
-  const meter = state.meters.find((m) => m.id === id);
-  if (!meter) return;
-  const existing = state.labels[id] || {};
-  const today = localDate(new Date());
-  els.feedbackMeterId.value = id;
-  els.feedbackType.value = type;
-  els.feedbackTitle.textContent = feedbackButtons[type] || "Facit";
-  els.feedbackAddress.textContent = meter.address || id;
-  els.confirmedDateField.hidden = type === "repaired";
-  els.repairFields.hidden = type !== "repaired";
-  els.feedbackDateLabel.textContent = type === "leak" ? "Datum konstaterad" : "Datum noterat";
-  els.confirmedDate.value = existing.confirmedDate || existing.notedDate || today;
-  els.repairedDate.value = existing.repairedDate || today;
-  els.distanceMeters.value = existing.distanceMeters ?? "";
-  els.feedbackNote.value = existing.note || "";
-  document.querySelectorAll('input[name="lineType"]').forEach((input) => {
-    input.checked = input.value === existing.lineType;
+  function decide(ids, type) {
+    if (!ids.length) return;
+    const def = DECISIONS.find((d) => d.type === type);
+    if (def?.form) openDecision(ids, type);
+    else applyDecision(ids, type);
+  }
+
+  // ---------------- context menu (one place for "Flytta till") ----------------
+  let menuIds = [];
+  function openMenu(ids, x, y, anchor) {
+    menuIds = ids;
+    const single = ids.length === 1 ? state.byId.get(ids[0]) : null;
+    const hasManual = ids.some((id) => state.labels[id]?.type);
+    const isHidden = ids.every((id) => state.labels[id]?.hidden);
+    els.menu.innerHTML = `
+      <p class="menu-title">${single ? esc(shortAddress(single)) : `${ids.length} markerade mätare`}</p>
+      ${single ? `<button type="button" role="menuitem" data-menu="focus">Visa graf och karta</button><button type="button" role="menuitem" data-menu="navigate">Kör hit</button><button type="button" role="menuitem" data-menu="copy">Kopiera adress</button>` : ""}
+      <button type="button" role="menuitem" data-menu="worklist">Lägg i arbetslista</button>
+      <p class="menu-sub">Flytta till</p>
+      ${DECISIONS.map((d) => `<button type="button" role="menuitem" data-decision="${d.type}">${esc(d.label)}</button>`).join("")}
+      ${hasManual ? `<button type="button" role="menuitem" data-decision="auto">Ta bort manuellt beslut</button>` : ""}
+      <p class="menu-sub">Synlighet</p>
+      <button type="button" role="menuitem" data-menu="${isHidden ? "unhide" : "hide"}">${isHidden ? "Visa igen" : "Göm"}</button>`;
+    els.menu.hidden = false;
+    const w = els.menu.offsetWidth, h = els.menu.offsetHeight;
+    if (anchor) { const r = anchor.getBoundingClientRect(); x = r.right - w; y = r.bottom + 4; }
+    els.menu.style.left = `${Math.max(8, Math.min(x, innerWidth - w - 8))}px`;
+    els.menu.style.top = `${Math.max(8, Math.min(y, innerHeight - h - 8))}px`;
+    els.menu.querySelector("button")?.focus();
+  }
+  function closeMenu() { els.menu.hidden = true; menuIds = []; }
+  els.menu.addEventListener("click", (event) => {
+    const b = event.target.closest("button");
+    if (!b) return;
+    const ids = menuIds;
+    closeMenu();
+    if (b.dataset.decision) decide(ids, b.dataset.decision);
+    const act = b.dataset.menu;
+    if (act === "focus") setFocus(ids[0]);
+    if (act === "navigate") window.open(LeakMap.navigationUrl(state.byId.get(ids[0])), "_blank", "noopener,noreferrer");
+    if (act === "worklist") addToWorklist(ids);
+    if (act === "copy") copyAddress(state.byId.get(ids[0]));
+    if (act === "hide") setHidden(ids, true);
+    if (act === "unhide") setHidden(ids, false);
   });
-  els.feedbackDialog.showModal();
-};
-
-function saveFeedback(event) {
-  event.preventDefault();
-  const id = els.feedbackMeterId.value;
-  const type = els.feedbackType.value;
-  const meter = state.meters.find((item) => item.id === id);
-  const existing = state.labels[id] || {};
-  const lineType = document.querySelector('input[name="lineType"]:checked')?.value || "";
-  const next = {
-    ...existing,
-    type,
-    address: meter?.address || existing.address,
-    serial: meter?.serial || existing.serial,
-    note: els.feedbackNote.value.trim(),
-    at: new Date().toISOString(),
-    source: "fältfacit",
-  };
-  if (type === "leak") next.confirmedDate = els.confirmedDate.value || localDate(new Date());
-  else if (type === "repaired") {
-    next.repairedDate = els.repairedDate.value || localDate(new Date());
-    next.distanceMeters = parseNumber(els.distanceMeters.value);
-    next.lineType = lineType;
-  } else {
-    next.notedDate = els.confirmedDate.value || localDate(new Date());
-  }
-  state.labels[id] = next;
-  saveLabels();
-  els.feedbackDialog.close();
-  analyze();
-}
-
-window.openDetail = function openDetail(id) {
-  const meter = state.meters.find((m) => m.id === id);
-  if (!meter) return;
-  const timeline = readingTimeline(meter.points);
-  const graphPoints = timeline.points;
-  const appendGap = (values) => timeline.hasGap ? [...values, null] : values;
-  const labels = graphPoints.map((point) => localDate(point.readingDate));
-  if (timeline.hasGap) labels.push(localDate(timeline.endDate));
-  const missingData = new Array(labels.length).fill(null);
-  if (timeline.hasGap && graphPoints.length) {
-    missingData[graphPoints.length - 1] = graphPoints[graphPoints.length - 1].current;
-    missingData[graphPoints.length] = graphPoints[graphPoints.length - 1].current;
-  }
-  els.detailTitle.textContent = meter.address || meter.id;
-  els.detailMeta.textContent = `${meter.serial || meter.id} · ${meter.area || "ÖVRIGT"} · risk ${meter.risk} · ${categoryText[meter.category]}`;
-  els.detailText.innerHTML = `
-    <div class="detail-actions">
-      <button class="secondary" onclick="copyAddress(${inlineArg(meter.id)}, event)">Kopiera adress</button>
-      ${feedbackActions(meter.id)}
-    </div>
-    <p><b>Motivering:</b> ${meter.reasons.map(escapeHtml).join(" · ")}</p>
-    <p><b>Mönster:</b> värme=${meter.profile.heating ? "ja" : "nej"}${meter.profile.heatingSeason ? ` (${meter.profile.heatingSeason.pattern}, ${meter.profile.heatingSeason.cycles} årscykler)` : ""}, årsupprepning=${meter.profile.annualRepeat ? `${meter.profile.annualRepeat.months} jämförda månader` : "nej"}, fladdrig=${meter.profile.fluctuating ? "ja" : "nej"}, ny nivå=${meter.profile.newLevel ? "ja" : "nej"}.</p>
-    <p><b>Miljö:</b> fjärrvärme=${meter.infrastructure.districtHeating ? "ja" : "nej"}, undercentral/höghus=${meter.infrastructure.largeSubstation ? "ja" : "nej"}, efter mätaren=${meter.infrastructure.customerSide ? "ja" : "nej"}, sommarvattenmätare=${meter.infrastructure.summerWaterMeter ? "ja" : "nej"}${meter.networkContext?.sharedSignal ? `, gemensam signal på ${meter.networkContext.meterCount} mätare` : ""}.</p>
-    ${meter.label ? `<p><b>Facit:</b> ${escapeHtml(labelTypes[meter.label.type] || meter.label.type)} · ${escapeHtml(labelSummary(meter.label))}</p>` : ""}
-  `;
-  const ctx = document.getElementById("detailChart");
-  if (state.chart) state.chart.destroy();
-  state.chart = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels,
-      datasets: [
-        { label: "Brus E", data: appendGap(graphPoints.map((point) => point.current)), borderColor: "#35e07d", backgroundColor: "rgba(53,224,125,.14)", fill: true, tension: .28, cubicInterpolationMode: "monotone" },
-        { label: "Trend", data: appendGap(rollingAverage(graphPoints.map((point) => point.current))), borderColor: "#ffd166", borderWidth: 2.4, pointRadius: 0, tension: .35 },
-        { label: "Genomsnitt F", data: appendGap(graphPoints.map((point) => point.average)), borderColor: "#5ab8ff", borderDash: [6, 5], tension: .24, hidden: true },
-        { label: "Max G", data: appendGap(graphPoints.map((point) => point.max)), borderColor: "#ff9d4d", borderDash: [3, 5], tension: .24, hidden: true },
-        { label: "Inga avläsningar", data: missingData, borderColor: "#8290a3", borderDash: [10, 7], borderWidth: 2.5, pointRadius: 0, fill: false, tension: 0 },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { intersect: false, mode: "index" },
-      plugins: {
-        legend: {
-          position: "top",
-          labels: { color: "#d7e0ec", boxWidth: 14, usePointStyle: true, padding: 12 },
-        },
-        subtitle: {
-          display: timeline.hasGap,
-          text: timeline.hasGap ? `Inga avläsningar ${timeline.lastReadingDate} – ${localDate(timeline.endDate)}` : "",
-          color: "#c7d0dc",
-          font: { weight: "700", size: 13 },
-          padding: { bottom: 12 },
-        },
-        tooltip: {
-          callbacks: {
-            afterBody(items) {
-              const point = graphPoints[items[0].dataIndex];
-              return point?.info ? `Info: ${point.info}` : "";
-            },
-          },
-        },
-      },
-      elements: {
-        line: { borderWidth: 3, borderCapStyle: "round", borderJoinStyle: "round" },
-        point: { radius: graphPoints.length > 40 ? 0 : 2.5, hoverRadius: 6, backgroundColor: "#0d1219", borderWidth: 2 },
-      },
-      scales: {
-        x: {
-          ticks: { color: "#9da8b6", maxRotation: 0, minRotation: 0, maxTicksLimit: window.innerWidth < 640 ? 5 : 10 },
-          grid: { color: "rgba(157,168,182,.08)" },
-        },
-        y: {
-          beginAtZero: true,
-          ticks: { color: "#9da8b6" },
-          grid: { color: "rgba(157,168,182,.12)" },
-        },
-      },
-    },
+  els.menu.addEventListener("keydown", (event) => {
+    const items = [...els.menu.querySelectorAll("button")];
+    const i = items.indexOf(document.activeElement);
+    if (event.key === "ArrowDown") { event.preventDefault(); items[(i + 1) % items.length].focus(); }
+    if (event.key === "ArrowUp") { event.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
   });
-  els.detailDialog.showModal();
-};
+  // Row actions apply to all marked meters when the row itself is marked.
+  const targetIds = (id) => (state.marked.has(id) ? [...state.marked] : [id]);
 
-window.copyAddress = async function copyAddress(id, event) {
-  event?.stopPropagation?.();
-  const meter = state.meters.find((item) => item.id === id);
-  if (!meter) return;
-  const text = addressForCopy(meter.address);
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const input = document.createElement("textarea");
-    input.value = text;
-    document.body.appendChild(input);
-    input.select();
-    document.execCommand("copy");
-    input.remove();
+  async function copyAddress(m) {
+    if (!m) return;
+    const text = shortAddress(m).replace(new RegExp(`\\s+(${Parse.DISTRICTS.flatMap(([, n]) => n).join("|")})\\s*$`, "i"), "").trim();
+    try { await navigator.clipboard.writeText(text); toast(`Kopierat: ${text}`); }
+    catch { toast(`Kunde inte kopiera automatiskt: ${text}`); }
   }
-  const button = event?.currentTarget;
-  if (button) {
-    const old = button.textContent;
-    button.textContent = "Kopierad";
-    setTimeout(() => { button.textContent = old; }, 1200);
+
+  // ---------------- toast ----------------
+  let toastTimer = 0;
+  function toast(text, withUndo = false) {
+    els.toast.innerHTML = `<span>${esc(text)}</span>${withUndo ? '<button type="button" class="link" data-undo>Ångra</button>' : ""}`;
+    els.toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { els.toast.hidden = true; }, withUndo ? 9000 : 5000);
   }
-};
-
-function resetAll() {
-  if (!confirm("Rensa importerade filer och sparade facit i denna webbläsare?")) return;
-  state.files = [];
-  state.meters = [];
-  state.labels = { ...knownCases };
-  localStorage.removeItem("leaksok-intelligence-labels");
-  if (state.profileId && window.LeakStorage) window.LeakStorage.clear(state.profileId).catch(() => {});
-  render();
-}
-
-function exportLabels() {
-  const blob = new Blob([JSON.stringify(state.labels, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `leaksok-facit-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function labelSummary(label) {
-  const parts = [];
-  if (label.confirmedDate) parts.push(`konstaterad ${label.confirmedDate}`);
-  if (label.repairedDate) parts.push(`lagad ${label.repairedDate}`);
-  if (Number.isFinite(label.distanceMeters)) parts.push(`ca ${label.distanceMeters} m från mätaren`);
-  if (label.lineType) parts.push(label.lineType);
-  if (label.notedDate) parts.push(label.notedDate);
-  if (label.note) parts.push(label.note);
-  return parts.join(" · ");
-}
-
-function addressForCopy(address) {
-  const text = cleanText(address).replace(/\s+/g, " ");
-  const withoutPostcode = text.replace(/\s+\d{5}\s*$/, "");
-  const areas = ["ALBY", "FITTJA", "TULLINGE", "NORSBORG", "TUMBA", "GRÖDINGE", "UTTRAN"];
-  return withoutPostcode.replace(new RegExp(`\\s+(${areas.join("|")})\\s*$`, "i"), "").trim();
-}
-
-function rollingAverage(values) {
-  const size = values.length >= 30 ? 7 : values.length >= 10 ? 5 : 3;
-  return values.map((_, index) => {
-    const from = Math.max(0, index - size + 1);
-    return avg(values.slice(from, index + 1));
+  els.toast.addEventListener("click", (event) => {
+    if (!event.target.closest("[data-undo]") || !undo) return;
+    for (const [id, label] of Object.entries(undo)) { if (label) state.labels[id] = label; else delete state.labels[id]; }
+    undo = null;
+    persist();
+    reanalyze();
+    toast("Ändringen ångrades.");
   });
-}
 
-function localDate(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function calendarDaysBetween(from, to) {
-  if (!(from instanceof Date) || !(to instanceof Date) || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return 0;
-  const fromDay = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
-  const toDay = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
-  return Math.max(0, Math.round((toDay - fromDay) / 86400000));
-}
-
-function cleanText(value) { return String(value ?? "").trim(); }
-function normalizeAddress(value) {
-  return cleanText(value).toUpperCase().replace(/\b\d{5}\b/g, "").replace(/\s+/g, " ");
-}
-function areaOf(value) {
-  const upper = String(value || "").toUpperCase();
-  for (const area of ["ALBY", "FITTJA", "TULLINGE", "NORSBORG", "TUMBA", "GRÖDINGE", "UTTRAN"]) {
-    if (upper.includes(area)) return area;
+  // ---------------- worklist ----------------
+  const worklist = LeakWorklist.create({
+    dialog: $("worklistDialog"), exportDialog: $("exportDialog"),
+    getEntries: () => state.tripList, setEntries: (list) => { state.tripList = list; },
+    getMeter: (id) => state.byId.get(id), getLabels: () => state.labels,
+    getComment: (id) => state.labels[id]?.comment ?? state.labels[id]?.note ?? "",
+    setComment: (id, text) => { setComment(id, text); },
+    persist: () => persist(), onChange: () => render(), notify: (t) => toast(t),
+  });
+  function addToWorklist(ids) {
+    const { added, already } = worklist.add(ids);
+    toast(`${added} mätare lagda i arbetslistan${already ? ` (${already} fanns redan)` : ""}.`);
   }
-  return "ÖVRIGT";
-}
-function parseNumber(value) {
-  if (value == null || value === "") return null;
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  let normalized = String(value).trim()
-    .replace(/[\u2212\u2012\u2013\u2014]/g, "-")
-    .replace(/[\s\u00a0\u202f]/g, "")
-    .replace(/[^0-9,.-]/g, "");
-  const comma = normalized.lastIndexOf(",");
-  const dot = normalized.lastIndexOf(".");
-  if (comma >= 0 && dot >= 0) {
-    const decimal = comma > dot ? "," : ".";
-    const thousands = decimal === "," ? /\./g : /,/g;
-    normalized = normalized.replace(thousands, "");
-    if (decimal === ",") normalized = normalized.replace(/,/g, ".");
-  } else if (comma >= 0) {
-    normalized = normalized.replace(/,/g, ".");
-  }
-  const firstDot = normalized.indexOf(".");
-  if (firstDot >= 0) normalized = normalized.slice(0, firstDot + 1) + normalized.slice(firstDot + 1).replace(/\./g, "");
-  if (!/\d/.test(normalized)) return null;
-  const number = Number(normalized);
-  return Number.isFinite(number) ? number : null;
-}
-function avg(values) { return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0; }
-function avgMonths(months, list) {
-  const values = list.flatMap((m) => months.get(m) || []);
-  return avg(values);
-}
-function stdev(values) {
-  const m = avg(values);
-  return Math.sqrt(avg(values.map((v) => (v - m) ** 2)));
-}
-function median(values) {
-  const sorted = [...values].sort((a, b) => a - b);
-  if (!sorted.length) return 0;
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-}
-function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
-function round(n) { return Number.isFinite(n) ? Math.round(n) : "-"; }
-function signedPct(value) {
-  if (!Number.isFinite(value)) return "-";
-  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(0)}%`;
-}
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
-}
-function inlineArg(value) { return escapeAttr(JSON.stringify(String(value ?? ""))); }
-function escapeAttr(value) { return escapeHtml(value).replace(/`/g, "&#96;"); }
 
-bootstrap();
+  // ---------------- info menu ----------------
+  function openRules() {
+    const R = Engine.RULES;
+    els.rulesDialog.innerHTML = `
+      <div class="dialog-head"><div><h2 id="rulesTitle">Om analysen</h2><p class="small">Lokal, regelbaserad motor. Inga mätardata skickas till någon språkmodell eller ny extern tjänst.</p></div><button type="button" class="secondary" data-close>Stäng</button></div>
+      <div class="rules">
+        <h3>Värden</h3><p>Kamstrup Leak Detectors exporterade brusvärde (dagens lägsta filtrerade värde). Kamstrup anger ingen enhet; procent är procent av exportvärdet, inte förändring av ljudintensitet.</p>
+        <h3>Avläsningar</h3><p>Kurvan byggs på avläsningsdatum, inte exportdatum. Samma avläsning i flera exporter räknas en gång. Luckor över ${R.gapDays} dagar ritas som saknat underlag och räknas inte som observerad tid.</p>
+        <h3>Jämförelser</h3><ul>
+          <li><b>Sedan föregående avläsning</b>: senaste värde mot föregående avläsningsdag, (nytt / tidigare) − 1.</li>
+          <li><b>Mot jämförelsenivå</b>: median av mätarens egna avläsningar före förändringen, med angiven period.</li>
+          <li><b>P = E/F − 1</b>: Senaste värde och Genomsnittsvärde från samma rad i senaste exporten. Används bara som stöd när egen historik saknas.</li>
+          <li>Tidigare värde 0 ger ingen procentsats. Saknat värde är inte noll.</li></ul>
+        <h3>Förändringar</h3><ul>
+          <li>En förändring måste vara större än max(${R.absMin}, ${R.sigmaK} × mätarens normala dag-till-dag-variation, ${Math.round(R.relMin * 100)} % av nivån).</li>
+          <li><b>Ny signal</b>: en avläsning utanför normal variation – kontrollera nästa.</li>
+          <li><b>Ny nivå</b>: minst två avläsningar på samma sida; en återgång inom fyra avläsningar gör den till tillfällig topp. Bestående först efter minst fem avläsningar under minst fem dagar.</li>
+          <li><b>Gradvis ökning</b>: robust trend (Theil–Sen) över ${R.trendWindowDays} dagar.</li>
+          <li><b>Tillfällig topp</b>: bara när återgången faktiskt har observerats.</li>
+          <li>Återkommande kortvariga toppar jämförs med mätarens eget toppmönster.</li>
+          <li>En nivå som höjts ligger kvar som jämförelse – den absorberas inte i baslinjen. Nollställ för att börja om.</li></ul>
+        <h3>Prioritet 0–100</h3><p>Rangordning av vad som bör kontrolleras först: förändringens storlek, antal avläsningar och varaktighet, aktualitet, absolut nivå, infokoder, störmiljö och säsong. Samma händelse räknas en gång. Inte en sannolikhet för läcka.</p>
+        <h3>Infokoder och händelser</h3><ul>
+          <li>LEAK: vattnet har inte stått still en sammanhängande timme senaste dygnet – läcka efter mätaren möjlig (lista Efter mätare).</li>
+          <li>BURST: högt flöde i 30 minuter – rörbrott efter mätaren möjligt.</li>
+          <li>DRY: mätaren är inte vattenfylld. Inte kommunikationsfel.</li>
+          <li>Leak Detector-händelse Läckage anger inte om läckan ligger före eller efter mätaren.</li></ul>
+        <h3>Säsong och grannar</h3><p>Verifierat årsmönster kräver minst två växlingar vinter/sommar. En vinter och en sommar räknas bara som möjligt mönster. Samtidig ökning på samma adress eller gata visas som möjlig gemensam påverkan – det visar inte läckans plats. Avstånd visas bara när båda adresserna har exakt kartposition.</p>
+        <h3>Manuella beslut</h3><p>Konstaterad läcka och Lagad sätts bara manuellt. Automatiken markerar aldrig en läcka som lagad för att värdet sjunker. Bevaka är din manuella lista; Misstänk är automatisk upptäckt. Säsong/störning dämpar ett känt mönster men en tydlig ny avvikelse visas ändå.</p>
+      </div>`;
+    els.rulesDialog.showModal();
+  }
+  function backup() {
+    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), labels: state.labels, tripList: state.tripList }, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `leaksok-beslut-${today()}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+  async function clearFiles() {
+    if (!confirm(`Rensa ${state.files.length} importerade filer på den här enheten? Manuella beslut, kommentarer och arbetslistan behålls.`)) return;
+    state.files = [];
+    reanalyze(true);
+    await persist(true);
+    toast("Importerade filer rensade. Beslut och kommentarer finns kvar.");
+  }
+
+  // ---------------- events ----------------
+  els.pickFiles.addEventListener("click", () => els.fileInput.click());
+  els.fileInput.addEventListener("change", (e) => handleFiles(e.target.files));
+  const drop = $("dropzone");
+  ["dragenter", "dragover"].forEach((n) => drop.addEventListener(n, (e) => { e.preventDefault(); drop.classList.add("is-drag"); }));
+  ["dragleave", "drop"].forEach((n) => drop.addEventListener(n, (e) => { e.preventDefault(); drop.classList.remove("is-drag"); }));
+  drop.addEventListener("drop", (e) => handleFiles(e.dataTransfer.files));
+
+  document.addEventListener("click", (event) => {
+    const t = event.target;
+    if (!t.closest("#contextMenu") && !els.menu.hidden && !t.closest("[data-act='menu']") && !t.closest("#focusMenu") && !t.closest("[data-sel='move']")) closeMenu();
+    document.querySelectorAll("details.menu[open]").forEach((d) => { if (!d.contains(t)) d.open = false; });
+    const listButton = t.closest("[data-list]");
+    if (listButton) { setList(listButton.dataset.list); return; }
+    const focusButton = t.closest("[data-focus]");
+    if (focusButton) { setFocus(focusButton.dataset.focus); return; }
+    if (t.closest("[data-act='import']")) els.fileInput.click();
+    const viewButton = t.closest("button[data-view]");
+    if (viewButton) {
+      state.view = viewButton.dataset.view;
+      try { localStorage.setItem(VIEW_KEY, state.view); } catch { /* optional */ }
+      render();
+      if (state.view === "map" && window.matchMedia("(max-width: 760px)").matches) els.focus.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    if (t.closest("[data-close]")) t.closest("dialog")?.close();
+    const info = t.closest("[data-info]")?.dataset.info;
+    if (info) document.querySelectorAll("details.menu[open]").forEach((d) => { d.open = false; });
+    if (info === "rules") openRules();
+    if (info === "backup") backup();
+    if (info === "lock") showProfile();
+    if (info === "clear") clearFiles();
+  });
+  $("openWorklist").addEventListener("click", () => worklist.open());
+  $("rail").addEventListener("change", (e) => { if (e.target.id === "listSelect") setList(e.target.value); });
+
+  function setList(key) {
+    if (!LIST[key]) return;
+    state.list = key;
+    state.page = 1;
+    render();
+  }
+
+  els.rows.addEventListener("click", (event) => {
+    const row = event.target.closest("tr[data-id]");
+    const detail = event.target.closest("tr[data-detail]");
+    const id = row?.dataset.id || detail?.dataset.detail;
+    if (!id) return;
+    const act = event.target.closest("[data-act]")?.dataset.act;
+    if (event.target.matches("[data-mark]")) return;
+    if (act === "menu") { openMenu(targetIds(id), 0, 0, event.target.closest("[data-act]")); return; }
+    if (act === "expand") { state.expanded.has(id) ? state.expanded.delete(id) : state.expanded.add(id); renderTable(); return; }
+    if (act === "chart") { openChart(id); return; }
+    if (act === "worklist") { addToWorklist([id]); return; }
+    if (detail) return;
+    if (act === "focus" || !event.target.closest("button, input, textarea, select, a, label")) setFocus(id);
+  });
+  els.rows.addEventListener("change", (event) => {
+    if (event.target.matches("[data-mark]")) {
+      const id = event.target.closest("tr").dataset.id;
+      if (event.target.checked) state.marked.add(id); else state.marked.delete(id);
+      event.target.closest("tr").classList.toggle("is-marked", event.target.checked);
+      renderSelection();
+      const page = state.visible.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
+      const onPage = page.filter((m) => state.marked.has(m.id)).length;
+      els.checkPage.checked = onPage === page.length;
+      els.checkPage.indeterminate = onPage > 0 && onPage < page.length;
+      if (state.focusId) renderFocus();
+    }
+    if (event.target.matches("[data-comment]")) {
+      setComment(event.target.closest("tr").dataset.detail, event.target.value);
+      toast("Kommentaren sparad.");
+    }
+  });
+  els.rows.addEventListener("dblclick", (event) => {
+    const id = event.target.closest("tr[data-id]")?.dataset.id;
+    if (id && !event.target.closest("button, input, textarea")) openChart(id);
+  });
+  els.rows.addEventListener("contextmenu", (event) => {
+    const id = event.target.closest("tr[data-id]")?.dataset.id;
+    if (!id) return;
+    event.preventDefault();
+    openMenu(targetIds(id), event.clientX, event.clientY);
+  });
+  // Long press on touch opens the same menu.
+  let pressTimer = 0, pressed = false;
+  els.rows.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "touch") return;
+    const id = event.target.closest("tr[data-id]")?.dataset.id;
+    if (!id) return;
+    pressed = false;
+    pressTimer = setTimeout(() => { pressed = true; openMenu(targetIds(id), event.clientX, event.clientY); }, 550);
+  });
+  ["pointerup", "pointercancel", "pointermove"].forEach((n) => els.rows.addEventListener(n, (e) => { if (n !== "pointermove" || Math.abs(e.movementX) + Math.abs(e.movementY) > 6) clearTimeout(pressTimer); }));
+  els.rows.addEventListener("click", (event) => { if (pressed) { event.stopImmediatePropagation(); event.preventDefault(); pressed = false; } }, true);
+
+  $("chartDialogDetail").addEventListener("click", (event) => {
+    const id = $("chartDialogDetail").dataset.id;
+    const act = event.target.closest("[data-act]")?.dataset.act;
+    if (act === "menu") openMenu(targetIds(id), 0, 0, event.target.closest("[data-act]"));
+    if (act === "worklist") addToWorklist([id]);
+  });
+  $("chartDialogDetail").addEventListener("change", (event) => {
+    if (event.target.matches("[data-comment]")) { setComment($("chartDialogDetail").dataset.id, event.target.value); toast("Kommentaren sparad."); }
+  });
+
+  els.checkPage.addEventListener("change", () => {
+    const page = state.visible.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
+    page.forEach((m) => (els.checkPage.checked ? state.marked.add(m.id) : state.marked.delete(m.id)));
+    render();
+  });
+  els.selection.addEventListener("click", (event) => {
+    const act = event.target.closest("[data-sel]")?.dataset.sel;
+    if (!act) return;
+    const page = state.visible.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
+    if (act === "page") page.forEach((m) => state.marked.add(m.id));
+    if (act === "all") state.visible.forEach((m) => state.marked.add(m.id));
+    if (act === "clear") state.marked.clear();
+    if (act === "move") { openMenu([...state.marked], 0, 0, event.target.closest("button")); return; }
+    if (act === "worklist") { addToWorklist([...state.marked]); return; }
+    if (act === "excel") { worklist.exportMeters([...state.marked], `${state.marked.size} markerade i listan`); return; }
+    if (act === "hide") { setHidden([...state.marked], state.list !== "hidden"); return; }
+    render();
+  });
+  els.search.addEventListener("input", () => { state.search = els.search.value; state.page = 1; render(); });
+  els.sort.addEventListener("change", () => { state.sort = els.sort.value; state.page = 1; render(); });
+  els.area.addEventListener("change", () => { state.area = els.area.value; state.page = 1; render(); });
+  els.groupFilter.addEventListener("change", () => {
+    state.excluded = new Set([...els.groupFilter.querySelectorAll("input:checked")].map((i) => i.value));
+    state.page = 1;
+    render();
+  });
+  document.querySelector("thead").addEventListener("click", (event) => {
+    const b = event.target.closest("[data-sort]");
+    if (!b) return;
+    state.sort = b.dataset.sort;
+    state.page = 1;
+    render();
+  });
+  els.pageSize.addEventListener("change", () => { state.pageSize = Number(els.pageSize.value); state.page = 1; render(); });
+  els.prev.addEventListener("click", () => { state.page--; render(); els.rows.closest(".table-wrap").scrollIntoView({ block: "start" }); });
+  els.next.addEventListener("click", () => { state.page++; render(); els.rows.closest(".table-wrap").scrollIntoView({ block: "start" }); });
+  $("focusClose").addEventListener("click", () => { setFocus("", { scroll: false }); });
+  $("focusNavigate").addEventListener("click", () => { const m = state.byId.get(state.focusId); if (m) window.open(LeakMap.navigationUrl(m), "_blank", "noopener,noreferrer"); });
+  $("focusMenu").addEventListener("click", (event) => { if (state.focusId) openMenu(targetIds(state.focusId), 0, 0, event.currentTarget); });
+  els.focus.addEventListener("click", (event) => {
+    const style = event.target.closest("[data-map-style]")?.dataset.mapStyle;
+    const tool = event.target.closest("[data-map-tool]")?.dataset.mapTool;
+    const view = ensureMap();
+    if (!view) return;
+    if (style) view.setStyle(style);
+    if (tool) view.setTool(event.target.closest("button").getAttribute("aria-pressed") === "true" ? "" : tool);
+    if (event.target.closest("[data-map-action='locate']")) view.locate();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !els.menu.hidden) closeMenu();
+  });
+
+  window.LeakApp = { state, reanalyze, render, applyDecision, setHidden, openChart, setFocus, worklist, handleFiles };
+
+  // ---------------- start ----------------
+  if (window.indexedDB && window.LeakStorage) showProfile();
+  reanalyze(true);
+}());

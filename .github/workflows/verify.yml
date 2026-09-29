@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        timezone: [UTC, Europe/Stockholm]
+        timezone: [UTC, Europe/Stockholm, America/New_York]
     env:
       TZ: ${{ matrix.timezone }}
     steps:
@@ -26,7 +26,7 @@ jobs:
           node --test tests/*.test.js
   browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,6 +36,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: node tests/browser-smoke.cjs
       - run: node tests/download-browser.cjs
+      - run: node tests/legacy-browser.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
