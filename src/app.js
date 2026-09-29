@@ -404,7 +404,7 @@
       <td class="c-addr"><span class="addr-line"><button type="button" class="addr" data-act="focus">${esc(shortAddress(m))}</button>${copyButton(m)}</span><span class="sub">${esc(m.serial || m.id)} · ${esc(districtOf(m))}</span>${tags.length ? `<span class="tags">${tags.join("")}</span>` : ""}</td>
       <td class="c-latest">${changeHtml(m)}</td>
       <td class="c-reason"><p class="summary">${esc(m.summary)}</p><p class="action">${esc(m.action)}</p><button type="button" class="link" data-act="expand" aria-expanded="${expanded}">${expanded ? "Dölj underlag" : "Visa underlag"}</button></td>
-      <td class="c-spark" data-act="chart" title="Öppna graf">${Chart.sparkline(m)}</td>
+      <td class="c-spark" data-act="chart" title="Öppna graf">${Chart.sparkline(m, { width: state.sparkWidth || 120 })}</td>
       <td class="c-menu"><button type="button" class="icon" data-act="menu" aria-label="Åtgärder för ${esc(m.address)}">⋯</button></td>
     </tr>${expanded ? `<tr class="detail-row" data-detail="${esc(m.id)}"><td colspan="7">${detailHtml(m)}</td></tr>` : ""}`;
   }
@@ -453,7 +453,14 @@
     </div>`;
   }
 
+  // The 60-day graph is drawn at the column's real width (no scaling of the page).
+  function sparkWidthNow() {
+    const th = document.querySelector(".meters thead th.c-spark");
+    const w = th && th.offsetParent ? th.clientWidth - 16 : 0;
+    return w > 40 ? Math.round(w / 20) * 20 : 120;
+  }
   function renderTable() {
+    state.sparkWidth = sparkWidthNow();
     const start = (state.page - 1) * state.pageSize;
     const page = state.visible.slice(start, start + state.pageSize);
     if (!state.files.length) {
@@ -874,6 +881,57 @@
     state.page = 1;
     render();
   }
+
+  // Window resize: keep selection and scroll; redraw only the row graphs when their
+  // column width changes. Chart and map follow their containers via ResizeObserver.
+  let resizeTimer = 0;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (!state.files.length || sparkWidthNow() === state.sparkWidth) return;
+      const y = window.scrollY;
+      renderTable();
+      window.scrollTo(0, y);
+    }, 150);
+  });
+
+  // Draggable divider between chart and map; the split is remembered on this device.
+  const SPLIT_KEY = "leaksok-focus-split";
+  const splitHandle = $("focusSplit");
+  function applySplit(pct, save) {
+    const v = Math.min(75, Math.max(25, Math.round(pct)));
+    els.focus.style.setProperty("--chart-w", `${v}%`);
+    splitHandle.setAttribute("aria-valuenow", String(v));
+    if (save) { try { localStorage.setItem(SPLIT_KEY, String(v)); } catch { /* storage unavailable */ } }
+  }
+  try { const saved = Number(localStorage.getItem(SPLIT_KEY)); if (saved) applySplit(saved, false); } catch { /* storage unavailable */ }
+  splitHandle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    const grid = splitHandle.parentElement.getBoundingClientRect();
+    splitHandle.setPointerCapture(event.pointerId);
+    splitHandle.classList.add("is-drag");
+    document.body.classList.add("is-splitting");
+    const move = (e) => applySplit(((e.clientX - grid.left) / grid.width) * 100, false);
+    const up = (e) => {
+      applySplit(((e.clientX - grid.left) / grid.width) * 100, true);
+      splitHandle.classList.remove("is-drag");
+      document.body.classList.remove("is-splitting");
+      splitHandle.removeEventListener("pointermove", move);
+      splitHandle.removeEventListener("pointerup", up);
+      splitHandle.removeEventListener("pointercancel", up);
+    };
+    splitHandle.addEventListener("pointermove", move);
+    splitHandle.addEventListener("pointerup", up);
+    splitHandle.addEventListener("pointercancel", up);
+  });
+  splitHandle.addEventListener("keydown", (event) => {
+    const now = Number(splitHandle.getAttribute("aria-valuenow")) || 50;
+    const step = { ArrowLeft: -5, ArrowRight: 5, Home: -100, End: 100 }[event.key];
+    if (step === undefined) return;
+    event.preventDefault();
+    applySplit(now + step, true);
+  });
+  splitHandle.addEventListener("dblclick", () => applySplit(50, true));
 
   let focusTimer = 0;
   els.rows.addEventListener("click", (event) => {

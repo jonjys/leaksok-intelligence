@@ -9,7 +9,7 @@ Allt körs lokalt i webbläsaren. Historik, beslut och kommentarer sparas i webb
 1. **＋ Importera Excel** – en eller flera `.xlsx/.xls/.csv`. Tidigare historik behålls; samma fil två gånger räknas som dubblett.
 2. **Morgonöversikten** visar senaste exportens tid, hur många som lästs av senaste dygnet och dagens nya signaler.
 3. Listorna: **Nytt i dag**, **Åk ut**, **Misstänk** (automatisk upptäckt), **Bevaka** (din manuella lista), **Efter mätare**, **Aktiva läckor**, **Lagade** och under *Fler listor* Stabilt hög, Störning/tillfällig, Säsong, Kort historik, Utan färsk avläsning, Ignorerade och Gömda.
-4. Klicka på en adress: graf och karta visas bredvid varandra (under varandra på telefon). **Visa underlag** fäller ut observation, möjlig förklaring, rekommenderad åtgärd, jämförelser med perioder, datakvalitet och prioritetens delar.
+4. Klicka på en adress: graf och karta visas bredvid varandra (under varandra på telefon). Avdelaren mellan dem kan dras (eller flyttas med piltangenterna) och fördelningen sparas på enheten. Arbetsytan fyller hela fönstret: på bred skärm får adress, motivering och 60-dagarsgraf mer plats och raderna blir tätare, utan att text förstoras. **Visa underlag** fäller ut observation, möjlig förklaring, rekommenderad åtgärd, jämförelser med perioder, datakvalitet och prioritetens delar.
 5. **Flytta till…** finns på ett ställe: markeringsraden, ⋯ på raden, högerklick eller långtryck. Konstaterad läcka (datum, osäkert datum) och Lagad (datum, AV/SV, ungefärligt avstånd, kommentar) öppnar formulär. Allt kan ångras direkt.
 6. Markera mätare (kryssrutor gäller över sidor och filter) → **Excel (N)** eller **Lägg i arbetslista**. **Markera sidan** och **Markera alla N träffar** gäller uttryckligen aktuell sida respektive hela det filtrerade urvalet. Exporten visar antal innan nedladdning och tar aldrig med alla mätare automatiskt.
 
@@ -59,6 +59,7 @@ node --test tests/*.test.js          # motor, import, Excel, grafer, lagring (k�
 node tests/browser-smoke.cjs         # Chromium: 3 000 mätare × 30 exporter, beslut, omladdning, desktop/mobil
 node tests/download-browser.cjs      # Chromium: exakt exporturval över sidor, arbetslista, XLSX-granskning
 node tests/legacy-browser.cjs        # Chromium: gammal profil, XLSX-datum, ett års historik
+node tests/layout-browser.cjs        # Chromium: 1366–3440 px, mobil, storleksbyte, dragbar avdelare
 ```
 
 Webbläsartesterna kräver Playwright. `LEAKSOK_VENDOR=<mapp>` kan peka på lokala kopior av CDN-filerna vid körning utan nät.
