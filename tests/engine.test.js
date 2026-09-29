@@ -304,7 +304,9 @@ test("grannar: ensam ökning, återgång och dubbelexport ger ingen gemensam hä
   assert.equal(alone.neighbors.similar.length, 0, "One rising meter is not a shared event");
   const reverted = street([...flat(7, 10), 13, 7], [{ id: "m2", address: "TESTVÄGEN 2 TUMBA 14730", values: [...flat(6, 10), 10, 6] }]);
   assert.equal(reverted.neighbors.similar.length, 0, "A reverted transient is not an active event");
-  const together = street([...flat(7, 10), 13], [{ id: "m2", address: "TESTVÄGEN 2 TUMBA 14730", values: [...flat(6, 10), 10] }]);
+  const singles = street([...flat(7, 10), 13], [{ id: "m2", address: "TESTVÄGEN 2 TUMBA 14730", values: [...flat(6, 10), 10] }]);
+  assert.equal(singles.neighbors.similar.length, 0, "Single readings rising the same day are not called a shared change");
+  const together = street([...flat(7, 10), 13, 13], [{ id: "m2", address: "TESTVÄGEN 2 TUMBA 14730", values: [...flat(6, 10), 10, 10] }]);
   assert.equal(together.neighbors.similar.length, 1);
   assert.equal(together.neighbors.similar[0].relation, "samma gata");
 });
@@ -316,4 +318,16 @@ test("kommundel tas från ortskolumnen, inte gatunamn", () => {
   }
   assert.equal(Parse.districtOf("", "ALBYVÄGEN 1 TULLINGE"), "Tullinge");
   assert.equal(Parse.districtOf("", "OKÄNDVÄGEN 1"), "Övrigt");
+});
+
+test("Kamstrups snitt F dämpar bara när egen historik före ökningen aldrig nått F", () => {
+  // Short own history, F from a longer period the app has not seen: not elevated.
+  const unseen = analyze([...flat(6, 10), 11], { average: Array(11).fill(50) });
+  assert.equal(unseen.category, "normal");
+  assert.match(unseen.summary, /inte över Kamstrups snitt F 50/);
+  // Own older level 34 already explains F 25: the new rise 11 → 20 stays visible.
+  const seen = analyze([...flat(34, 6), ...flat(11, 10), 20], { average: Array(17).fill(25) });
+  assert.equal(seen.finding.type, "new_signal");
+  assert.equal(seen.category, "suspect_auto");
+  assert.doesNotMatch(seen.summary, /Kamstrups snitt/);
 });

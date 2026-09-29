@@ -137,6 +137,7 @@
     col.activeEvents = findColumn(header, ["aktiva händelser", "active events"]);
     col.closedEvents = findColumn(header, ["stängda händelser", "closed events"]);
     col.area = findColumn(header, ["område", "ort", "area", "kommundel"]);
+    col.follow = findColumn(header, ["följ", "follow"]);
     return col;
   }
 
@@ -220,6 +221,7 @@
         infoCode,
         activeEvents,
         closedEvents: col.closedEvents >= 0 ? cleanText(row[col.closedEvents]) : "",
+        follow: col.follow >= 0 && parseFlag(row[col.follow]),
         source: file.name || "",
       });
     }
@@ -236,6 +238,10 @@
     if (stats.unknownReadDate) warnings.push(`${stats.unknownReadDate} rader saknar giltigt avläsningsdatum och används inte i kurvan`);
     if (stats.futureReadDate) warnings.push(`${stats.futureReadDate} avläsningsdatum låg i framtiden och ignorerades`);
     return { exportDate, exportDateSource, rows: parsed, warnings, stats };
+  }
+
+  function parseFlag(value) {
+    return value === true || /^(sant|true|ja|yes|1|x)$/i.test(cleanText(value));
   }
 
   function localDate(date) {

@@ -132,7 +132,7 @@
     const r = visible.length > 120 ? 1.6 : visible.length > 60 ? 2.2 : 3;
     visible.forEach((p, i) => {
       const last = i === visible.length - 1;
-      parts.push(`<circle cx="${xOf(p.date).toFixed(1)}" cy="${yOf(p.value).toFixed(1)}" r="${last ? 5 : r}" class="ch-dot${last ? " last" : ""}"/>`);
+      parts.push(`<circle cx="${xOf(p.date).toFixed(1)}" cy="${yOf(p.value).toFixed(1)}" r="${last ? 5 : r}" class="ch-dot${last ? " last" : ""}" data-day="${History.dayKey(p.date)}" data-value="${p.value}"><title>${esc(Engine.fmtDate(p.date))}: ${num(p.value)}${p.readings > 1 ? ` (lägsta av ${p.readings} avläsningar)` : ""}</title></circle>`);
     });
     if (cmp.reference && cmp.reference.date >= start) {
       parts.push(`<circle cx="${xOf(cmp.reference.date).toFixed(1)}" cy="${yOf(cmp.reference.value).toFixed(1)}" r="7" class="ch-compare"><title>Jämförelse: ${esc(Engine.fmtDate(cmp.reference.date))} ${num(cmp.reference.value)}</title></circle>`);

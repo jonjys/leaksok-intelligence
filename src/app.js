@@ -389,7 +389,8 @@
     const tags = [];
     if (m.label?.type) tags.push(`<span class="tag manual">${esc(Engine.LABELS[m.label.type] || m.label.type)}</span>`);
     if (m.codes.leak || m.codes.burst || m.codes.dry) tags.push(`<span class="tag code">Infokod ${esc(m.codes.infoCode)}</span>`);
-    if (m.codes.acousticLeak) tags.push(`<span class="tag code">Händelse: ${esc(m.codes.activeEvents)}</span>`);
+    if (m.codes.acousticLeak || m.codes.acousticOther || m.codes.acousticUndetermined) tags.push(`<span class="tag code">Händelse: ${esc(m.codes.activeEvents)}</span>`);
+    if (m.codes.follow) tags.push(`<span class="tag">Följs i Kamstrup</span>`);
     if (hidden(m)) tags.push(`<span class="tag">Gömd</span>`);
     if (state.tripList.some((e) => e.id === m.id)) tags.push(`<span class="tag">I arbetslista</span>`);
     return `<tr data-id="${esc(m.id)}" class="row${marked ? " is-marked" : ""}${state.focusId === m.id ? " is-focus" : ""}">
@@ -536,11 +537,18 @@
   }
 
   // Selecting a meter only updates the focus panel; the table is not rebuilt.
-  function setFocus(id, { scroll = true } = {}) {
+  function setFocus(id, { scroll = true, keepRow = null } = {}) {
     state.focusId = id;
     els.rows.querySelectorAll("tr.row").forEach((tr) => tr.classList.toggle("is-focus", tr.dataset.id === id));
+    const before = keepRow && keepRow.isConnected ? keepRow.getBoundingClientRect().top : null;
     renderFocus();
-    if (scroll && window.matchMedia("(max-width: 760px)").matches) els.focus.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (scroll && window.matchMedia("(max-width: 760px)").matches) { els.focus.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+    // The panel opening above the table must not move the clicked row away from the pointer.
+    if (before != null && keepRow.isConnected) {
+      window.scrollBy(0, keepRow.getBoundingClientRect().top - before);
+      const covered = els.focus.closest(".sticky-stack").getBoundingClientRect().bottom + 4 - keepRow.getBoundingClientRect().top;
+      if (covered > 0) window.scrollBy(0, -covered);
+    }
   }
 
   function openChart(id) {
@@ -758,11 +766,11 @@
         <h3>Jämförelser</h3><ul>
           <li><b>Sedan föregående avläsning</b>: senaste värde mot föregående avläsningsdag, (nytt / tidigare) − 1.</li>
           <li><b>Mot jämförelsenivå</b>: median av mätarens egna avläsningar före förändringen, med angiven period.</li>
-          <li><b>P = E/F − 1</b>: Senaste värde och Genomsnittsvärde från samma rad i senaste exporten. Används bara som stöd när egen historik saknas.</li>
+          <li><b>P = E/F − 1</b>: Senaste värde och Genomsnittsvärde från samma rad i senaste exporten. Används bara som stöd när egen historik är kort (under ${R.longTermDays} dagar): en ökning som stannar under F dämpas om mätaren före ökningen aldrig nått F, och en nivå på minst dubbla F lyfts som Misstänk med kort historik.</li>
           <li>Tidigare värde 0 ger ingen procentsats. Saknat värde är inte noll.</li></ul>
         <h3>Förändringar</h3><ul>
-          <li>En förändring måste vara större än max(${R.absMin}, ${R.sigmaK} × mätarens normala dag-till-dag-variation, ${Math.round(R.relMin * 100)} % av nivån).</li>
-          <li><b>Ny signal</b>: en avläsning utanför normal variation – kontrollera nästa.</li>
+          <li>En nivåförändring måste vara större än max(${R.absMin}, ${R.sigmaK} × mätarens normala dag-till-dag-variation, ${Math.round(R.relMin * 100)} % av nivån). Med färre än ${R.minOwnPairs} jämförbara avläsningspar används ${Math.round(R.priorSigmaRel * 100)} % av nivån som variation.</li>
+          <li><b>Ny signal</b>: en enda avläsning större än max(${R.signalAbs}, ${R.sigmaK} × variationen, ${Math.round(R.signalRel * 100)} % av nivån) – kontrollera nästa.</li>
           <li><b>Ny nivå</b>: minst två avläsningar på samma sida; en återgång inom fyra avläsningar gör den till tillfällig topp. Bestående först efter minst fem avläsningar under minst fem dagar.</li>
           <li><b>Gradvis ökning</b>: robust trend (Theil–Sen) över ${R.trendWindowDays} dagar.</li>
           <li><b>Tillfällig topp</b>: bara när återgången faktiskt har observerats.</li>
@@ -773,7 +781,8 @@
           <li>LEAK: vattnet har inte stått still en sammanhängande timme senaste dygnet – läcka efter mätaren möjlig (lista Efter mätare).</li>
           <li>BURST: högt flöde i 30 minuter – rörbrott efter mätaren möjligt.</li>
           <li>DRY: mätaren är inte vattenfylld. Inte kommunikationsfel.</li>
-          <li>Leak Detector-händelse Läckage anger inte om läckan ligger före eller efter mätaren.</li></ul>
+          <li>Leak Detector-händelse Läckage anger inte om läckan ligger före eller efter mätaren. Ej fastställt och Annat brus är händelser, inte läcka.</li>
+          <li>Stängda händelser och Kamstrups Följ-markering visas som information.</li></ul>
         <h3>Säsong och grannar</h3><p>Verifierat årsmönster kräver minst två växlingar vinter/sommar. En vinter och en sommar räknas bara som möjligt mönster. Samtidig ökning på samma adress eller gata visas som möjlig gemensam påverkan – det visar inte läckans plats. Avstånd visas bara när båda adresserna har exakt kartposition.</p>
         <h3>Manuella beslut</h3><p>Konstaterad läcka och Lagad sätts bara manuellt. Automatiken markerar aldrig en läcka som lagad för att värdet sjunker. Bevaka är din manuella lista; Misstänk är automatisk upptäckt. Säsong/störning dämpar ett känt mönster men en tydlig ny avvikelse visas ändå.</p>
       </div>`;
@@ -837,6 +846,7 @@
     render();
   }
 
+  let focusTimer = 0;
   els.rows.addEventListener("click", (event) => {
     const row = event.target.closest("tr[data-id]");
     const detail = event.target.closest("tr[data-detail]");
@@ -849,7 +859,14 @@
     if (act === "chart") { openChart(id); return; }
     if (act === "worklist") { addToWorklist([id]); return; }
     if (detail) return;
-    if (act === "focus" || !event.target.closest("button, input, textarea, select, a, label")) setFocus(id);
+    if (act === "focus" || !event.target.closest("button, input, textarea, select, a, label")) {
+      // Highlight at once; open the panel after the double-click window so a
+      // double-click on the row opens the large chart instead.
+      clearTimeout(focusTimer);
+      if (event.detail > 1) return;
+      els.rows.querySelectorAll("tr.row").forEach((tr) => tr.classList.toggle("is-focus", tr.dataset.id === id));
+      focusTimer = setTimeout(() => setFocus(id, { keepRow: row }), event.detail === 0 ? 0 : 230);
+    }
   });
   els.rows.addEventListener("change", (event) => {
     if (event.target.matches("[data-mark]")) {
@@ -870,7 +887,11 @@
   });
   els.rows.addEventListener("dblclick", (event) => {
     const id = event.target.closest("tr[data-id]")?.dataset.id;
-    if (id && !event.target.closest("button, input, textarea")) openChart(id);
+    if (id && !event.target.closest('button:not([data-act="focus"]), input, textarea')) {
+      clearTimeout(focusTimer);
+      openChart(id);
+      setFocus(id, { scroll: false, keepRow: event.target.closest("tr[data-id]") });
+    }
   });
   els.rows.addEventListener("contextmenu", (event) => {
     const id = event.target.closest("tr[data-id]")?.dataset.id;

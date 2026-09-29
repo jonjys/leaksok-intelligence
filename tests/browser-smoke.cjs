@@ -152,6 +152,27 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal((await meter("90000002")).category, "confirmed");
     assert.deepEqual(await page.evaluate(() => state.meters.slice(0, 50).map((m) => [m.id, m.category, m.priority])), before, "Same analysis after reload");
 
+    // Laptop screen: opening the panel does not move the clicked row away, and a
+    // double-click on the row (including the address) opens the large chart.
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.evaluate(() => { document.getElementById("focusClose").click(); window.scrollTo(0, 0); });
+    await list("all");
+    const target = page.locator("#rows tr.row").nth(1);
+    const top = (await target.boundingBox()).y;
+    await target.locator(".addr").click();
+    await page.waitForFunction(() => !document.getElementById("focus").hidden);
+    assert.ok(Math.abs((await target.boundingBox()).y - top) < 90, "Clicked row stays near the pointer");
+    await target.locator(".addr").dblclick();
+    await page.waitForSelector("#chartDialog[open] .ch-stage svg");
+    const check = await page.evaluate((id) => {
+      const series = state.byId.get(id).series.map((p) => `${LeakHistory.dayKey(p.date)}=${p.value}`);
+      const dots = [...document.querySelectorAll("#chartDialogChart circle.ch-dot")].map((c) => `${c.dataset.day}=${c.dataset.value}`);
+      return { dots, tail: series.slice(-dots.length) };
+    }, await target.getAttribute("data-id"));
+    assert.ok(check.dots.length > 0);
+    assert.deepEqual(check.dots, check.tail, "Chart dots are exactly the meter's readings in the shown period");
+    await page.locator("#chartDialog [data-close]").click();
+
     // Phone: cards, list picker, no horizontal page overflow.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator("#listSelect").selectOption("suspect");
