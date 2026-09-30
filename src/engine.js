@@ -6,10 +6,11 @@
    never a change in physical sound intensity. Priority 0–100 is a ranking, not a
    calibrated leak probability. Rule-based and local: no external services. */
 (function (root, factory) {
-  const api = factory(root.LeakHistory || (typeof require === "function" ? require("./history.js") : null));
+  const api = factory(root.LeakHistory || (typeof require === "function" ? require("./history.js") : null),
+    root.LeakAreaSignals || (typeof require === "function" ? require("./area-signals.js") : null));
   if (typeof module === "object" && module.exports) module.exports = api;
   root.LeakEngine = api;
-}(typeof globalThis !== "undefined" ? globalThis : this, function (History) {
+}(typeof globalThis !== "undefined" ? globalThis : this, function (History, AreaSignals) {
   const DAY = 86400000;
   const RULES = Object.freeze({
     absMin: 2,            // smallest change in export units that can count
@@ -993,7 +994,17 @@
     }
     attachNeighbors(results, options.coordinates);
     results.sort((a, b) => b.sortRank - a.sortRank || String(a.address).localeCompare(String(b.address), "sv"));
-    return { meters: results, latestExport: prepared.latestExport, exportDays: prepared.exportDays };
+    const areaSignals = AreaSignals.build(results, { coordinates: options.coordinates, labels, placeOf });
+    const byId = new Map(results.map((m) => [m.id, m]));
+    for (const signal of areaSignals) {
+      for (const id of signal.ids) {
+        const m = byId.get(id);
+        m.areaSignal = signal;
+        m.observations.push(signal.summary);
+        m.explanations.push(...signal.notes);
+      }
+    }
+    return { meters: results, areaSignals, latestExport: prepared.latestExport, exportDays: prepared.exportDays };
   }
 
   /* files → analysed meters. labels: { id: label }. */
@@ -1020,3 +1031,4 @@
 
   return { RULES, CATEGORY, LABELS, analyzeMeter, analyzeAll, prepare, analyzePrepared, labelKey, attachNeighbors, morning, segment, noiseSigma, trendOf, seasonProfile, codesOf, placeOf, interferenceOf, fmtDate, fmtNum, fmtPct, fmtSigned, fmtPeriod, median };
 }));
+

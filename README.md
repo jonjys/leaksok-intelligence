@@ -30,6 +30,18 @@ Allt körs lokalt i webbläsaren. Historik, beslut och kommentarer sparas i webb
 - **Prioritet 0–100** är en regelbaserad rangordning (storlek, belägg/varaktighet, aktualitet, nivå, infokoder, störning, säsong, grannar). Samma händelse räknas en gång. Det är inte en sannolikhet för läcka.
 - **Manuella beslut**: Konstaterad läcka och Lagad sätts bara manuellt; automatiken markerar aldrig lagat för att värdet sjunker. En ny ökning efter lagning visas i Misstänk. Gömda försvinner från listorna men kan återställas.
 
+## Områdessignaler (src/area-signals.js)
+
+Ett separat analyslager söker samtidiga ökningar på minst tre olika adresser. Exempel: 9 → 23 på tre närliggande adresser ger en möjlig gemensam källa och en föreslagen startadress för områdeskontroll. Det bevisar varken huvudledningsläcka eller en viss läckplats; ledningsnätets topologi finns inte i appen.
+
+- Varje mätare behöver minst tre tidigare avläsningsdagar. Ökningen ska vara minst 2 värdeenheter, 25 % och två gånger uppskattad variation. Baslinjen är medianen av upp till 14 föregående avläsningsdagar. Procent avser exportvärdet, inte akustisk energi eller läckflöde.
+- Ökningarna ska börja inom tre dagar från varandra och under de senaste 14 dagarna. Luckor över tre dagar och avläsningar äldre än en dag mot senaste exporten utesluts. Samma dags upprepade exporter räknas en gång.
+- Alla par av kartpunkter ska ligga högst 250 meter från varandra. Utan fullständiga kartpositioner används samma gata/ort och högst 20 husnummer i spann; då anges uttryckligen att fysisk närhet inte är verifierad. Kartpunkter är adresspositioner, inte ledningsdata. Flera mätare i samma byggnad eller vid samma kartpunkt räknas inte som flera oberoende adresser.
+- En enda förhöjd avläsningsdag ger **Preliminär**; minst två per mätare ger **Upprepad ökning**. Återgång efter en topp, kundsidans LEAK/BURST, DRY, gömda, ignorerade och lagade mätare bildar inte en grupp. Nollställningens historikgräns respekteras.
+- Känd störmiljö och omfattande samtidiga förändringar i importurvalet ger extra reservation om drift/säsong. Trösklarna är transparenta hypoteser, ännu inte kalibrerade mot kommunens fältfacit.
+
+Öppna den kompakta raden **områdessignaler** i morgonanalysen och välj **Markera och visa området**. Befintliga markeringar behålls. Mätarens utvecklade rad visar gruppens baslinjer, ökningar och referensdatum. Gruppen följer med i arbetslistans motivering och kontrollförslag, men exporten innehåller fortfarande endast det valda urvalet. Individuell prioritet, kategori, manuella beslut och grafer ändras inte av det nya analyslagret. Kartpositioner som tillkommer kan förfina eller avfärda en adressbaserad grupp.
+
 ## Excel-arbetslista (src/field-export.js, src/xlsx-writer.js)
 
 - **Arbetslista**: Adress, Serienummer (text), Status, Senast avläst, Senaste värde, Förändring sedan föregående (värde och %), Huvudorsak, Rekommenderad kontroll, Kommentar, Utförd (Ej utförd/Klar, raden blir grön). Excel-tabell med filter, fryst rubrik, liggande utskrift en sida bred.

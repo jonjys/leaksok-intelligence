@@ -193,6 +193,40 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     const map = await page.locator("#map").boundingBox();
     assert.ok(map.y > chart.y + chart.height - 5, "Map below the chart on phone");
     await page.screenshot({ path: "test-results/mobile-390.png", fullPage: true });
+
+    // Supplemental area evidence: three nearby addresses, same rise, no replacement
+    // of existing decisions. Click once to mark the group and show its evidence.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.route('https://nominatim.openstreetmap.org/**', async (route) => {
+      const street = new URL(route.request().url()).searchParams.get('street') || '';
+      if (!street.startsWith('OMRÅDESTESTVÄGEN ')) return route.fallback();
+      const house = street.match(/(\d+)$/)[1];
+      return route.fulfill({ json: [{ lat: String(59.2 + Number(house) / 10000), lon: '17.8',
+        display_name: street, address: { house_number: house, road: 'OMRÅDESTESTVÄGEN', postcode: '14730' } }] });
+    });
+    const areaIds = ['98000001', '98000002', '98000003'];
+    const areaFiles = Array.from({ length: 12 }, (_, i) => {
+      const date = `2026-09-${String(i + 19).padStart(2, '0')}`;
+      const rows = [['Serienummer', 'Adress', 'Område', 'Senaste avläsning', 'Senaste värde'],
+        ...areaIds.map((id, j) => [id, `OMRÅDESTESTVÄGEN ${1 + j * 2} TUMBA 14730`, 'TUMBA', `${date} 04:00`, i < 10 ? 9 : 23])];
+      return { name: `Områdestest ${date} 08-00.csv`, text: toCsv(rows) };
+    });
+    await kit.importFiles(page, areaFiles);
+    await list('all');
+    await page.locator('#search').fill('OMRÅDESTESTVÄGEN');
+    await page.waitForFunction(() => state.areaSignals.some((s) => s.ids.includes('98000001')));
+    const previousMarks = await page.evaluate(() => [...state.marked]);
+    await page.locator('#brief .area-signals > summary').click();
+    await page.locator('#brief [data-area-signal="98000001|98000002|98000003"]').click();
+    assert.ok(await page.evaluate((ids) => ids.every((id) => state.marked.has(id)), [...previousMarks, ...areaIds]));
+    assert.equal(await page.evaluate(() => state.focusId), '98000002');
+    const evidence = page.locator('tr[data-detail="98000002"]');
+    assert.match(await evidence.innerText(), /9 → 23/);
+    assert.match(await evidence.innerText(), /huvudledning/);
+    assert.match(await evidence.innerText(), /inte fastställda/);
+    assert.equal((await meter('90000002')).category, 'confirmed', 'Existing confirmed leak survives');
+    assert.equal((await meter('90000016')).category, 'repaired', 'Existing repair survives');
+    await page.screenshot({ path: 'test-results/area-signal-1440.png' });
     assert.deepEqual(errors, [], "No browser runtime errors");
     console.log("Browser workflow PASS: import 3000×30, lists, focus, evidence, confirmed/repaired/watch/undo/reset/hide, duplicates, next export, reload, desktop and phone.");
   } catch (error) {

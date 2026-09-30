@@ -69,8 +69,8 @@
       prevValue: m.previous?.value ?? null,
       prevDelta: m.changePrev?.delta ?? null,
       prevPct: m.changePrev?.pct ?? null,
-      summary: m.summary,
-      action: m.action,
+      summary: m.areaSignal ? `${m.summary} Områdessignal: ${m.areaSignal.count} mätare på ${m.areaSignal.buildingCount} adresser ökar tillsammans.` : m.summary,
+      action: m.areaSignal ? `${m.action} ${m.areaSignal.action}` : m.action,
       comment: label.comment || "",
       done: label.fieldDone ? "Klar" : "Ej utförd",
       finding: findingText(m),
@@ -208,3 +208,4 @@
 
   return { buildWorkbook, rowFor, statusText, fileName, DEFINITIONS };
 }));
+
