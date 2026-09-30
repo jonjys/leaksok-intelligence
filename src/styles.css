@@ -422,3 +422,14 @@ body[data-view="map"] .focus.no-meter .focus-grid { height: clamp(320px, 52vh, 9
 .copy-addr.copied { color: #fff; background: var(--accent); border-color: var(--accent); }
 #focusCopy { margin: 0 4px 0 8px; }
 .copy-addr[hidden] { display: none; }
+
+
+/* Supplemental area signals stay compact until opened. */
+.area-signals { margin-top:8px; border-top:1px solid var(--line, #dce6e9); padding-top:6px; }
+.area-signals > summary { cursor:pointer; color:var(--accent, #087f7b); font-weight:650; font-size:13px; }
+.area-signal-list { max-height:240px; overflow:auto; overscroll-behavior:contain; }
+.area-signal { padding:10px 0; min-width:0; overflow-wrap:anywhere; }
+.area-signal + .area-signal { border-top:1px solid var(--line, #dce6e9); }
+.area-signal p,.area-members { margin:5px 0; font-size:13px; }
+.area-tag { color:#066b67; background:#e5f3f1; }
+.area-members button { text-align:left; }

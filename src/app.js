@@ -52,7 +52,7 @@
 
   const state = {
     files: [], labels: loadLabelBackup(), tripList: [], profileId: null, profileName: null,
-    prepared: null, cache: new Map(), meters: [], byId: new Map(), latestExport: null,
+    areaSignals: [], coordinatesKey: "", prepared: null, cache: new Map(), meters: [], byId: new Map(), latestExport: null,
     list: "all", search: "", sort: "priority", area: "all", excluded: new Set(),
     page: 1, pageSize: 50, marked: new Set(), focusId: "", expanded: new Set(),
     view: readView(), importing: false, storageError: "", visible: [],
@@ -256,6 +256,8 @@
     const coords = window.LeakMap ? LeakMap.coordinates([...state.prepared.histories.values()]) : new Map();
     const result = Engine.analyzePrepared(state.prepared, state.labels, { cache: state.cache, coordinates: coords });
     state.meters = result.meters;
+    state.areaSignals = result.areaSignals;
+    state.coordinatesKey = JSON.stringify([...coords].sort(([a], [b]) => a.localeCompare(b)));
     state.byId = new Map(result.meters.map((m) => [m.id, m]));
     state.latestExport = result.latestExport;
     for (const id of [...state.marked]) if (!state.byId.has(id)) state.marked.delete(id);
@@ -332,11 +334,22 @@
       <label class="rail-select"><span class="sr-only">Lista</span><select id="listSelect">${LISTS.map((l) => `<option value="${l.key}"${state.list === l.key ? " selected" : ""}>${esc(l.label)} (${counts[l.key]})</option>`).join("")}</select></label>`;
   }
 
+  function areaSignalHtml(signal, detailed = false) {
+    const stage = signal.stage === "early" ? "Preliminär" : "Upprepad ökning";
+    return `<div class="area-signal">
+      <div><b>${esc(signal.anchorAddress)}</b><span class="sub">${esc(stage)} · ${signal.count} mätare / ${signal.buildingCount} adresser · ${esc(Engine.fmtPeriod(signal.onsetFrom, signal.onsetTo, state.latestExport?.getFullYear()))}</span></div>
+      <p>${esc(signal.summary)} ${signal.basis === "position" ? `Högst ca ${signal.diameterMeters} m mellan kartpunkterna.` : "Närhet enligt adress – kartpositioner behöver verifieras."}</p>
+      <button type="button" class="secondary" data-area-signal="${esc(signal.id)}">Markera ${signal.count} och visa området</button>
+      ${detailed ? `<p>${esc(signal.action)}</p>${list(signal.notes)}<ul class="area-members">${signal.members.map((m) => `<li><button type="button" class="link" data-focus="${esc(m.id)}">${esc(m.address)}</button>: ${num(m.baseline)} → ${num(m.current)} (${m.pct == null ? "ingen procent" : Engine.fmtPct(m.pct)}) · ${m.readings} avläsningsdagar · referens ${esc(Engine.fmtPeriod(m.from, m.beforeTo, state.latestExport?.getFullYear()))}</li>`).join("")}</ul>` : ""}
+    </div>`;
+  }
+
   function renderBrief() {
     if (!state.files.length) {
       els.brief.innerHTML = `<div class="brief-empty"><h2>Morgonanalys</h2><p>Importera senaste 24-timmarsexporten från Kamstrup. Appen jämför med historiken som sparats på den här enheten och visar vad som förändrats.</p><button type="button" class="primary" data-act="import">＋ Importera Excel</button></div>`;
       return;
     }
+    const areaOpen = els.brief.querySelector(".area-signals")?.open;
     const report = Engine.morning(state.meters, state.labels, state.latestExport);
     const exportAt = state.latestExport;
     const ageHours = exportAt ? (Date.now() - exportAt.getTime()) / 3600000 : Infinity;
@@ -356,6 +369,9 @@
         </div>
       </div>
       ${items ? `<div class="brief-items">${items}${report.newToday.length > 4 ? `<button type="button" class="brief-more" data-list="today">Alla ${report.newToday.length} →</button>` : ""}</div>` : ""}`;
+    if (state.areaSignals.length) {
+      els.brief.insertAdjacentHTML("beforeend", `<details class="area-signals"${areaOpen ? " open" : ""}><summary>${state.areaSignals.length} områdessignal${state.areaSignals.length > 1 ? "er" : ""} · flera mätare ökar tillsammans</summary><div class="area-signal-list">${state.areaSignals.map((signal) => areaSignalHtml(signal)).join("")}</div></details>`);
+    }
   }
 
   function renderAreas() {
@@ -392,6 +408,7 @@
     const marked = state.marked.has(m.id);
     const expanded = state.expanded.has(m.id);
     const tags = [];
+    if (m.areaSignal) tags.push(`<span class="tag area-tag">Områdessignal · ${m.areaSignal.count} mätare</span>`);
     if (m.label?.type) tags.push(`<span class="tag manual">${esc(Engine.LABELS[m.label.type] || m.label.type)}</span>`);
     if (m.codes.leak || m.codes.burst || m.codes.dry) tags.push(`<span class="tag code">Infokod ${esc(m.codes.infoCode)}</span>`);
     if (m.codes.acousticLeak || m.codes.acousticOther || m.codes.acousticUndetermined) tags.push(`<span class="tag code">Händelse: ${esc(m.codes.activeEvents)}</span>`);
@@ -433,6 +450,7 @@
     const comment = label.comment ?? label.note ?? "";
     return `<div class="detail">
       <section>
+        ${m.areaSignal ? `<h4>Möjlig gemensam källa i området</h4>${areaSignalHtml(m.areaSignal, true)}` : ""}
         <h4>Observation</h4>${list(m.observations)}
         <h4>Möjlig förklaring</h4>${list(m.explanations)}
         <h4>Rekommenderad åtgärd</h4><p>${esc(m.action)}</p>
@@ -548,7 +566,12 @@
     const key = `${mode}|${state.focusId}|${[...state.marked].join(",")}|${meters.length}|${state.list}|${state.search}|${state.area}|${meters[0]?.id}`;
     if (key === lastMapKey) return;
     lastMapKey = key;
-    requestAnimationFrame(() => { view.invalidate(); view.update({ meters, focusId: state.focusId, marked: state.marked, mode }); });
+    requestAnimationFrame(() => { view.invalidate(); Promise.resolve(view.update({ meters, focusId: state.focusId, marked: state.marked, mode })).then(() => {
+      if (!state.prepared) return;
+      const coords = LeakMap.coordinates([...state.prepared.histories.values()]);
+      const key = JSON.stringify([...coords].sort(([a], [b]) => a.localeCompare(b)));
+      if (key !== state.coordinatesKey) reanalyze();
+    }).catch(() => { /* Map status already reports address lookup failures. */ }); });
   }
 
   // Selecting a meter only updates the focus panel; the table is not rebuilt.
@@ -852,6 +875,18 @@
     const t = event.target;
     if (!t.closest("#contextMenu") && !els.menu.hidden && !t.closest("[data-act='menu']") && !t.closest("#focusMenu") && !t.closest("[data-sel='move']")) closeMenu();
     document.querySelectorAll("details.menu[open]").forEach((d) => { if (!d.contains(t)) d.open = false; });
+    const areaButton = t.closest("[data-area-signal]");
+    if (areaButton) {
+      const signal = state.areaSignals.find((s) => s.id === areaButton.dataset.areaSignal);
+      if (!signal) return;
+      signal.ids.forEach((id) => state.marked.add(id));
+      state.focusId = signal.anchorId;
+      state.expanded.add(signal.anchorId);
+      lastMapKey = "";
+      render();
+      toast(`${signal.count} mätare i området markerade. Tidigare markeringar finns kvar.`);
+      return;
+    }
     const listButton = t.closest("[data-list]");
     if (listButton) { setList(listButton.dataset.list); return; }
     const focusButton = t.closest("[data-focus]");
@@ -1066,3 +1101,4 @@
   if (window.indexedDB && window.LeakStorage) showProfile();
   reanalyze(true);
 }());
+
