@@ -78,6 +78,7 @@
       activeEvents: String(raw.activeEvents ?? "").trim(),
       closedEvents: String(raw.closedEvents ?? "").trim(),
       follow: raw.follow === true,
+      interestRank: Number.isSafeInteger(raw.interestRank) && raw.interestRank > 0 ? raw.interestRank : null,
       source: String(raw.source || source || ""),
       serial: String(raw.serial ?? "").trim(),
       address: String(raw.address ?? "").trim(),

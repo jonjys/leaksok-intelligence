@@ -227,6 +227,41 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal((await meter('90000002')).category, 'confirmed', 'Existing confirmed leak survives');
     assert.equal((await meter('90000016')).category, 'repaired', 'Existing repair survives');
     await page.screenshot({ path: 'test-results/area-signal-1440.png' });
+
+    // Older cached imports lack Kamstrup's interest rank. Re-import the exact
+    // readings with this metadata: update in place, persist, and show Misstänk.
+    const interestId = '99000001';
+    const interestFiles = ['2026-09-11', '2026-09-14', '2026-09-30', '2026-10-01'].map((date, i) => ({
+      name: `Intressetest ${date} 07-00.csv`,
+      text: toCsv([['Serienummer', 'Adress', 'Senaste avläsning', 'Senaste värde', 'Genomsnittsvärde'],
+        [interestId, 'INTRESSETESTVÄGEN 1 TUMBA 14730', `${date} 04:00`, [226, 218, 234, 292][i], 244]])
+    }));
+    await kit.importFiles(page, interestFiles);
+    assert.equal((await meter(interestId)).category, 'stable_high');
+    const countBeforeRank = await page.evaluate(() => state.files.length);
+    const rankedFile = (rank) => ({ name: interestFiles[3].name, text: toCsv([
+      ['Mätare av intresse', 'Serienummer', 'Adress', 'Senaste avläsning', 'Senaste värde', 'Genomsnittsvärde'],
+      [rank, interestId, 'INTRESSETESTVÄGEN 1 TUMBA 14730', '2026-10-01 04:00', 292, 244]
+    ]) });
+    await kit.importFiles(page, [rankedFile(2)]);
+    assert.equal(await page.evaluate(() => state.files.length), countBeforeRank);
+    assert.match(await page.locator('#importStatus').innerText(), /1 uppdaterade exporter/);
+    assert.equal((await meter(interestId)).category, 'suspect_auto');
+    await list('suspect');
+    await page.locator('#search').fill('INTRESSETESTVÄGEN');
+    assert.match(await row(interestId).innerText(), /Kamstrup · rang 2/);
+    await kit.importFiles(page, [interestFiles[3]]);
+    assert.equal((await meter(interestId)).category, 'suspect_auto', 'Absent header does not erase enriched duplicate metadata');
+    await page.reload({ waitUntil: 'load' });
+    await kit.unlock(page, null, '1234');
+    assert.equal((await meter(interestId)).category, 'suspect_auto', 'Enriched metadata survives reload');
+    assert.equal(await page.evaluate((id) => state.byId.get(id).history.readings, interestId), 4);
+    assert.equal(await page.evaluate(() => state.files.length), countBeforeRank);
+    await kit.importFiles(page, [rankedFile('')]);
+    assert.equal((await meter(interestId)).category, 'stable_high', 'Explicit blank removes rank without adding a reading');
+    assert.equal(await page.evaluate(() => state.files.length), countBeforeRank);
+    assert.equal((await meter('90000002')).category, 'confirmed');
+    assert.equal((await meter('90000016')).category, 'repaired');
     assert.deepEqual(errors, [], "No browser runtime errors");
     console.log("Browser workflow PASS: import 3000×30, lists, focus, evidence, confirmed/repaired/watch/undo/reset/hide, duplicates, next export, reload, desktop and phone.");
   } catch (error) {

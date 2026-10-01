@@ -449,6 +449,7 @@
       E: latestRow?.current ?? null,
       F: latestRow?.average ?? null,
       G: latestRow?.max ?? null,
+      interestRank: latestRow?.interestRank ?? null,
       exportDate: latestRow?.exportDate || null,
       readAt: latestRow?.readAt || null,
     };
@@ -778,6 +779,13 @@
     // ---------- automatic category ----------
     let category = "normal";
     const fresh = latest && ageDays < RULES.oldDays;
+    // Kamstrup has its own ranked leak suggestions, sometimes based on
+    // readings that predate the user's exports. Keep this evidence separate
+    // from our measured change, priority score and area-signal calculation.
+    result.kamstrupInterest = Boolean(excel.interestRank && latest && ageDays <= 1
+      && latestRow.readAt && days(latestRow.readAt, latestExport) <= 1 && excel.E != null
+      && days(history.lastExport, latestExport) <= 1 && !missedExports && !codes.dry
+      && (!reset || (latestRow.readAt > reset.at && history.lastExport > reset.at)));
     const withinSeason = upFinding && season?.status === "verified" && season.expected != null && upFinding.now.level <= season.expected * 1.6 + 5;
     if (!latest && reset) category = "normal";
     else if (!latest || stale) category = "stale_contact";
@@ -797,6 +805,8 @@
     else if (season?.status === "verified") category = "seasonal";
     else if (n < 3 || result.history.spanDays < 2) category = "learning";
     else if ((result.level?.current ?? 0) >= RULES.highLevel) category = "stable_high";
+
+    if (result.kamstrupInterest && !["dispatch", "customer_side", "stale_contact"].includes(category)) category = "suspect_auto";
 
     // ---------- manual decisions ----------
     let manualNote = "";
@@ -827,6 +837,14 @@
       }
     }
     if (manualNote) obs.unshift(manualNote);
+
+    if (excel.interestRank) {
+      obs.push(`Kamstrup: mätare av intresse, rang ${excel.interestRank} i exporten ${D(excel.exportDate)}. Detta är ett separat läckförslag, inte en konstaterad läcka.`);
+      if (result.kamstrupInterest && category === "suspect_auto" && !upFinding) {
+        summary = `Kamstrup läckförslag · rang ${excel.interestRank}. ${summary}`;
+        explain.push("Kamstrup kan ha äldre avläsningar än de importerade filerna. Ingen observerad ökning i appens historik utesluter därför inte en tidigare förändring. Förslaget anger inte var läckan sitter.");
+      }
+    }
 
     // ---------- explanations and action ----------
     if (upFinding?.type === "new_signal") explain.push("En enstaka högre avläsning kan vara tillfällig förbrukning, pump eller början på en läcka.");
@@ -887,6 +905,7 @@
       case "dispatch": return r.label?.type === "manual_dispatch" ? "Åk ut enligt manuellt beslut." : "Kontrollera på plats: lyssna vid mätare och servisventil. Uteslut först läcka efter mätaren.";
       case "confirmed": return "Aktiv läcka: följ upp reparationen och markera Lagad manuellt när den är åtgärdad.";
       case "suspect_auto":
+        if (r.kamstrupInterest && !r.upFinding) return "Granska Kamstrups läckförslag och jämför grannmätare; kontrollera på plats vid behov.";
         if (r.upFinding?.type === "new_signal") return "Kontrollera nästa avläsning innan åtgärd.";
         if (r.codes.acousticLeak && !r.upFinding) return "Granska Leak Detector-händelsen och kurvan; kontrollera på plats vid behov.";
         return "Jämför med grannmätare och följ nästa avläsningar; kontrollera på plats om nivån består.";
@@ -1031,4 +1050,3 @@
 
   return { RULES, CATEGORY, LABELS, analyzeMeter, analyzeAll, prepare, analyzePrepared, labelKey, attachNeighbors, morning, segment, noiseSigma, trendOf, seasonProfile, codesOf, placeOf, interferenceOf, fmtDate, fmtNum, fmtPct, fmtSigned, fmtPeriod, median };
 }));
-

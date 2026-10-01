@@ -127,7 +127,8 @@
   function mapColumns(headerRow) {
     const header = headerRow.map((value) => String(value ?? "").trim().toLowerCase());
     const col = {};
-    col.serial = findColumn(header, ["serienummer", "serienr", "mätarnummer", "serial", "meter"]);
+    col.interestRank = findColumn(header, ["mätare av intresse", "meters of interest", "meter of interest"]);
+    col.serial = findColumn(header, ["serienummer", "serienr", "mätarnummer", "serial", "meter"], [col.interestRank]);
     col.address = findColumn(header, ["adress", "address", "installationsadress", "plats"]);
     col.current = findColumn(header, ["senaste värde", "brusvärde", "brus", "noise", "value"]);
     col.average = findColumn(header, ["genomsnittsvärde", "genomsnitt", "medelvärde", "average", "avg"], [col.current]);
@@ -222,6 +223,9 @@
         activeEvents,
         closedEvents: col.closedEvents >= 0 ? cleanText(row[col.closedEvents]) : "",
         follow: col.follow >= 0 && parseFlag(row[col.follow]),
+        // Missing column is different from a blank rank: older exports must
+        // not erase metadata when an identical reading is imported again.
+        interestRank: col.interestRank < 0 ? undefined : parseInterestRank(row[col.interestRank]),
         source: file.name || "",
       });
     }
@@ -242,6 +246,12 @@
 
   function parseFlag(value) {
     return value === true || /^(sant|true|ja|yes|1|x)$/i.test(cleanText(value));
+  }
+
+  function parseInterestRank(value) {
+    const text = cleanText(value);
+    const rank = /^\d+$/.test(text) ? Number(text) : null;
+    return Number.isSafeInteger(rank) && rank > 0 ? rank : null;
   }
 
   function localDate(date) {
