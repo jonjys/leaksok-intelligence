@@ -201,7 +201,7 @@
     state.importing = true;
     els.pickFiles.disabled = true;
     const warnings = [], errors = [];
-    let added = 0, duplicates = 0;
+    let added = 0, duplicates = 0, updated = 0;
     const next = [...state.files];
     const signature = (rows) => rows.map((r) => `${r.id}|${r.readAt?.getTime?.() ?? ""}|${r.current}`).join(";");
     try {
@@ -213,7 +213,21 @@
           const parsed = Parse.parseTable(table, { name: file.name, lastModified: file.lastModified });
           if (!parsed.rows.length) throw new Error("inga mätarrader hittades");
           const sig = signature(parsed.rows);
-          if (next.some((f) => f.exportDate.getTime() === parsed.exportDate.getTime() && f.rows.length === parsed.rows.length && signature(f.rows) === sig)) { duplicates++; continue; }
+          const duplicateIndex = next.findIndex((f) => f.exportDate.getTime() === parsed.exportDate.getTime() && f.rows.length === parsed.rows.length && signature(f.rows) === sig);
+          if (duplicateIndex >= 0) {
+            duplicates++;
+            const existing = next[duplicateIndex];
+            let changed = false;
+            const rows = existing.rows.map((row, index) => {
+              const rank = parsed.rows[index].interestRank;
+              if (rank === undefined || rank === row.interestRank) return row;
+              changed = true;
+              return { ...row, interestRank: rank };
+            });
+            // Copy, do not mutate: failed analysis can still roll back safely.
+            if (changed) { next[duplicateIndex] = { ...existing, rows }; updated++; }
+            continue;
+          }
           // A same-named file from another day, or with other content, is kept: history is never dropped.
           next.push({ name: file.name, exportDate: parsed.exportDate, exportDateSource: parsed.exportDateSource, importedAt: new Date().toISOString(), rows: parsed.rows });
           parsed.warnings.forEach((w) => warnings.push(`${file.name}: ${w}`));
@@ -232,9 +246,9 @@
         setImportStatus(`Importen avbröts, inget sparades: ${error.message}`);
         return;
       }
-      const saved = added ? await persist(true) : true;
+      const saved = added || updated ? await persist(true) : true;
       const latest = state.latestExport ? `senaste export ${Engine.fmtDate(state.latestExport, true)} ${String(state.latestExport.getHours()).padStart(2, "0")}:${String(state.latestExport.getMinutes()).padStart(2, "0")}` : "";
-      setImportStatus(`${added} nya filer · ${duplicates} dubbletter · ${latest} · ${state.meters.length.toLocaleString("sv-SE")} mätare. ${saved ? "Sparat på denna enhet." : state.storageError}`);
+      setImportStatus(`${added} nya filer · ${duplicates} dubbletter${updated ? ` · ${updated} uppdaterade exporter` : ""} · ${latest} · ${state.meters.length.toLocaleString("sv-SE")} mätare. ${saved ? "Sparat på denna enhet." : state.storageError}`);
       renderImportLog(warnings, errors);
     } finally {
       state.importing = false;
@@ -408,6 +422,7 @@
     const marked = state.marked.has(m.id);
     const expanded = state.expanded.has(m.id);
     const tags = [];
+    if (m.excel.interestRank) tags.push(`<span class="tag" title="Kamstrups mätare av intresse i exporten ${esc(Engine.fmtDate(m.excel.exportDate, true))}">Kamstrup · rang ${m.excel.interestRank}</span>`);
     if (m.areaSignal) tags.push(`<span class="tag area-tag">Områdessignal · ${m.areaSignal.count} mätare</span>`);
     if (m.label?.type) tags.push(`<span class="tag manual">${esc(Engine.LABELS[m.label.type] || m.label.type)}</span>`);
     if (m.codes.leak || m.codes.burst || m.codes.dry) tags.push(`<span class="tag code">Infokod ${esc(m.codes.infoCode)}</span>`);
@@ -1101,4 +1116,3 @@
   if (window.indexedDB && window.LeakStorage) showProfile();
   reanalyze(true);
 }());
-

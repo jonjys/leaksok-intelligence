@@ -84,6 +84,7 @@
       lastExport: m.excel.exportDate,
       ageDays: m.latest?.ageDays ?? null,
       E: m.excel.E, F: m.excel.F, G: m.excel.G, P: m.excel.P,
+      interestRank: m.excel.interestRank,
       infoCode: m.codes.infoCode,
       events: [m.codes.activeEvents, m.codes.closedEvents && `stängd: ${m.codes.closedEvents}`, m.codes.follow && "Följs i Kamstrup"].filter(Boolean).join(" · "),
       quality: m.dataQuality.join("\n"),
@@ -161,6 +162,7 @@
             { header: "G Maxvärde (export)", key: "G", type: "number", width: 10 },
             { header: "P = E/F − 1", key: "P", type: "percent", width: 9 },
             { header: "Infokod", key: "infoCode", width: 10 },
+            { header: "Kamstrup intresserang", key: "interestRank", type: "number", width: 14 },
             { header: "Aktiva händelser", key: "events", width: 14 },
             { header: "Datakvalitet", key: "quality", width: 42 },
             { header: "Observationer", key: "observations", width: 60 },
@@ -185,6 +187,7 @@
   }
 
   const DEFINITIONS = [
+    { term: "Kamstrup intresserang", text: "Mätare av intresse är Kamstrups rangordnade läckförslag. En färsk rekommendation visas i Misstänk även om egen historik saknar en tidigare lägre nivå. Rangen är inte en procentsats eller LeakSöks prioritet och bekräftar inte läcka eller placering. Manuella beslut och infokoder hanteras separat." },
     { term: "Värden", text: "Kamstrup Leak Detectors exporterade brusvärde (dagens lägsta, filtrerade värde). Kamstrup anger ingen enhet. Procent är procent av exportvärdet, inte procentuell förändring av ljudintensitet." },
     { term: "Förändring sedan föregående", text: "Senaste avläsningsdagens värde minus föregående avläsningsdags värde; procent = (nytt / tidigare) − 1. Tidigare värde 0 ger ingen procent." },
     { term: "Jämförelsenivå", text: "Mätarens egen nivå före det aktuella fyndet: median av avläsningar i angiven period. Se kolumnen Definition av jämförelse. Skild från förändring sedan föregående avläsning." },
@@ -208,4 +211,3 @@
 
   return { buildWorkbook, rowFor, statusText, fileName, DEFINITIONS };
 }));
-

@@ -64,6 +64,16 @@ Materialet räcker inte för gradvis trend (kräver ≥ 8 avläsningar över 14 
 
 ## Utveckling och verifiering
 
+### Kamstrups mätare av intresse
+
+Importen läser `Mätare av intresse` (även `Meters of interest`) som positiv heltalsrang, separat från infokoder och Följ. En aktuell rekommendation visas i **Misstänk** även om den egna exporthistoriken börjar efter en möjlig ökning. Den skapar varken konstaterad läcka, automatisk Åk ut, påhittad referensnivå eller områdessignal. LeakSöks egen jämförelse och prioritet behålls; källa och rang visas i listan, analysen och Excel-exporten.
+
+Både avläsningen och exporten måste vara färska (högst en kalenderdag gamla jämfört med senaste exportdatum), senaste rad måste ha giltigt värde/datum, och DRY får inte förekomma. Äldre eller uteblivna avläsningar prioriteras inte upp av rangen. LEAK/BURST ligger fortsatt i Efter mätare. Manuella beslut går före. Nollställning använder endast nya avläsningar efter nollställningstidpunkten.
+
+Filer som importerades innan kolumnen stöddes behöver importeras igen, normalt räcker den senaste exporten. Samma avläsningar uppdateras då på plats med ranginformationen, utan dubbla filer eller historikpunkter. En tom rang i senaste exporten tar bort rekommendationen. En dubblett utan rangkolumn raderar inte redan inläst metadata.
+
+Kamstrups beskrivning: [Meters of interest ranking, release 1.5.1](https://kamstrup-delivery.sitecorecontenthub.cloud/api/public/content/59293-downloadOriginal?v=e110f267). Rangen är leverantörens rekommendation, inte en riskprocent eller en uppgift om var läckan sitter.
+
 Statisk app utan byggsteg: öppna `index.html` via en statisk server (`python3 -m http.server 4173`).
 
 ```bash
