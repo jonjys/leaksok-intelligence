@@ -7,10 +7,11 @@
    calibrated leak probability. Rule-based and local: no external services. */
 (function (root, factory) {
   const api = factory(root.LeakHistory || (typeof require === "function" ? require("./history.js") : null),
-    root.LeakAreaSignals || (typeof require === "function" ? require("./area-signals.js") : null));
+    root.LeakAreaSignals || (typeof require === "function" ? require("./area-signals.js") : null),
+    root.LeakCaseLearning || (typeof require === "function" ? require("./case-learning.js") : null));
   if (typeof module === "object" && module.exports) module.exports = api;
   root.LeakEngine = api;
-}(typeof globalThis !== "undefined" ? globalThis : this, function (History, AreaSignals) {
+}(typeof globalThis !== "undefined" ? globalThis : this, function (History, AreaSignals, CaseLearning) {
   const DAY = 86400000;
   const RULES = Object.freeze({
     absMin: 2,            // smallest change in export units that can count
@@ -1023,7 +1024,26 @@
         m.explanations.push(...signal.notes);
       }
     }
-    return { meters: results, areaSignals, latestExport: prepared.latestExport, exportDays: prepared.exportDays };
+    const learning = CaseLearning.build(results, { coordinates: options.coordinates, labels, placeOf });
+    for (const record of learning.cases) {
+      for (const profile of record.profiles) {
+        const m = byId.get(profile.id);
+        (m.leakProfiles ||= []).push({ caseId: record.id, anchorId: record.anchorId, lineType: record.lineType, confirmedDate: record.confirmedDate, repairedDate: record.repairedDate, ...profile });
+      }
+    }
+    for (const match of learning.matches) {
+      const m = byId.get(match.id);
+      m.learnedLeakMatch ||= match;
+      m.observations.push(`Ljudmönstret liknar denna mätares respons vid registrerad ${match.lineType}-läcka ${match.confirmedDate}, lagad ${match.repairedDate}.`);
+      m.explanations.push("Lokalt jämförelsemönster från ett fältfall; samma ljudbild bevisar inte en ny läcka eller en gemensam ledning.");
+      if (!labels[m.id]?.type && ["suspect_auto", "dispatch"].includes(m.category) && !m.priorityParts.some((p) => p.name === "Likt registrerat läckfall")) {
+        m.priorityParts.push({ name: "Likt registrerat läckfall", points: Math.min(6, 100 - m.priority) });
+        m.priority = Math.min(100, m.priority + 6);
+        m.sortRank = CATEGORY[m.category].rank * 1000 + m.priority;
+      }
+    }
+    results.sort((a, b) => b.sortRank - a.sortRank || String(a.address).localeCompare(String(b.address), "sv"));
+    return { leakCases: learning.cases, meters: results, areaSignals, latestExport: prepared.latestExport, exportDays: prepared.exportDays };
   }
 
   /* files → analysed meters. labels: { id: label }. */
@@ -1050,3 +1070,4 @@
 
   return { RULES, CATEGORY, LABELS, analyzeMeter, analyzeAll, prepare, analyzePrepared, labelKey, attachNeighbors, morning, segment, noiseSigma, trendOf, seasonProfile, codesOf, placeOf, interferenceOf, fmtDate, fmtNum, fmtPct, fmtSigned, fmtPeriod, median };
 }));
+

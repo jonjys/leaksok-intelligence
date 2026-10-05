@@ -310,6 +310,11 @@
     return out;
   }
 
-  root.LeakMap = { create, navigationUrl, coordinates, markFor: (id) => marks[id] || null, addressForMap, parseAddress, exactHit, cachedPosition };
+  async function resolvePositions(meters) {
+    for (const m of meters.slice(0, 12)) await geocode(m);
+    return coordinates(meters);
+  }
+
+  root.LeakMap = { resolvePositions, create, navigationUrl, coordinates, markFor: (id) => marks[id] || null, addressForMap, parseAddress, exactHit, cachedPosition };
 }(typeof globalThis !== "undefined" ? globalThis : this));
 

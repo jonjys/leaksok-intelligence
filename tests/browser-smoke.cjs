@@ -17,6 +17,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
   const row = (id) => page.locator(`#rows tr[data-id="${id}"]`);
   const meter = (id) => page.evaluate((i) => { const m = state.byId.get(i); return m && { category: m.category, summary: m.summary, latest: m.latest?.value, priority: m.priority, label: state.labels[i] || null, obs: m.observations }; }, id);
   const list = async (key) => {
+    if (["customer_side", "seasonal", "noise", "ignored"].includes(key)) key = "hidden";
     const button = page.locator(`#rail [data-list="${key}"]`).first();
     if (!(await button.isVisible())) await page.locator("#rail .rail-more > summary").click();
     await button.click();
@@ -28,6 +29,15 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await kit.importFiles(page, files.map((f) => ({ name: f.name, text: toCsv(f.rows) })));
     assert.equal(await page.evaluate(() => state.meters.length), 3000);
     assert.equal(await page.evaluate(() => state.files.length), 30);
+
+    // Quiet/customer groups start hidden and have no separate navigation tabs.
+    assert.equal(await page.locator('#rail [data-list="customer_side"]').count(), 0);
+    assert.equal(await page.evaluate(() => state.visible.some(m => m.category === "customer_side")), false);
+    await page.locator("#groupFilter summary").click();
+    await page.locator('#groupFilter input[value="customer_side"]').check();
+    assert.equal(await page.evaluate(() => state.visible.some(m => m.category === "customer_side")), true);
+    await page.locator('#groupFilter input[value="customer_side"]').uncheck();
+    await page.locator("#groupFilter summary").click();
 
     // Morning overview and lists come from the same analysis.
     await list("today");
@@ -70,7 +80,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     // Konstaterad via right-click menu: date + uncertain, no repair fields.
     await row("90000002").click({ button: "right" });
     await page.locator('#contextMenu [data-decision="leak"]').click();
-    assert.equal(await page.locator('#decisionFields [name="repairedDate"]').count(), 0, "Confirmed leak has no repair fields");
+    assert.equal(await page.locator('#decisionFields [name="repairedDate"]').count(), 1, "Leak supports an optional repair date");
     await page.locator('#decisionFields [name="confirmedDate"]').fill("2026-09-28");
     await page.locator('#decisionFields [name="confirmedDateUncertain"]').check();
     await page.locator("#decisionSave").click();
@@ -78,8 +88,16 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal(m2.category, "confirmed");
     assert.equal(m2.label.confirmedDateUncertain, true);
 
-    // Lagad via ⋯ menu with repair details.
+    // Active case dates survive moving the same case to repaired.
     await list("dispatch");
+    await row("90000016").locator('[data-act="menu"]').click();
+    await page.locator('#contextMenu [data-decision="leak"]').click();
+    await page.locator('#decisionFields [name="confirmedDate"]').fill("2026-09-27");
+    await page.locator('#decisionFields [name="lineType"][value="AV"]').check();
+    await page.locator("#decisionSave").click();
+
+    // Lagad via ⋯ menu with repair details.
+    await list("confirmed");
     await row("90000016").locator('[data-act="menu"]').click();
     await page.locator('#contextMenu [data-decision="repaired"]').click();
     await page.locator('#decisionFields [name="repairedDate"]').fill("2026-09-29");
@@ -91,6 +109,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal(m16.category, "repaired");
     assert.equal(m16.label.distanceMeters, 55);
     assert.equal(m16.label.lineType, "SV");
+    assert.equal(m16.label.confirmedDate, "2026-09-27", "Original case date is preserved");
     await list("repaired");
     assert.equal(await row("90000016").count(), 1);
 
@@ -104,6 +123,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
 
     // Undo restores the previous decision.
     await row("90000003").click({ button: "right" });
+    await page.locator("#contextMenu .menu-decisions summary").click();
     await page.locator('#contextMenu [data-decision="ignored"]').click();
     assert.equal((await meter("90000003")).category, "ignored");
     await page.locator("#toast [data-undo]").click();
@@ -112,6 +132,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     // Nollställ defines the moment from which readings count.
     await list("suspect");
     await row("90000006").click({ button: "right" });
+    await page.locator("#contextMenu .menu-decisions summary").click();
     await page.locator('#contextMenu [data-decision="reset_baseline"]').click();
     assert.match(await page.locator("#decisionFields").innerText(), /bedöms bara avläsningar som tas efter denna tidpunkt/);
     await page.locator("#decisionSave").click();
@@ -123,13 +144,13 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await list("all");
     await page.locator("#search").fill("HÖGNIVÅVÄGEN 9");
     await row("90000005").locator("[data-mark]").check();
-    await page.locator('#selectionBar [data-sel="hide"]').click();
+    await kit.selectionAction(page, "hide");
     assert.equal(await row("90000005").count(), 0);
     await page.locator("#search").fill("");
     await list("hidden");
     assert.equal(await row("90000005").count(), 1);
     await row("90000005").locator("[data-mark]").check();
-    await page.locator('#selectionBar [data-sel="hide"]').click();
+    await kit.selectionAction(page, "hide");
     assert.equal(await page.evaluate(() => state.labels["90000005"].hidden), false);
 
     // Duplicate import and the next morning's export.
@@ -264,6 +285,32 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal(await page.evaluate(() => state.files.length), countBeforeRank);
     assert.equal((await meter('90000002')).category, 'confirmed');
     assert.equal((await meter('90000016')).category, 'repaired');
+    // Both dates in one leak form; invalid chronology must not save.
+    await page.locator("#search").fill("");
+    await list("all");
+    await page.evaluate(() => { state.marked.clear(); LeakApp.render(); LeakApp.setFocus("90000011", {scroll:false}); });
+    await page.locator("#focusMenu").click();
+    await page.locator('#contextMenu [data-decision="leak"]').click();
+    await page.locator('#decisionFields [name="confirmedDate"]').fill("2026-09-08");
+    await page.locator('#decisionFields [name="repairedDate"]').fill("2026-09-07");
+    await page.locator('#decisionFields [name="lineType"][value="AV"]').check();
+    await page.locator("#decisionSave").click();
+    assert.match(await page.locator("#decisionError").innerText(), /före läckdatum/);
+    await page.locator('#decisionFields [name="repairedDate"]').fill("2026-09-14");
+    await page.screenshot({path:"test-results/leak-case-form.png"});
+    await page.locator("#decisionSave").click();
+    assert.equal((await meter("90000011")).label.type, "repaired");
+    assert.equal((await meter("90000011")).label.lineType, "AV");
+    assert.ok(await page.evaluate(() => state.leakCases.some(c=>c.anchorId==="90000011")));
+    await page.locator("#focusMenu").click();
+    await page.screenshot({path:"test-results/compact-decisions.png"});
+    assert.equal(await page.locator('#contextMenu [data-decision="seasonal"]').isVisible(), false);
+    await page.keyboard.press("Escape");
+    await page.reload({waitUntil:"load"});
+    await kit.unlock(page,null,"1234");
+    await page.waitForFunction(()=>state.byId.has("90000011"));
+    assert.equal((await meter("90000011")).label.confirmedDate,"2026-09-08");
+    assert.ok(await page.evaluate(() => state.leakCases.some(c=>c.anchorId==="90000011")));
     assert.deepEqual(errors, [], "No browser runtime errors");
     console.log("Browser workflow PASS: import 3000×30, lists, focus, evidence, confirmed/repaired/watch/undo/reset/hide, duplicates, next export, reload, desktop and phone.");
   } catch (error) {

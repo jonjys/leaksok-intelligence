@@ -64,15 +64,12 @@
         </label>
         <label class="field"><span>Område</span><select id="areaFilter"><option value="all">Alla</option></select></label>
         <details class="menu" id="groupFilter">
-          <summary>Dölj grupper <span id="groupFilterCount"></span></summary>
+          <summary>Visa dolda grupper <span id="groupFilterCount"></span></summary>
           <div class="menu-panel">
-            <p class="hint">Döljs i Alla mätare och på kartan</p>
+            <p class="hint">Dolda i arbetslistorna tills du väljer att visa dem.</p>
             <label><input type="checkbox" value="customer_side"> Efter mätare</label>
-            <label><input type="checkbox" value="stable_high"> Stabilt hög</label>
             <label><input type="checkbox" value="noise"> Störning / tillfällig</label>
             <label><input type="checkbox" value="seasonal"> Säsong</label>
-            <label><input type="checkbox" value="repaired"> Lagade</label>
-            <label><input type="checkbox" value="learning"> Kort historik</label>
             <label><input type="checkbox" value="ignored"> Ignorerade</label>
           </div>
         </details>
@@ -182,6 +179,7 @@
   <script src="./src/parse.js"></script>
   <script src="./src/history.js"></script>
   <script src="./src/area-signals.js"></script>
+  <script src="./src/case-learning.js"></script>
   <script src="./src/engine.js"></script>
   <script src="./src/xlsx-writer.js"></script>
   <script src="./src/field-export.js"></script>

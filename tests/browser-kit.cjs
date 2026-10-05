@@ -61,4 +61,11 @@ async function importFiles(page, files) {
   await page.waitForFunction(() => typeof state !== 'undefined' && !state.importing, null, { timeout: 120000 });
 }
 
-module.exports = { root, startServer, routeExternal, unlock, importFiles };
+async function selectionAction(page, action) {
+  const button = page.locator(`#selectionBar [data-sel="${action}"]`);
+  if (!await button.isVisible()) await page.locator("#selectionBar .selection-menu summary").click();
+  await button.click();
+}
+
+module.exports = { root, startServer, routeExternal, unlock, importFiles, selectionAction };
+

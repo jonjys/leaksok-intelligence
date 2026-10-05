@@ -41,8 +41,9 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
       await page.locator("#nextPage").click();
     }
     assert.match(await page.locator("#selectionBar").innerText(), /3 markerade/);
-    assert.match(await page.locator("#pageInfo").innerText(), /Visar 151–200 av 3\s000 träffar · sida 4\/60/);
-    await page.locator('#selectionBar [data-sel="excel"]').click();
+    const visibleTotal = await page.evaluate(() => state.visible.length);
+    assert.match(await page.locator("#pageInfo").innerText(), new RegExp(`Visar 151–200 av ${visibleTotal.toLocaleString("sv-SE").replace(/\s/g,"\\s")} träffar · sida 4/${Math.ceil(visibleTotal/50)}`));
+    await kit.selectionAction(page, "excel");
     assert.match(await page.locator("#exportTitle").innerText(), /Exportera 3 mätare/, "Count shown before download");
     let book = await download(() => page.locator('#exportDialog [data-act="download"]').click());
     assert.deepEqual([...book.serials].sort(), [...marked].sort(), "Exactly the three marked meters");
@@ -59,17 +60,18 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await page.locator("#search").fill("LÅGNIVÅVÄGEN");
     const hits = await page.evaluate(() => state.visible.length);
     assert.equal(hits, 2);
+    await page.locator("#selectionBar .selection-menu summary").click();
     assert.match(await page.locator('#selectionBar [data-sel="all"]').innerText(), /Markera alla 2 träffar/);
-    await page.locator('#selectionBar [data-sel="all"]').click();
+    await kit.selectionAction(page, "all");
     assert.match(await page.locator("#selectionBar").innerText(), /5 markerade \(3 syns inte i nuvarande lista\/filter\)/);
-    await page.locator('#selectionBar [data-sel="clear"]').click();
+    await kit.selectionAction(page, "clear");
     assert.equal(await page.locator('#selectionBar [data-sel="excel"]').count(), 0, "No export without a selection");
-    await page.locator('#selectionBar [data-sel="all"]').click();
-    book = await download(async () => { await page.locator('#selectionBar [data-sel="excel"]').click(); await page.locator('#exportDialog [data-act="download"]').click(); });
+    await kit.selectionAction(page, "all");
+    book = await download(async () => { await kit.selectionAction(page, "excel"); await page.locator('#exportDialog [data-act="download"]').click(); });
     assert.deepEqual([...book.serials].sort(), ["90000001", "90000002"]);
 
     // Work list: add, nothing preselected, export only ticked rows.
-    await page.locator('#selectionBar [data-sel="worklist"]').click();
+    await kit.selectionAction(page, "worklist");
     assert.equal(await page.locator("#worklistCount").innerText(), "2");
     await page.locator("#openWorklist").click();
     assert.equal(await page.locator('#worklistDialog [data-act="export"]').isDisabled(), true);
@@ -120,3 +122,4 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     server.close();
   }
 })().catch((e) => { console.error(e); process.exitCode = 1; });
+

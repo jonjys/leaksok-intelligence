@@ -74,7 +74,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
 
     // Right-click sort links act immediately, including with several rows marked.
     await page.locator("#rows tr.row").first().locator(".addr").click({ button: "right" });
-    await page.locator("#contextMenu .menu-sort summary").click();
+    await page.locator("#contextMenu .menu-sort:not(.menu-decisions) summary").click();
     await page.locator('#contextMenu [data-menu-sort="address"]').click();
     assert.equal(await page.locator("#sort").inputValue(), "address");
     assert.equal(await page.locator("#contextMenu").isVisible(), false);

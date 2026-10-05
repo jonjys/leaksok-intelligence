@@ -38,9 +38,11 @@ jobs:
       - run: node tests/download-browser.cjs
       - run: node tests/legacy-browser.cjs
       - run: node tests/layout-browser.cjs
+      - run: node tests/case-learning-browser.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: desktop-mobile-evidence
           path: test-results/
+
 

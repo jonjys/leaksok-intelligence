@@ -88,3 +88,13 @@ Webbläsartesterna kräver Playwright. `LEAKSOK_VENDOR=<mapp>` kan peka på loka
 
 Moduler: `parse.js` (import) → `history.js` (avläsningar) → `engine.js` (analys) → `app.js` (lista, urval, beslut), `chart.js`, `map.js`, `worklist.js`, `field-export.js` + `xlsx-writer.js` (Excel), `storage.js` (IndexedDB), `styles.css`.
 
+
+## Dolda grupper och registrerade läckfall
+
+Efter mätare, Störning/tillfällig, Säsong och Ignorerade är dolda i arbetslistorna som standard. **Visa dolda grupper** visar valda grupper igen. **Fler listor → Dolda** samlar dessa och manuellt gömda mätare; grupperna har inga egna menyflikar. Högerklick visar Åk ut, Bevaka, Läcka och Lagad direkt; mindre vanliga beslut ligger under **Övriga beslut**. Markeringsrutan visar antal, Flytta till och Excel; Markera sidan/alla, arbetslista, göm och avmarkera ligger under **Mer**.
+
+**Läcka** har datum konstaterad, AV (huvudledning), SV (servis) eller Vet ej, samt valfritt lagdatum. Lagdatum flyttar fallet till Lagade. När ett aktivt fall markeras Lagad bevaras läckdatum och ledningstyp. Vid ett nytt läckfall bevaras tidigare avslutade fall.
+
+Lokal jämförelse använder mätares dagliga exportvärden före läckdatum, under läckan och efter lagdatum. Före/efter använder högst 14 dagar; lagdagen undantas eftersom den kan innehålla båda nivåerna. Minst tre avläsningsdagar utan luckor över tre dagar behövs i varje period, tillsammans med en tydlig ökning och återgång efter lagning. Exakta kartpunkter inom 250 m används för närliggande mätare. När jämförelseperioderna har tillräckligt med data hämtas saknade exakta adressträffar för grannarna automatiskt, i små grupper via kartans begränsade sökkö. Adressnärhet på samma gata visas preliminärt, utan att påstå ett uppmätt avstånd eller lära ett grannmönster. Okänd ledningstyp, osäkert läckdatum, efter-mätare-/DRY-infokoder och tunt underlag ger ingen inlärning.
+
+**Visa underlag** visar median, antal dagar och bedömning per mätare. En senare förhöjning under minst tre avläsningsdagar efter jämförelseperioden kan matchas mot samma mätares tidigare verifierade respons. En sådan match ger högst sex extra prioritetspoäng inom befintlig automatisk Misstänk/Åk ut; den ändrar inga manuella beslut och konstaterar aldrig en ny läcka. Närhet bevisar inte ledningskoppling; nivåerna har exportens enhet, inte dB. Underlaget sparas lokalt med profilen och räknas om när nya exporter eller kartpositioner tillkommer.

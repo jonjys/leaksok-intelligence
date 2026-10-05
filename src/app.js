@@ -23,24 +23,25 @@
     { key: "dispatch", label: "Åk ut", test: (m) => m.category === "dispatch" },
     { key: "suspect", label: "Misstänk", test: (m) => m.category === "suspect_auto", hint: "Automatisk upptäckt" },
     { key: "watch", label: "Bevaka", test: (m) => m.category === "watch", hint: "Din manuella lista" },
-    { key: "customer_side", label: "Efter mätare", test: (m) => m.category === "customer_side" },
+    { group: true, key: "customer_side", label: "Efter mätare", test: (m) => m.category === "customer_side" },
     { key: "confirmed", label: "Aktiva läckor", test: (m) => m.category === "confirmed" },
     { key: "repaired", label: "Lagade", test: (m) => m.label?.type === "repaired" },
     { key: "stable_high", label: "Stabilt hög", test: (m) => m.category === "stable_high", more: true },
-    { key: "noise", label: "Störning / tillfällig", test: (m) => m.category === "noise", more: true },
-    { key: "seasonal", label: "Säsong", test: (m) => m.category === "seasonal", more: true },
+    { group: true, key: "noise", label: "Störning / tillfällig", test: (m) => m.category === "noise", more: true },
+    { group: true, key: "seasonal", label: "Säsong", test: (m) => m.category === "seasonal", more: true },
     { key: "learning", label: "Kort historik", test: (m) => m.category === "learning", more: true },
     { key: "stale_contact", label: "Utan färsk avläsning", test: (m) => m.category === "stale_contact", more: true },
-    { key: "ignored", label: "Ignorerade", test: (m) => m.category === "ignored", more: true },
-    { key: "hidden", label: "Gömda", test: () => true, more: true },
+    { group: true, key: "ignored", label: "Ignorerade", test: (m) => m.category === "ignored", more: true },
+    { key: "hidden", label: "Dolda", test: () => true, more: true },
   ];
   const LIST = Object.fromEntries(LISTS.map((l) => [l.key, l]));
 
+  const DEFAULT_HIDDEN = ["customer_side", "noise", "seasonal", "ignored"];
   const DECISIONS = [
     { type: "manual_dispatch", label: "Åk ut" },
     { type: "interesting", label: "Bevaka" },
     { type: "customer_contact", label: "Efter mätare / kontakta FÄ" },
-    { type: "leak", label: "Konstaterad läcka…", form: true },
+    { type: "leak", label: "Läcka…", form: true },
     { type: "repaired", label: "Lagad…", form: true },
     { type: "seasonal", label: "Säsong / känd värmepanna" },
     { type: "known_noise", label: "Störning / falsklarm" },
@@ -53,7 +54,7 @@
   const state = {
     files: [], labels: loadLabelBackup(), tripList: [], profileId: null, profileName: null,
     areaSignals: [], coordinatesKey: "", prepared: null, cache: new Map(), meters: [], byId: new Map(), latestExport: null,
-    list: "all", search: "", sort: "priority", area: "all", excluded: new Set(),
+    list: "all", search: "", sort: "priority", area: "all", excluded: new Set(DEFAULT_HIDDEN),
     page: 1, pageSize: 50, marked: new Set(), focusId: "", expanded: new Set(),
     view: readView(), importing: false, storageError: "", visible: [],
   };
@@ -265,18 +266,41 @@
   }
 
   // ---------------- analysis ----------------
+  let caseGeocoding = false;
+  const caseLookups = new Set();
+  function resolveCaseNeighbors() {
+    if (caseGeocoding || !window.LeakMap?.resolvePositions) return;
+    const ids = new Set();
+    for (const c of state.leakCases || []) {
+      if (!c.repairedDate || !["AV", "SV"].includes(c.lineType)) continue;
+      for (const p of c.profiles) if (p.basis === "address" && p.before.sufficient && p.during.sufficient && p.after.sufficient) {
+        ids.add(c.anchorId); ids.add(p.id);
+      }
+    }
+    const pending = [...ids].map(id => state.byId.get(id)).filter(m => m && !LeakMap.cachedPosition(m) && !caseLookups.has(`${m.id}|${m.address}`)).slice(0, 12);
+    if (!pending.length) return;
+    pending.forEach(m => caseLookups.add(`${m.id}|${m.address}`));
+    caseGeocoding = true;
+    renderFocus();
+    LeakMap.resolvePositions(pending).then(() => {
+      caseGeocoding = false;
+      reanalyze();
+    }).catch(() => { caseGeocoding = false; renderFocus(); });
+  }
   function reanalyze(filesChanged = false) {
     if (filesChanged || !state.prepared) state.prepared = Engine.prepare(state.files);
     const coords = window.LeakMap ? LeakMap.coordinates([...state.prepared.histories.values()]) : new Map();
     const result = Engine.analyzePrepared(state.prepared, state.labels, { cache: state.cache, coordinates: coords });
     state.meters = result.meters;
     state.areaSignals = result.areaSignals;
+    state.leakCases = result.leakCases;
     state.coordinatesKey = JSON.stringify([...coords].sort(([a], [b]) => a.localeCompare(b)));
     state.byId = new Map(result.meters.map((m) => [m.id, m]));
     state.latestExport = result.latestExport;
     for (const id of [...state.marked]) if (!state.byId.has(id)) state.marked.delete(id);
     if (state.focusId && !state.byId.has(state.focusId)) state.focusId = "";
     render();
+    resolveCaseNeighbors();
   }
 
   // ---------------- filtering ----------------
@@ -286,11 +310,12 @@
     if (!districtCache.has(key)) districtCache.set(key, Parse.districtOf(m.area, m.address));
     return districtCache.get(key);
   }
-  const hidden = (m) => state.labels[m.id]?.hidden === true;
+  const hidden = (m) => state.labels[m.id]?.hidden === true || (state.excluded.has(m.category) && state.labels[m.id]?.hidden !== false);
 
   function inList(m, key) {
     if (key === "hidden") return hidden(m);
-    if (hidden(m)) return false;
+    if (state.labels[m.id]?.hidden === true) return false;
+    if (state.excluded.has(m.category) && state.labels[m.id]?.hidden !== false && !LIST[key]?.group) return false;
     return LIST[key].test(m);
   }
 
@@ -298,7 +323,6 @@
     const terms = state.search.split(/[\n,;]+/).map(norm).filter(Boolean);
     const rows = state.meters.filter((m) => {
       if (!inList(m, state.list)) return false;
-      if (state.list === "all" && state.excluded.size && [...state.excluded].some((g) => (g === "repaired" ? m.label?.type === "repaired" : m.category === g))) return false;
       if (state.area !== "all" && districtOf(m) !== state.area) return false;
       if (terms.length && !terms.some((t) => norm(`${m.address} ${m.serial} ${m.id} ${m.area}`).includes(t))) return false;
       return true;
@@ -340,12 +364,12 @@
     const counts = Object.fromEntries(LISTS.map((l) => [l.key, 0]));
     for (const m of state.meters) for (const l of LISTS) if (inList(m, l.key)) counts[l.key]++;
     const button = (l) => `<button type="button" data-list="${l.key}" aria-pressed="${state.list === l.key}"${l.hint ? ` title="${esc(l.hint)}"` : ""}><span>${esc(l.label)}</span><b>${counts[l.key].toLocaleString("sv-SE")}</b></button>`;
-    const more = LISTS.filter((l) => l.more);
+    const more = LISTS.filter((l) => l.more && !l.group);
     const moreOpen = more.some((l) => l.key === state.list);
     els.rail.innerHTML = `
-      <div class="rail-lists">${LISTS.filter((l) => !l.more).map(button).join("")}</div>
+      <div class="rail-lists">${LISTS.filter((l) => !l.more && !l.group).map(button).join("")}</div>
       <details class="rail-more"${moreOpen ? " open" : ""}><summary>Fler listor <b>${more.reduce((s, l) => s + (l.key === "hidden" ? 0 : counts[l.key]), 0).toLocaleString("sv-SE")}</b></summary><div class="rail-lists">${more.map(button).join("")}</div></details>
-      <label class="rail-select"><span class="sr-only">Lista</span><select id="listSelect">${LISTS.map((l) => `<option value="${l.key}"${state.list === l.key ? " selected" : ""}>${esc(l.label)} (${counts[l.key]})</option>`).join("")}</select></label>`;
+      <label class="rail-select"><span class="sr-only">Lista</span><select id="listSelect">${LISTS.filter((l) => !l.group).map((l) => `<option value="${l.key}"${state.list === l.key ? " selected" : ""}>${esc(l.label)} (${counts[l.key]})</option>`).join("")}</select></label>`;
   }
 
   function areaSignalHtml(signal, detailed = false) {
@@ -397,7 +421,9 @@
     els.search.value !== state.search && document.activeElement !== els.search && (els.search.value = state.search);
     els.sort.value = state.sort;
     els.pageSize.value = String(state.pageSize);
-    els.groupFilterCount.textContent = state.excluded.size ? `(${state.excluded.size})` : "";
+    const shown = DEFAULT_HIDDEN.length - state.excluded.size;
+    els.groupFilterCount.textContent = shown ? `(${shown} visas)` : "";
+    els.groupFilter.querySelectorAll("input").forEach((i) => { i.checked = !state.excluded.has(i.value); });
   }
 
   const COPY_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="9" rx="1.5"/><path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h1"/></svg>';
@@ -423,6 +449,7 @@
     const expanded = state.expanded.has(m.id);
     const tags = [];
     if (m.excel.interestRank) tags.push(`<span class="tag" title="Kamstrups mätare av intresse i exporten ${esc(Engine.fmtDate(m.excel.exportDate, true))}">Kamstrup · rang ${m.excel.interestRank}</span>`);
+    if (m.learnedLeakMatch) tags.push(`<span class="tag area-tag">Likt tidigare ${esc(m.learnedLeakMatch.lineType)}-läcka</span>`);
     if (m.areaSignal) tags.push(`<span class="tag area-tag">Områdessignal · ${m.areaSignal.count} mätare</span>`);
     if (m.label?.type) tags.push(`<span class="tag manual">${esc(Engine.LABELS[m.label.type] || m.label.type)}</span>`);
     if (m.codes.leak || m.codes.burst || m.codes.dry) tags.push(`<span class="tag code">Infokod ${esc(m.codes.infoCode)}</span>`);
@@ -460,12 +487,23 @@
 
   function list(items) { return items.length ? `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : `<p class="muted">–</p>`; }
 
+  function caseEvidenceHtml(m) {
+    const records = (state.leakCases || []).filter((r) => r.anchorId === m.id);
+    if (!records.length && !m.leakProfiles?.length) return "";
+    const value = (p) => p.level == null ? "–" : `${num(p.level)} (${p.n} d)`;
+    if (!records.length) return `<h4>Registrerade läckfall i närheten</h4>${list(m.leakProfiles.map((p) => `${p.lineType} · ${p.confirmedDate}: ${value(p.before)} → ${value(p.during)} → ${value(p.after)}. ${p.reason}`))}`;
+    return records.map((r) => `<details class="case-evidence"><summary>${esc(r.lineType)}-läcka ${esc(r.confirmedDate)} · ${r.profiles.filter((p) => p.validated).length} jämförelsemönster</summary>
+      <p class="hint">${r.repairedDate ? `Lagad ${esc(r.repairedDate)}` : "Inväntar lagdatum"}. Före → under → efter, median och avläsningsdagar. Kartnärhet upp till ${r.radiusMeters} m är ingen uppgift om ledningskoppling.</p>
+      <ul>${r.profiles.map((p) => `<li><button type="button" class="link" data-focus="${esc(p.id)}">${esc(p.address)}</button><span class="sub">${value(p.before)} → ${value(p.during)} → ${value(p.after)}${p.basis === "position" ? ` · ca ${p.meters} m` : ""}. ${esc(p.reason)}</span></li>`).join("")}</ul></details>`).join("");
+  }
+
   function detailHtml(m) {
     const label = state.labels[m.id] || {};
     const comment = label.comment ?? label.note ?? "";
     return `<div class="detail">
       <section>
         ${m.areaSignal ? `<h4>Möjlig gemensam källa i området</h4>${areaSignalHtml(m.areaSignal, true)}` : ""}
+        ${caseEvidenceHtml(m)}
         <h4>Observation</h4>${list(m.observations)}
         <h4>Möjlig förklaring</h4>${list(m.explanations)}
         <h4>Rekommenderad åtgärd</h4><p>${esc(m.action)}</p>
@@ -521,14 +559,17 @@
     els.selection.innerHTML = !state.files.length ? "" : `
       <p><b>${marked ? `${marked.toLocaleString("sv-SE")} markerade` : "Inga markerade"}</b>${outside ? ` <span class="muted">(${outside} syns inte i nuvarande lista/filter)</span>` : ""}</p>
       <div class="sel-actions">
-        <button type="button" class="secondary" data-sel="page" ${pageCount ? "" : "disabled"}>Markera sidan (${pageCount})</button>
-        <button type="button" class="secondary" data-sel="all" ${total && !allMarked ? "" : "disabled"}>Markera alla ${total.toLocaleString("sv-SE")} träffar</button>
-        ${marked ? `
-        <button type="button" class="secondary" data-sel="move">Flytta till…</button>
-        <button type="button" class="secondary" data-sel="worklist">Lägg i arbetslista (${marked})</button>
-        <button type="button" class="primary" data-sel="excel">Excel (${marked})</button>
-        <button type="button" class="secondary" data-sel="hide">${state.list === "hidden" ? "Visa igen" : "Göm"} (${marked})</button>
-        <button type="button" class="link" data-sel="clear">Avmarkera</button>` : ""}
+        ${marked ? `<button type="button" class="secondary" data-sel="move">Flytta till…</button>
+        <button type="button" class="primary" data-sel="excel">Excel</button>` : ""}
+        <details class="menu selection-menu"><summary>${marked ? "Mer" : "Markera"}</summary>
+          <div class="menu-panel">
+            <button type="button" data-sel="page" ${pageCount ? "" : "disabled"}>Markera sidan (${pageCount})</button>
+            <button type="button" data-sel="all" ${total && !allMarked ? "" : "disabled"}>Markera alla ${total.toLocaleString("sv-SE")} träffar</button>
+            ${marked ? `<button type="button" data-sel="worklist">Lägg i arbetslista (${marked})</button>
+            <button type="button" data-sel="hide">${state.list === "hidden" ? "Visa igen" : "Göm"} (${marked})</button>
+            <button type="button" data-sel="clear">Avmarkera</button>` : ""}
+          </div>
+        </details>
       </div>`;
   }
 
@@ -567,6 +608,8 @@
       $("focusCopy").dataset.copy = m.id;
       $("focusCopy").hidden = false;
       els.focusMeta.textContent = ` · ${m.serial || m.id} · ${m.status} · prioritet ${m.priority}`;
+      const cases = (state.leakCases || []).filter((r) => r.anchorId === m.id);
+      if (cases.length) els.focusMeta.textContent += caseGeocoding ? " · söker grannmätarnas kartpositioner…" : ` · ${cases.at(-1).profiles.filter((p) => p.validated).length} jämförelsemönster (Visa underlag)`;
       if (els.focusChart.__chart?.id !== m.id || els.focusChart.__version !== m) {
         Chart.render(els.focusChart, m, { compact: true, onEnlarge: openChart });
         els.focusChart.__version = m;
@@ -629,10 +672,17 @@
       const existing = { ...(state.labels[id] || {}) };
       // Keep the replaced decision with its details; undo covers immediate mistakes.
       if (existing.type) existing.previous = Object.fromEntries(["type", "at", "source", ...DECISION_FIELDS].filter((k) => existing[k] !== undefined).map((k) => [k, existing[k]]));
+      if (type === "leak" && before[id]?.type === "repaired" && before[id]?.confirmedDate) {
+        const prior = Object.fromEntries(DECISION_FIELDS.filter((k) => before[id][k] !== undefined).map((k) => [k, before[id][k]]));
+        existing.leakCases = [...(existing.leakCases || []), prior];
+      }
       for (const key of DECISION_FIELDS) delete existing[key];
+      const incident = type === "repaired" && ["leak", "repaired"].includes(before[id]?.type)
+        ? Object.fromEntries(["confirmedDate", "confirmedDateUncertain", "lineType", "mapMarks"].filter((k) => before[id][k] !== undefined).map((k) => [k, before[id][k]])) : {};
       const next = type === "auto"
         ? (() => { delete existing.type; delete existing.at; delete existing.source; return existing; })()
-        : { ...existing, ...fields, type, at: now, source: "fältbeslut", address: m?.address || existing.address, serial: m?.serial || existing.serial };
+        : { ...existing, ...incident, ...fields, type, at: now, source: "fältbeslut", address: m?.address || existing.address, serial: m?.serial || existing.serial };
+      if (type === "ignored") delete next.hidden;
       if (type !== "auto" && !next.notedDate && !["leak", "repaired"].includes(type)) next.notedDate = today();
       if (comment !== undefined) { next.comment = comment; next.commentAt = now; }
       state.labels[id] = next;
@@ -675,14 +725,18 @@
       els.decisionFields.innerHTML = `
         <label class="stack">Datum konstaterad<input type="date" name="confirmedDate" required value="${esc(existing.confirmedDate || today())}"></label>
         <label class="check"><input type="checkbox" name="confirmedDateUncertain" ${existing.confirmedDateUncertain ? "checked" : ""}> Osäkert datum</label>
-        <fieldset class="inline"><legend>Ledning (valfritt)</legend>${["AV", "SV", "Vet ej"].map((v) => `<label><input type="radio" name="lineType" value="${v}" ${existing.lineType === v ? "checked" : ""}> ${v}</label>`).join("")}</fieldset>
-        <p class="hint">Reparationsuppgifter fylls i först när läckan är lagad.</p>`;
+        <fieldset class="inline"><legend>Ledning</legend>${["AV", "SV", "Vet ej"].map((v) => `<label><input type="radio" name="lineType" value="${v}" ${existing.lineType === v ? "checked" : ""}> ${v === "AV" ? "AV · huvudledning" : v === "SV" ? "SV · servis" : v}</label>`).join("")}</fieldset>
+        <label class="stack">Lagdatum (valfritt)<input type="date" name="repairedDate" value="${esc(existing.repairedDate || "")}"></label>
+        <p class="hint">Lagdatum flyttar fallet till Lagade. Ljudnivåerna före, under och efter jämförs även hos närliggande mätare.</p>`;
     } else if (type === "repaired") {
       els.decisionTitle.textContent = "Lagad";
       const distance = existing.distanceMeters ?? mark?.distanceFromMeter ?? "";
       els.decisionFields.innerHTML = `
+        <label class="stack">Datum konstaterad<input type="date" name="confirmedDate" value="${esc(existing.confirmedDate || "")}"></label>
+        <label class="check"><input type="checkbox" name="confirmedDateUncertain" ${existing.confirmedDateUncertain ? "checked" : ""}> Osäkert läckdatum</label>
         <label class="stack">Reparationsdatum<input type="date" name="repairedDate" required value="${esc(existing.repairedDate || today())}"></label>
-        <fieldset class="inline"><legend>Ledning</legend>${["AV", "SV"].map((v) => `<label><input type="radio" name="lineType" value="${v}" ${existing.lineType === v ? "checked" : ""}> ${v}</label>`).join("")}</fieldset>
+        <fieldset class="inline"><legend>Ledning</legend>${["AV", "SV"].map((v) => `<label><input type="radio" name="lineType" value="${v}" ${existing.lineType === v ? "checked" : ""}> ${v === "AV" ? "AV · huvudledning" : "SV · servis"}</label>`).join("")}</fieldset>
+        <p class="hint">Vid känt läckdatum jämförs närliggande mätare automatiskt. Samma dag räcker inte för att mäta en nivå under läckan.</p>
         <label class="stack">Ungefärligt avstånd från mätaren (m)<input type="number" name="distanceMeters" min="0" step="1" inputmode="numeric" value="${esc(distance)}" placeholder="t.ex. 55"></label>
         <label class="check"><input type="checkbox" name="distanceUncertain" ${existing.distanceUncertain || (mark?.distanceFromMeter != null && existing.distanceMeters == null) ? "checked" : ""}> Avstånd osäkert${mark?.distanceFromMeter != null ? " (förifyllt från kartans läckpunkt, fågelväg)" : ""}</label>`;
     } else if (type === "reset_baseline") {
@@ -696,7 +750,7 @@
   els.decisionForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const ids = JSON.parse(els.decisionForm.dataset.ids || "[]");
-    const type = els.decisionForm.dataset.type;
+    let type = els.decisionForm.dataset.type;
     const data = new FormData(els.decisionForm);
     const fields = {};
     if (type === "leak") {
@@ -704,8 +758,11 @@
       if (!fields.confirmedDate) { els.decisionError.textContent = "Ange datum (markera Osäkert datum vid behov)."; return; }
       fields.confirmedDateUncertain = data.get("confirmedDateUncertain") === "on";
       if (data.get("lineType")) fields.lineType = data.get("lineType");
+      if (data.get("repairedDate")) type = "repaired";
     }
     if (type === "repaired") {
+      fields.confirmedDate = data.get("confirmedDate") || undefined;
+      fields.confirmedDateUncertain = data.get("confirmedDateUncertain") === "on";
       fields.repairedDate = data.get("repairedDate");
       if (!fields.repairedDate) { els.decisionError.textContent = "Ange reparationsdatum."; return; }
       if (data.get("lineType")) fields.lineType = data.get("lineType");
@@ -714,6 +771,9 @@
       fields.distanceUncertain = data.get("distanceUncertain") === "on";
       const mark = window.LeakMap?.markFor(ids[0]);
       if (mark?.leak) fields.mapMarks = { valve: mark.valve || null, leak: mark.leak };
+    }
+    if (fields.confirmedDate && fields.repairedDate && fields.repairedDate < fields.confirmedDate) {
+      els.decisionError.textContent = "Lagdatum kan inte ligga före läckdatum."; return;
     }
     if (type === "reset_baseline") fields.resetAfter = new Date().toISOString();
     applyDecision(ids, type, fields, els.decisionComment.value.trim());
@@ -736,16 +796,18 @@
     const isHidden = ids.every((id) => state.labels[id]?.hidden);
     els.menu.innerHTML = `
       <p class="menu-title">${single ? esc(shortAddress(single)) : `${ids.length} markerade mätare`}</p>
-      ${single ? `<button type="button" role="menuitem" data-menu="focus">Visa graf och karta</button><button type="button" role="menuitem" data-menu="navigate">Kör hit</button><button type="button" role="menuitem" data-menu="copy">Kopiera adress</button>` : ""}
+      ${single ? `<button type="button" role="menuitem" data-menu="navigate">Kör hit</button>` : ""}
       <button type="button" role="menuitem" data-menu="worklist">Lägg i arbetslista</button>
       <p class="menu-sub">Flytta till</p>
-      ${DECISIONS.map((d) => `<button type="button" role="menuitem" data-decision="${d.type}">${esc(d.label)}</button>`).join("")}
+      ${DECISIONS.filter((d) => ["manual_dispatch", "interesting", "leak", "repaired"].includes(d.type)).map((d) => `<button type="button" role="menuitem" data-decision="${d.type}">${esc(d.label)}</button>`).join("")}
+      <details class="menu-sort menu-decisions"><summary>Övriga beslut</summary>
+        ${DECISIONS.filter((d) => !["manual_dispatch", "interesting", "leak", "repaired"].includes(d.type)).map((d) => `<button type="button" role="menuitem" data-decision="${d.type}">${esc(d.label)}</button>`).join("")}
+        <button type="button" role="menuitem" data-menu="${isHidden ? "unhide" : "hide"}">${isHidden ? "Visa igen" : "Göm manuellt"}</button>
+      </details>
       ${hasManual ? `<button type="button" role="menuitem" data-decision="auto">Ta bort manuellt beslut</button>` : ""}
       <details class="menu-sort"><summary>Sortera efter</summary>
         ${[...els.sort.options].map((o) => `<button type="button" role="menuitemradio" aria-checked="${state.sort === o.value}" data-menu-sort="${esc(o.value)}">${esc(o.text)}${state.sort === o.value ? " ✓" : ""}</button>`).join("")}
-      </details>
-      <p class="menu-sub">Synlighet</p>
-      <button type="button" role="menuitem" data-menu="${isHidden ? "unhide" : "hide"}">${isHidden ? "Visa igen" : "Göm"}</button>`;
+      </details>`;
     els.menu.hidden = false;
     const w = els.menu.offsetWidth, h = els.menu.offsetHeight;
     if (anchor) { const r = anchor.getBoundingClientRect(); x = r.right - w; y = r.bottom + 4; }
@@ -1093,7 +1155,7 @@
   els.sort.addEventListener("change", () => { state.sort = els.sort.value; state.page = 1; render(); });
   els.area.addEventListener("change", () => { state.area = els.area.value; state.page = 1; render(); });
   els.groupFilter.addEventListener("change", () => {
-    state.excluded = new Set([...els.groupFilter.querySelectorAll("input:checked")].map((i) => i.value));
+    state.excluded = new Set([...els.groupFilter.querySelectorAll("input:not(:checked)")].map((i) => i.value));
     state.page = 1;
     render();
   });
