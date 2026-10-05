@@ -559,6 +559,7 @@
     const showMap = state.view === "map" || m;
     els.focus.hidden = !state.files.length || !showMap;
     els.focus.classList.toggle("no-meter", !m);
+    document.body.classList.toggle("has-focus", !els.focus.hidden);
     if (els.focus.hidden) return;
     if (m) {
       els.focusTitle.textContent = m.address;
@@ -593,14 +594,14 @@
   function setFocus(id, { scroll = true, keepRow = null } = {}) {
     state.focusId = id;
     els.rows.querySelectorAll("tr.row").forEach((tr) => tr.classList.toggle("is-focus", tr.dataset.id === id));
-    const before = keepRow && keepRow.isConnected ? keepRow.getBoundingClientRect().top : null;
+    const rowTop = keepRow?.isConnected ? keepRow.getBoundingClientRect().top : null;
     renderFocus();
-    if (scroll && window.matchMedia("(max-width: 760px)").matches) { els.focus.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
-    // The panel opening above the table must not move the clicked row away from the pointer.
-    if (before != null && keepRow.isConnected) {
-      window.scrollBy(0, keepRow.getBoundingClientRect().top - before);
-      const covered = els.focus.closest(".sticky-stack").getBoundingClientRect().bottom + 4 - keepRow.getBoundingClientRect().top;
-      if (covered > 0) window.scrollBy(0, -covered);
+    if (rowTop != null && window.matchMedia("(min-width: 761px)").matches) {
+      const list = keepRow.closest(".table-wrap");
+      list.scrollTop += keepRow.getBoundingClientRect().top - rowTop;
+    }
+    if (scroll && window.matchMedia("(max-width: 760px)").matches) {
+      els.focus.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
 
@@ -1116,3 +1117,4 @@
   if (window.indexedDB && window.LeakStorage) showProfile();
   reanalyze(true);
 }());
+

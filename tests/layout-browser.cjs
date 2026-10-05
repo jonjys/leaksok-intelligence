@@ -1,6 +1,5 @@
-// Responsive layout: the work area follows the window (no max-width), the table uses
-// the full width, the focus panel stays bounded, text keeps its size, the chart/map
-// divider is draggable and remembered, and resizing keeps selection and scroll.
+// Workspace layout: compact navigation, independent list scroll, responsive map
+// and chart, preserved selection, and a keyboard/drag divider on wide screens.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const { chromium } = require("playwright");
@@ -27,7 +26,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     const visible = rows.filter((r) => { const b = r.getBoundingClientRect(); return b.top >= 0 && b.bottom <= innerHeight; }).length;
     return {
       overflow: document.documentElement.scrollWidth - innerWidth, layoutW: layout.width, tableW: table.width, railW: rail.width,
-      gridH: grid.height, chartW: svg ? svg.width : 0, mapW: map.width, visible,
+      listX: table.x, listRight: table.right, focusX: document.getElementById("focus").getBoundingClientRect().x, listH: table.height, listScroll: document.querySelector(".table-wrap").scrollTop, gridH: grid.height, chartW: svg ? svg.width : 0, mapW: map.width, visible,
       font: getComputedStyle(document.querySelector("#rows .addr")).fontSize, zoom: getComputedStyle(document.body).zoom, transform: getComputedStyle(document.body).transform,
       marked: state.marked.size, focusId: state.focusId, scrollY: window.scrollY,
     };
@@ -44,10 +43,12 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await page.locator("#rows tr.row").nth(2).locator(".addr").click();
     await page.waitForSelector("#focusChart .ch-stage svg");
     const focusId = await page.evaluate(() => state.focusId);
-    await page.evaluate(() => window.scrollTo(0, 500));
+    await page.evaluate(() => { document.querySelector(".table-wrap").scrollTop = 500; });
     const laptop = await measure();
     assert.equal(laptop.overflow, 0, "No horizontal scroll at 1366×768");
-    assert.ok(laptop.gridH <= 300, "Panel stays compact on a laptop");
+    assert.ok(laptop.listRight <= laptop.focusX, "List sits to the left of the map, without overlap");
+    assert.ok(laptop.listScroll > 0, "Meter list scrolls in its own container");
+    assert.equal(laptop.scrollY, 0, "Scrolling the list leaves the map and page in place");
 
     // Wide office screens: no max-width, table fills the width, panel bounded.
     const sizes = {};
@@ -57,17 +58,19 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
       const m = sizes[w] = await measure();
       assert.equal(m.overflow, 0, `No horizontal scroll at ${w}×${h}`);
       assert.ok(m.layoutW >= w - 1, `Work area fills ${w}px (no max-width)`);
-      assert.ok(m.tableW >= w - m.railW - 60, `Table uses the work area width at ${w}px`);
+      assert.ok(m.tableW >= 320 && m.tableW <= 440, "List stays readable and compact");
+      assert.ok(m.listRight <= m.focusX, "List never passes underneath map");
       assert.ok(m.railW <= 240, "Rail keeps a reasonable width");
-      assert.ok(m.gridH <= h * 0.34, `Focus panel does not take over the screen at ${w}×${h}`);
+      assert.ok(m.gridH <= h, "Map and chart stay within workspace height");
       assert.equal(m.font, laptop.font, "Text keeps its normal size");
       assert.ok((m.zoom === "1" || m.zoom === "normal") && m.transform === "none", "No zoom or CSS scaling");
+      if (w === 1920) await page.screenshot({ path: "test-results/layout-focus-1920.png" });
       assert.equal(m.marked, 2, "Marked meters survive resize");
       assert.equal(m.focusId, focusId, "Selected meter survives resize");
-      assert.ok(m.scrollY > 0, "Scroll position is kept");
+      assert.ok(m.listScroll > 0, "List scroll position is kept");
     }
-    assert.ok(sizes[2560].chartW > laptop.chartW * 1.6, "Chart redraws wider");
-    assert.ok(sizes[2560].mapW > laptop.mapW * 1.6, "Map follows its container");
+    assert.ok(sizes[2560].chartW > laptop.chartW, "Chart redraws wider");
+    assert.ok(sizes[2560].mapW > laptop.mapW, "Map follows its container");
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.locator("#focusClose").click();
     await page.waitForTimeout(200);
@@ -77,6 +80,14 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     const mid = await measure();
     assert.ok(tall.visible > mid.visible, "Taller window shows more meter rows");
     await page.screenshot({ path: "test-results/layout-1920.png" });
+
+    // Overview: list scroll must not shift map.
+    await page.locator("button[data-view=map]").click();
+    const overview = await page.locator("#map").boundingBox();
+    await page.evaluate(() => document.querySelector(".table-wrap").scrollTop = 800);
+    assert.deepEqual(await page.locator("#map").boundingBox(), overview, "Map stays put while list scrolls");
+    await page.screenshot({ path: "test-results/layout-map-1920.png" });
+    await page.evaluate(() => document.querySelector(".table-wrap").scrollTop = 0);
 
     // Draggable divider between chart and map, remembered after reload.
     await page.locator("#rows tr.row").nth(0).locator(".addr").click();
@@ -106,6 +117,9 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
       await page.waitForTimeout(300);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, `No horizontal scroll at ${w}×${h}`);
     }
+    await page.evaluate(() => LeakApp.setFocus(state.visible[0].id, { scroll: false }));
+    await page.waitForSelector("#focusChart .ch-stage svg");
+    await page.screenshot({ path: "test-results/layout-phone.png", fullPage: true });
     assert.equal(await page.locator("#focusSplit").isVisible(), false, "No divider on phone");
     assert.deepEqual(errors, []);
     console.log(`Layout PASS: rows visible 1920×1080 ${mid.visible}, 2560×1440 ${tall.visible}; table ${Math.round(sizes[3440].tableW)} px at 3440; resize keeps selection and scroll; divider saved.`);
@@ -117,3 +131,4 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     server.close();
   }
 })().catch((e) => { console.error(e); process.exitCode = 1; });
+

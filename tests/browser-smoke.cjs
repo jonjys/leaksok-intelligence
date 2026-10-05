@@ -43,14 +43,16 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await list("stale_contact");
     assert.match(await row("90000009").innerText(), /Ingen ny avläsning sedan 9 sep/);
 
-    // Focus shows chart and map side by side; chart value equals table value.
+    // Laptop focus stacks map and chart beside the meter list; values agree.
     await list("suspect");
     await row("90000002").locator(".addr").click();
     await page.waitForSelector("#focusChart .ch-stage svg");
     assert.equal(await page.locator("#focusChart .ch-latest b").innerText(), await row("90000002").locator(".val").innerText());
     const chartBox = await page.locator("#focusChart").boundingBox();
     const mapBox = await page.locator("#map").boundingBox();
-    assert.ok(mapBox.x > chartBox.x + chartBox.width - 5, "Map beside the chart on desktop");
+    assert.ok(mapBox.y + mapBox.height <= chartBox.y, "Map above the chart on a laptop");
+    const listBox = await page.locator(".table-wrap").boundingBox();
+    assert.ok(listBox.x + listBox.width <= mapBox.x, "Meter list remains left of the map");
     await page.locator("#focusChart .ch-stage").click();
     await page.waitForSelector("#chartDialog[open] .ch-stage svg");
     await page.locator("#chartDialog [data-close]").click();
@@ -272,3 +274,4 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     server.close();
   }
 })().catch((e) => { console.error(e); process.exitCode = 1; });
+

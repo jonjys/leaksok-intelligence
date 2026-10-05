@@ -9,7 +9,7 @@ Allt körs lokalt i webbläsaren. Historik, beslut och kommentarer sparas i webb
 1. **＋ Importera Excel** – en eller flera `.xlsx/.xls/.csv`. Tidigare historik behålls; samma fil två gånger räknas som dubblett.
 2. **Morgonöversikten** visar senaste exportens tid, hur många som lästs av senaste dygnet och dagens nya signaler.
 3. Listorna: **Nytt i dag**, **Åk ut**, **Misstänk** (automatisk upptäckt), **Bevaka** (din manuella lista), **Efter mätare**, **Aktiva läckor**, **Lagade** och under *Fler listor* Stabilt hög, Störning/tillfällig, Säsong, Kort historik, Utan färsk avläsning, Ignorerade och Gömda.
-4. Klicka på en adress: graf och karta visas bredvid varandra (under varandra på telefon). Avdelaren mellan dem kan dras (eller flyttas med piltangenterna) och fördelningen sparas på enheten. Arbetsytan fyller hela fönstret: på bred skärm får adress, motivering och 60-dagarsgraf mer plats och raderna blir tätare, utan att text förstoras. **Visa underlag** fäller ut observation, möjlig förklaring, rekommenderad åtgärd, jämförelser med perioder, datakvalitet och prioritetens delar.
+4. I **Karta** ligger en egen rullande mätarlista till vänster om kartan, med en kompakt vänstermeny. Kartan täcker aldrig listan när du scrollar. Klicka på en adress för att visa grafen: bredvid kartan på stora skärmar, under den på mindre skärmar. Avdelaren kan dras eller flyttas med piltangenter och fördelningen sparas på enheten. **Lista** utan vald mätare visar hela tabellen. På telefon staplas panelerna och listan visas som kort. **Visa underlag** fäller ut observation, möjlig förklaring, rekommenderad åtgärd, jämförelser, datakvalitet och prioritetens delar.
 5. **Flytta till…** finns på ett ställe: markeringsraden, ⋯ på raden, högerklick eller långtryck. Konstaterad läcka (datum, osäkert datum) och Lagad (datum, AV/SV, ungefärligt avstånd, kommentar) öppnar formulär. Allt kan ångras direkt.
 6. Markera mätare (kryssrutor gäller över sidor och filter) → **Excel (N)** eller **Lägg i arbetslista**. **Markera sidan** och **Markera alla N träffar** gäller uttryckligen aktuell sida respektive hela det filtrerade urvalet. Exporten visar antal innan nedladdning och tar aldrig med alla mätare automatiskt.
 
@@ -87,3 +87,4 @@ node tests/layout-browser.cjs        # Chromium: 1366–3440 px, mobil, storleks
 Webbläsartesterna kräver Playwright. `LEAKSOK_VENDOR=<mapp>` kan peka på lokala kopior av CDN-filerna vid körning utan nät.
 
 Moduler: `parse.js` (import) → `history.js` (avläsningar) → `engine.js` (analys) → `app.js` (lista, urval, beslut), `chart.js`, `map.js`, `worklist.js`, `field-export.js` + `xlsx-writer.js` (Excel), `storage.js` (IndexedDB), `styles.css`.
+

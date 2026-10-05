@@ -79,7 +79,7 @@ details.menu > summary::after { content: "▾"; font-size: 11px; color: var(--mu
 
 /* Layout */
 /* Fills the window at every width: narrow gutters, the rail keeps a steady width and the work area takes the rest. */
-.layout { display: grid; grid-template-columns: clamp(184px, 10vw, 232px) minmax(0, 1fr); gap: 14px; padding: 12px 14px 32px; }
+.layout { display: grid; grid-template-columns: 152px minmax(0, 1fr); gap: 14px; padding: 12px 14px 32px; }
 .rail { position: sticky; top: 68px; align-self: start; display: grid; gap: 6px; }
 .rail-lists { display: grid; gap: 2px; }
 .rail button {
@@ -128,12 +128,7 @@ details.menu > summary::after { content: "▾"; font-size: 11px; color: var(--mu
 .selection-bar { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 .selection-bar:empty { display: none; }
 .selection-bar.has-marked { border-color: var(--accent); background: #f1f8f9; }
-/* Selection and the selected meter stay in view while the table scrolls. */
-.sticky-stack { display: grid; gap: 8px; }
-@media (min-width: 761px) and (min-height: 640px) {
-  .sticky-stack { position: sticky; top: 57px; z-index: 30; background: var(--bg); padding: 4px 0; margin: -4px 0; }
-  .sticky-stack .focus { box-shadow: var(--shadow); }
-}
+.workspace { display: grid; gap: 10px; min-width: 0; }
 @media (min-width: 761px) and (max-height: 860px) {
   .focus-chart .ch-stage { min-height: 150px; }
   .focus-chart .ch-legend { display: none; }
@@ -322,10 +317,6 @@ fieldset.inline legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
 .wl-copy { display: grid; gap: 4px; margin-top: 8px; }
 .wl-copy textarea { width: 100%; }
 
-/* Map view (desktop): overview map above the list */
-body[data-view="map"] .focus.no-meter .focus-grid { height: clamp(320px, 52vh, 900px); }
-
-
 /* Wide windows: the table uses the full width. Fixed columns stay compact, address,
    reason and the 60-day graph grow, and rows get denser by using the width instead of
    extra lines – text size is unchanged. */
@@ -358,7 +349,7 @@ body[data-view="map"] .focus.no-meter .focus-grid { height: clamp(320px, 52vh, 9
 
 /* Tablet */
 @media (max-width: 1180px) {
-  .layout { grid-template-columns: 180px minmax(0, 1fr); gap: 12px; padding: 10px 12px 28px; }
+  .layout { grid-template-columns: 144px minmax(0, 1fr); gap: 12px; padding: 10px 12px 28px; }
   .detail { grid-template-columns: 1fr 1fr; }
   .detail section:last-child { grid-column: 1 / -1; }
   .meters th:nth-child(6), .c-spark { display: none; }
@@ -433,3 +424,69 @@ body[data-view="map"] .focus.no-meter .focus-grid { height: clamp(320px, 52vh, 9
 .area-signal p,.area-members { margin:5px 0; font-size:13px; }
 .area-tag { color:#066b67; background:#e5f3f1; }
 .area-members button { text-align:left; }
+
+
+/* A shared workspace: the list and map scroll independently, never over each other. */
+@media (min-width: 761px) {
+  body.has-focus .workspace {
+    grid-template-columns: clamp(320px, 26vw, 440px) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "selection focus" "list focus" "pager focus";
+    height: max(480px, calc(100dvh - 265px));
+    gap: 10px;
+  }
+  body.has-focus .selection-bar { grid-area: selection; align-content: start; gap: 6px; }
+  body.has-focus .selection-bar p { font-size: 12px; }
+  body.has-focus .sel-actions { gap: 4px; }
+  body.has-focus .sel-actions button { font-size: 12px; padding: 4px 7px; min-height: 28px; }
+  body.has-focus .focus { grid-area: focus; min-height: 0; min-width: 0; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
+  body.has-focus .focus-head { align-items: start; }
+  body.has-focus #focusMeta { display: block; font-size: 12px; margin-top: 3px; }
+  body.has-focus .focus-grid { height: auto; min-height: 0; }
+  body.has-focus .focus-chart { overflow: auto; }
+  body.has-focus .table-wrap { grid-area: list; overflow: auto; overscroll-behavior: contain; min-height: 0; scrollbar-gutter: stable; background: var(--surface); }
+  body.has-focus .pager { grid-area: pager; gap: 5px; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); flex-wrap: wrap; }
+  body.has-focus #pageInfo { font-size: 12px; flex: 1 1 100%; order: 3; }
+  body.has-focus table.meters, body.has-focus .meters tbody { display: block; width: 100%; }
+  body.has-focus .meters thead { display: none; }
+  body.has-focus .meters tr.row {
+    display: grid; grid-template-columns: 22px minmax(0, 1fr) 28px;
+    grid-template-areas: "check addr menu" "check status status" "check latest latest" "check reason reason";
+    gap: 5px 8px; padding: 13px 10px; border-bottom: 1px solid var(--line);
+  }
+  body.has-focus .meters tr.row td { padding: 0; border: 0; width: auto; min-width: 0; }
+  body.has-focus .c-check { grid-area: check; }
+  body.has-focus .c-addr { grid-area: addr; }
+  body.has-focus .c-menu { grid-area: menu; }
+  body.has-focus .c-status { grid-area: status; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+  body.has-focus .c-latest { grid-area: latest; display: flex; flex-wrap: wrap; gap: 3px 8px; align-items: baseline; }
+  body.has-focus .c-latest .sub, body.has-focus .c-latest .chg { display: inline; }
+  body.has-focus .c-reason { grid-area: reason; }
+  body.has-focus .c-reason .summary { font-size: 12.5px; }
+  body.has-focus .c-reason .action { font-size: 12px; }
+  body.has-focus .c-spark { display: none; }
+  body.has-focus .detail-row, body.has-focus .detail-row > td { display: block; width: 100%; }
+  body.has-focus .detail { grid-template-columns: minmax(0, 1fr); }
+  body.has-focus .detail section:last-child { grid-column: auto; }
+  body.has-focus .detail-row { overflow-x: auto; }
+  body.has-focus .brief-items { flex-wrap: nowrap; overflow: auto; padding-bottom: 2px; }
+  body.has-focus .brief-item { flex-shrink: 0; }
+  .rail { padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+  .rail button { padding: 8px 7px; font-size: 12.5px; gap: 4px; }
+  .rail button b { font-size: 11px; }
+}
+@media (min-width: 761px) and (max-width: 1599px) {
+  body.has-focus .focus:not(.no-meter) .focus-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(180px, 1fr) minmax(220px, 1fr); row-gap: 10px; }
+  body.has-focus .focus:not(.no-meter) .focus-map { grid-row: 1; }
+  body.has-focus .focus:not(.no-meter) .focus-chart { grid-row: 2; }
+  body.has-focus .split-handle { display: none; }
+  body.has-focus .workspace { height: max(640px, calc(100dvh - 265px)); }
+}
+@media (max-width: 760px) {
+  .workspace { display: flex; flex-direction: column; }
+  .focus { order: 1; }
+  .selection-bar { order: 2; }
+  .table-wrap { order: 3; }
+  .pager { order: 4; }
+  .focus.no-meter .focus-grid { height: auto; }
+}
