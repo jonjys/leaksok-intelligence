@@ -544,6 +544,7 @@
   // ---------------- focus: chart + map ----------------
   let mapView = null;
   let lastMapKey = "";
+  let focusRequest = 0;
   function ensureMap() {
     if (mapView || !window.LeakMap) return mapView;
     mapView = LeakMap.create({
@@ -579,10 +580,10 @@
     if (!view) return;
     const mode = m ? "focus" : "overview";
     const meters = m ? [...new Set([m, ...[...state.marked].map((id) => state.byId.get(id)).filter(Boolean)])] : state.visible.slice(0, 600);
-    const key = `${mode}|${state.focusId}|${[...state.marked].join(",")}|${meters.length}|${state.list}|${state.search}|${state.area}|${meters[0]?.id}`;
+    const key = `${mode}|${focusRequest}|${state.focusId}|${[...state.marked].join(",")}|${meters.length}|${state.list}|${state.search}|${state.area}|${meters[0]?.id}`;
     if (key === lastMapKey) return;
     lastMapKey = key;
-    requestAnimationFrame(() => { view.invalidate(); Promise.resolve(view.update({ meters, focusId: state.focusId, marked: state.marked, mode })).then(() => {
+    requestAnimationFrame(() => { view.invalidate(); Promise.resolve(view.update({ meters, focusId: state.focusId, focusRequest, marked: state.marked, mode })).then(() => {
       if (!state.prepared) return;
       const coords = LeakMap.coordinates([...state.prepared.histories.values()]);
       const key = JSON.stringify([...coords].sort(([a], [b]) => a.localeCompare(b)));
@@ -593,6 +594,7 @@
   // Selecting a meter only updates the focus panel; the table is not rebuilt.
   function setFocus(id, { scroll = true, keepRow = null } = {}) {
     state.focusId = id;
+    focusRequest++;
     els.rows.querySelectorAll("tr.row").forEach((tr) => tr.classList.toggle("is-focus", tr.dataset.id === id));
     const rowTop = keepRow?.isConnected ? keepRow.getBoundingClientRect().top : null;
     renderFocus();
@@ -739,6 +741,9 @@
       <p class="menu-sub">Flytta till</p>
       ${DECISIONS.map((d) => `<button type="button" role="menuitem" data-decision="${d.type}">${esc(d.label)}</button>`).join("")}
       ${hasManual ? `<button type="button" role="menuitem" data-decision="auto">Ta bort manuellt beslut</button>` : ""}
+      <details class="menu-sort"><summary>Sortera efter</summary>
+        ${[...els.sort.options].map((o) => `<button type="button" role="menuitemradio" aria-checked="${state.sort === o.value}" data-menu-sort="${esc(o.value)}">${esc(o.text)}${state.sort === o.value ? " ✓" : ""}</button>`).join("")}
+      </details>
       <p class="menu-sub">Synlighet</p>
       <button type="button" role="menuitem" data-menu="${isHidden ? "unhide" : "hide"}">${isHidden ? "Visa igen" : "Göm"}</button>`;
     els.menu.hidden = false;
@@ -748,12 +753,18 @@
     els.menu.style.top = `${Math.max(8, Math.min(y, innerHeight - h - 8))}px`;
     els.menu.querySelector("button")?.focus();
   }
+  els.menu.addEventListener("toggle", (event) => {
+    if (!event.target.matches(".menu-sort") || els.menu.hidden) return;
+    const top = Math.min(parseFloat(els.menu.style.top) || 8, innerHeight - els.menu.offsetHeight - 8);
+    els.menu.style.top = `${Math.max(8, top)}px`;
+  }, true);
   function closeMenu() { els.menu.hidden = true; menuIds = []; }
   els.menu.addEventListener("click", (event) => {
     const b = event.target.closest("button");
     if (!b) return;
     const ids = menuIds;
     closeMenu();
+    if (b.dataset.menuSort) { state.sort = b.dataset.menuSort; state.page = 1; render(); return; }
     if (b.dataset.decision) decide(ids, b.dataset.decision);
     const act = b.dataset.menu;
     if (act === "focus") setFocus(ids[0]);
@@ -764,7 +775,7 @@
     if (act === "unhide") setHidden(ids, false);
   });
   els.menu.addEventListener("keydown", (event) => {
-    const items = [...els.menu.querySelectorAll("button")];
+    const items = [...els.menu.querySelectorAll("button, .menu-sort summary")].filter((el) => el.getClientRects().length);
     const i = items.indexOf(document.activeElement);
     if (event.key === "ArrowDown") { event.preventDefault(); items[(i + 1) % items.length].focus(); }
     if (event.key === "ArrowUp") { event.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
@@ -1016,7 +1027,8 @@
       const onPage = page.filter((m) => state.marked.has(m.id)).length;
       els.checkPage.checked = onPage === page.length;
       els.checkPage.indeterminate = onPage > 0 && onPage < page.length;
-      if (state.focusId) renderFocus();
+      if (event.target.checked) setFocus(id, { scroll: false, keepRow: event.target.closest("tr") });
+      else renderFocus();
     }
     if (event.target.matches("[data-comment]")) {
       setComment(event.target.closest("tr").dataset.detail, event.target.value);

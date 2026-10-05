@@ -33,6 +33,10 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
   });
   try {
     await page.goto("http://127.0.0.1:4178/", { waitUntil: "load" });
+    await page.evaluate(() => {
+      const fly = L.Map.prototype.flyTo;
+      L.Map.prototype.flyTo = function (...args) { window.testMap = this; return fly.apply(this, args); };
+    });
     await kit.unlock(page, "Layout", "1234");
     await kit.importFiles(page, buildDailyExports({ meters: 3000, days: 30 }).map((f) => ({ name: f.name, text: toCsv(f.rows) })));
     await page.waitForFunction(() => state.meters.length === 3000);
@@ -40,15 +44,43 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     // Laptop: compact layout, select a meter, mark two, scroll down.
     await page.locator("#rows tr.row").nth(0).locator("[data-mark]").check();
     await page.locator("#rows tr.row").nth(1).locator("[data-mark]").check();
+    const checkedId = await page.locator("#rows tr.row").nth(1).getAttribute("data-id");
+    await page.waitForFunction((id) => {
+      const pos = LeakMap.coordinates([...state.prepared.histories.values()]).get(id);
+      const center = window.testMap?.getCenter();
+      return state.focusId === id && pos && center && testMap.getZoom() === 17 && Math.abs(center.lat - pos.lat) < 0.00001 && Math.abs(center.lng - pos.lng) < 0.00001;
+    }, checkedId);
+    const chosenId = await page.locator("#rows tr.row").nth(2).getAttribute("data-id");
     await page.locator("#rows tr.row").nth(2).locator(".addr").click();
+    await page.waitForFunction((id) => state.focusId === id, chosenId);
     await page.waitForSelector("#focusChart .ch-stage svg");
     const focusId = await page.evaluate(() => state.focusId);
+    await page.waitForFunction((id) => {
+      const pos = LeakMap.cachedPosition(state.byId.get(id));
+      return pos && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2;
+    }, focusId);
+    await page.evaluate(() => testMap.setView([59.18, 17.8], 12));
+    await page.locator(`#rows tr[data-id="${focusId}"] .addr`).click();
+    await page.waitForFunction((id) => {
+      const pos = LeakMap.cachedPosition(state.byId.get(id));
+      return testMap.getZoom() === 17 && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2;
+    }, focusId);
     await page.evaluate(() => { document.querySelector(".table-wrap").scrollTop = 500; });
     const laptop = await measure();
     assert.equal(laptop.overflow, 0, "No horizontal scroll at 1366×768");
     assert.ok(laptop.listRight <= laptop.focusX, "List sits to the left of the map, without overlap");
     assert.ok(laptop.listScroll > 0, "Meter list scrolls in its own container");
     assert.equal(laptop.scrollY, 0, "Scrolling the list leaves the map and page in place");
+
+    // Right-click sort links act immediately, including with several rows marked.
+    await page.locator("#rows tr.row").first().locator(".addr").click({ button: "right" });
+    await page.locator("#contextMenu .menu-sort summary").click();
+    await page.locator('#contextMenu [data-menu-sort="address"]').click();
+    assert.equal(await page.locator("#sort").inputValue(), "address");
+    assert.equal(await page.locator("#contextMenu").isVisible(), false);
+    assert.equal(await page.evaluate(() => state.marked.size), 2);
+    await page.locator("#sort").selectOption("priority");
+    await page.evaluate(() => document.querySelector(".table-wrap").scrollTop = 500);
 
     // Wide office screens: no max-width, table fills the width, panel bounded.
     const sizes = {};

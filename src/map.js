@@ -120,6 +120,7 @@
     const markLayer = L.layerGroup().addTo(map);
     let version = 0, tool = "", rectStart = null, rect = null, entries = [], current = { meters: [], focusId: "", marked: new Set() };
     let userMarker = null;
+    let lastFlight = "";
 
     // Touch: the page scrolls past the map until the user taps it.
     if (touch) {
@@ -199,9 +200,9 @@
       if (pos && mark.leak) L.polyline([[pos.lat, pos.lng], mark.leak], { color: "#b3261e", weight: 3, dashArray: "8 6", interactive: false }).addTo(markLayer);
     }
 
-    async function update({ meters, focusId = "", marked = new Set(), mode = "overview", fitAll = false }) {
+    async function update({ meters, focusId = "", marked = new Set(), mode = "overview", fitAll = false, focusRequest = 0 }) {
       const run = ++version;
-      current = { meters, focusId, marked };
+      current = { meters, focusId, marked, focusRequest };
       const wanted = mode === "focus"
         ? meters.filter((m) => m.id === focusId || marked.has(m.id)).slice(0, 40)
         : meters;
@@ -216,7 +217,14 @@
       if (queue.length) status(`Söker adress ${Math.min(limit, queue.length)} av ${queue.length} utan känd position…`);
       for (const m of queue.slice(0, limit)) {
         if (run !== version) return;
-        try { const pos = await geocode(m); if (pos) located.push({ m, pos }); } catch (error) { status(error.message); break; }
+        try {
+          const pos = await geocode(m);
+          if (run !== version) return;
+          if (pos) {
+            located.push({ m, pos });
+            if (m.id === focusId) draw(located, mode);
+          }
+        } catch (error) { status(error.message); break; }
       }
       if (run !== version) return;
       draw(located, mode, true);
@@ -246,10 +254,25 @@
         marker.addTo(markerLayer);
       }
       drawMarks();
-      if (final || located.length) {
-        const pts = located.filter(({ m }) => mode === "overview" || focusIds.has(m.id)).map(({ pos }) => [pos.lat, pos.lng]);
+      const focused = located.find(({ m }) => m.id === current.focusId);
+      if (current.focusId) {
+        // A selection always wins over the bounds of other marked meters.
+        // Wait for its exact position rather than jumping to another address.
+        if (focused) {
+          const flight = `${current.focusId}|${current.focusRequest}|${focused.pos.lat}|${focused.pos.lng}`;
+          if (flight !== lastFlight) {
+            lastFlight = flight;
+            map.stop();
+            map.flyTo([focused.pos.lat, focused.pos.lng], 17, {
+              duration: 0.7, animate: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+            });
+          }
+        }
+      } else if (final || located.length) {
+        lastFlight = "";
+        const pts = located.map(({ pos }) => [pos.lat, pos.lng]);
         if (pts.length === 1) map.setView(pts[0], 17);
-        else if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [24, 24], maxZoom: mode === "overview" ? 14 : 17 });
+        else if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [24, 24], maxZoom: 14 });
       }
     }
 
@@ -289,3 +312,4 @@
 
   root.LeakMap = { create, navigationUrl, coordinates, markFor: (id) => marks[id] || null, addressForMap, parseAddress, exactHit, cachedPosition };
 }(typeof globalThis !== "undefined" ? globalThis : this));
+
