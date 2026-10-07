@@ -54,7 +54,7 @@
   const state = {
     files: [], labels: loadLabelBackup(), tripList: [], profileId: null, profileName: null,
     areaSignals: [], coordinatesKey: "", prepared: null, cache: new Map(), meters: [], byId: new Map(), latestExport: null,
-    list: "all", search: "", sort: "priority", area: "all", excluded: new Set(DEFAULT_HIDDEN),
+    list: "all", search: "", sort: "priority", sortReverse: false, area: "all", excluded: new Set(DEFAULT_HIDDEN),
     page: 1, pageSize: 50, marked: new Set(), focusId: "", expanded: new Set(),
     view: readView(), importing: false, storageError: "", visible: [],
   };
@@ -336,7 +336,14 @@
       address: (a, b) => a.address.localeCompare(b.address, "sv", { numeric: true }),
       area: (a, b) => districtOf(a).localeCompare(districtOf(b), "sv") || a.address.localeCompare(b.address, "sv", { numeric: true }),
     }[state.sort] || ((a, b) => b.sortRank - a.sortRank);
-    return rows.sort((a, b) => by(a, b) || b.sortRank - a.sortRank || a.address.localeCompare(b.address, "sv"));
+    const sortValue = (m) => ({ change: m.changePrev?.pct, baseline: m.finding?.pct, lastRead: m.latest?.date?.getTime(), value: m.latest?.value })[state.sort];
+    return rows.sort((a, b) => {
+      if (["change", "baseline", "lastRead", "value"].includes(state.sort)) {
+        const missing = Number(sortValue(a) == null) - Number(sortValue(b) == null);
+        if (missing) return missing;
+      }
+      return (state.sortReverse ? -1 : 1) * by(a, b) || b.sortRank - a.sortRank || a.address.localeCompare(b.address, "sv");
+    });
   }
 
   // ---------------- render ----------------
@@ -463,9 +470,9 @@
       <td class="c-status"><span class="pill cat-${esc(m.category)}">${esc(m.status)}</span><span class="prio" title="Prioritet: rangordning 0–100, inte sannolikhet för läcka">${m.priority}</span><span class="conf">underlag ${esc(m.confidence)}</span></td>
       <td class="c-addr"><span class="addr-line"><button type="button" class="addr" data-act="focus">${esc(shortAddress(m))}</button>${copyButton(m)}</span><span class="sub">${esc(m.serial || m.id)} · ${esc(districtOf(m))}</span>${tags.length ? `<span class="tags">${tags.join("")}</span>` : ""}</td>
       <td class="c-latest">${changeHtml(m)}</td>
-      <td class="c-reason"><p class="summary">${esc(m.summary)}</p><p class="action">${esc(m.action)}</p><button type="button" class="link" data-act="expand" aria-expanded="${expanded}">${expanded ? "Dölj underlag" : "Visa underlag"}</button></td>
+      <td class="c-reason"><p class="summary">${esc(m.summary)}</p><p class="action">${esc(m.action)}</p></td>
       <td class="c-spark" data-act="chart" title="Öppna graf">${Chart.sparkline(m, { width: state.sparkWidth || 120 })}</td>
-      <td class="c-menu"><button type="button" class="icon" data-act="menu" aria-label="Åtgärder för ${esc(m.address)}">⋯</button></td>
+      <td class="c-menu"><button type="button" class="row-info" data-act="expand" aria-expanded="${expanded}" aria-label="${expanded ? "Dölj" : "Visa"} underlag" title="${expanded ? "Dölj" : "Visa"} underlag">i</button><button type="button" class="icon" data-act="menu" aria-label="Åtgärder för ${esc(m.address)}">⋯</button></td>
     </tr>${expanded ? `<tr class="detail-row" data-detail="${esc(m.id)}"><td colspan="7">${detailHtml(m)}</td></tr>` : ""}`;
   }
 
@@ -572,7 +579,20 @@
             <button type="button" data-sel="clear">Avmarkera</button>` : ""}
           </div>
         </details>
-      </div>`;
+      </div>
+      <div class="list-sort" role="group" aria-label="Sortera efter"><button type="button" data-sort="address">Adress</button><button type="button" data-sort="value">Nivå</button><button type="button" data-sort="change">Förändring</button><button type="button" data-sort="priority">Prioritet</button></div>`;
+    renderSortControls();
+  }
+
+  function renderSortControls() {
+    document.querySelectorAll("[data-sort]").forEach((b) => {
+      const active = b.dataset.sort === state.sort;
+      const ascending = ["address", "area"].includes(state.sort) !== state.sortReverse;
+      b.dataset.sortLabel ||= b.textContent;
+      b.textContent = `${b.dataset.sortLabel}${active ? ascending ? " ↑" : " ↓" : ""}`;
+      b.setAttribute("aria-pressed", String(active));
+      if (b.closest("th")) b.closest("th").setAttribute("aria-sort", active ? ascending ? "ascending" : "descending" : "none");
+    });
   }
 
   function renderPager(pages) {
@@ -829,7 +849,7 @@
     if (!b) return;
     const ids = menuIds;
     closeMenu();
-    if (b.dataset.menuSort) { state.sort = b.dataset.menuSort; state.page = 1; render(); return; }
+    if (b.dataset.menuSort) { state.sort = b.dataset.menuSort; state.sortReverse = false; els.sort.value = state.sort; state.page = 1; render(); return; }
     if (b.dataset.decision) decide(ids, b.dataset.decision);
     const act = b.dataset.menu;
     if (act === "focus") setFocus(ids[0]);
@@ -1083,7 +1103,10 @@
       clearTimeout(focusTimer);
       if (event.detail > 1) return;
       els.rows.querySelectorAll("tr.row").forEach((tr) => tr.classList.toggle("is-focus", tr.dataset.id === id));
-      focusTimer = setTimeout(() => setFocus(id, { keepRow: row }), event.detail === 0 ? 0 : 230);
+      focusTimer = setTimeout(() => {
+        setFocus(id, { keepRow: row });
+        if (state.view === "list") openChart(id);
+      }, event.detail === 0 ? 0 : 230);
     }
   });
   els.rows.addEventListener("change", (event) => {
@@ -1159,17 +1182,19 @@
     render();
   });
   els.search.addEventListener("input", () => { state.search = els.search.value; state.page = 1; render(); });
-  els.sort.addEventListener("change", () => { state.sort = els.sort.value; state.page = 1; render(); });
+  els.sort.addEventListener("change", () => { state.sort = els.sort.value; state.sortReverse = false; state.page = 1; render(); });
   els.area.addEventListener("change", () => { state.area = els.area.value; state.page = 1; render(); });
   els.groupFilter.addEventListener("change", () => {
     state.excluded = new Set([...els.groupFilter.querySelectorAll("input:not(:checked)")].map((i) => i.value));
     state.page = 1;
     render();
   });
-  document.querySelector("thead").addEventListener("click", (event) => {
+  document.addEventListener("click", (event) => {
     const b = event.target.closest("[data-sort]");
     if (!b) return;
+    state.sortReverse = state.sort === b.dataset.sort ? !state.sortReverse : false;
     state.sort = b.dataset.sort;
+    els.sort.value = state.sort;
     state.page = 1;
     render();
   });

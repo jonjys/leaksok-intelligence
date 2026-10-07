@@ -501,6 +501,23 @@ fieldset.inline legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
 
 .selection-menu > summary { font-size: 12px; padding: 4px 8px !important; min-height: 28px !important; }
 .selection-menu .menu-panel { min-width: 220px; max-width: calc(100vw - 32px); }
+.selection-menu .menu-panel { left: 0; right: auto; }
+.list-sort { display: flex; gap: 4px; flex-wrap: wrap; width: 100%; }
+.list-sort button { border: 1px solid var(--line); border-radius: 4px; background: var(--surface); padding: 4px 7px; font-size: 12px; }
+.list-sort button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.c-status .conf, .c-addr > .sub, .c-addr .tags, .c-reason .summary, .c-reason .action, .c-latest > .sub { display: none; }
+.meters th:nth-child(5), .meters tr.row .c-reason { display: none; }
+.meters th:nth-child(7) { width: 82px; }
+.meters tr.row .c-menu { display: flex; gap: 3px; width: auto; }
+.meters .c-menu .icon { width: 28px; min-width: 28px; padding: 2px; }
+.meters > tbody > tr.row > td { padding-top: 6px; padding-bottom: 6px; }
+.c-reason .link { font-size: 12px; white-space: nowrap; }
+@media (min-width: 761px) {
+  body.has-focus .meters tr.row { padding: 7px 10px; gap: 3px 6px; grid-template-columns: 22px minmax(0, 1fr) auto 59px; grid-template-areas: "check addr addr menu" "check status latest latest"; }
+  body.has-focus .c-reason, body.has-focus .c-latest > .sub { display: none; }
+  body.has-focus .c-latest { justify-self: end; align-self: center; }
+  body.has-focus .c-latest .date { display: none; }
+}
 
 
 /* Overlay navigation reserves only its icon strip; opening it never shifts work. */
@@ -541,3 +558,5 @@ fieldset.inline legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
   body.has-focus .focus:not(.no-meter) .focus-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { .rail { transition: none; } }
+
+.row-info { width: 28px; min-width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; color: var(--accent); background: var(--surface); font-weight: 700; }

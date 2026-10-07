@@ -51,7 +51,7 @@
 
       <section class="toolbar" aria-label="Sök och filter">
         <input id="search" type="search" placeholder="Sök adress eller serienummer (flera: radbrytning eller komma)" aria-label="Sök">
-        <label class="field"><span>Sortera</span>
+        <label class="field"><span>Sortera efter</span>
           <select id="sort">
             <option value="priority">Prioritet</option>
             <option value="change">Förändring sedan föregående</option>
@@ -114,8 +114,8 @@
               <th class="c-check"><input type="checkbox" id="checkPage" aria-label="Markera alla på sidan"></th>
               <th><button type="button" data-sort="priority">Status</button></th>
               <th><button type="button" data-sort="address">Adress</button></th>
-              <th><button type="button" data-sort="change">Senaste</button></th>
-              <th>Huvudorsak</th>
+              <th><button type="button" data-sort="value">Nivå</button></th>
+              <th>Underlag</th>
               <th class="c-spark"><button type="button" data-sort="lastRead">60 dagar</button></th>
               <th class="c-menu"><span class="sr-only">Åtgärder</span></th>
             </tr>
@@ -191,5 +191,4 @@
   <script src="./src/app.js"></script>
 </body>
 </html>
-
 

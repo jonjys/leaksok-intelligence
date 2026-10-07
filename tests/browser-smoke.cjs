@@ -45,13 +45,13 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.ok(today.includes("90000001") && today.includes("90000003"), "New signals today are listed");
     assert.ok(!today.includes("90000009"), "An old reading is not a new signal today");
     await list("suspect");
-    assert.match(await row("90000001").innerText(), /5 → 10 \(\+100 %\)/);
+    assert.match(await row("90000001").textContent(), /5 → 10 \(\+100 %\)/);
     assert.match(await row("90000001").locator(".c-latest").innerText(), /\+5 \(\+100 %\)/);
     assert.equal(await page.locator("#rail [data-list='suspect'] b").textContent(), String(await page.evaluate(() => state.visible.length)));
     await list("customer_side");
     assert.equal(await row("90000014").count(), 1, "LEAK info code goes to Efter mätare");
     await list("stale_contact");
-    assert.match(await row("90000009").innerText(), /Ingen ny avläsning sedan 9 sep/);
+    assert.match(await row("90000009").textContent(), /Ingen ny avläsning sedan 9 sep/);
 
     // Laptop focus stacks map and chart beside the meter list; values agree.
     await page.locator('button[data-view="map"]').click();
@@ -273,7 +273,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal((await meter(interestId)).category, 'suspect_auto');
     await list('suspect');
     await page.locator('#search').fill('INTRESSETESTVÄGEN');
-    assert.match(await row(interestId).innerText(), /Kamstrup · rang 2/);
+    assert.match(await row(interestId).textContent(), /Kamstrup · rang 2/);
     await kit.importFiles(page, [interestFiles[3]]);
     assert.equal((await meter(interestId)).category, 'suspect_auto', 'Absent header does not erase enriched duplicate metadata');
     await page.reload({ waitUntil: 'load' });
