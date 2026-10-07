@@ -560,3 +560,23 @@ fieldset.inline legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
 @media (prefers-reduced-motion: reduce) { .rail { transition: none; } }
 
 .row-info { width: 28px; min-width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; color: var(--accent); background: var(--surface); font-weight: 700; }
+.chart-close { position: absolute; top: 8px; right: 0; z-index: 2; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 22px; line-height: 1; }
+.focus-chart .ch-head { padding-right: 36px; }
+.focus.chart-hidden .focus-grid, body.has-focus .focus.chart-hidden .focus-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+
+/* The map owns the workspace; the chart is a compact strip beneath it. */
+@media (min-width: 761px) {
+  body.has-focus .focus:not(.no-meter) .focus-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) clamp(150px, 24vh, 240px); gap: 10px; }
+  body.has-focus .focus-map { grid-row: 1; }
+  body.has-focus .focus-chart { grid-row: 2; padding-top: 8px; border-top: 1px solid var(--line); overflow: hidden; }
+  body.has-focus .focus-chart .ch-stage { min-height: 0; }
+  body.has-focus .focus-chart .ch-legend { display: none; }
+  body.has-focus .focus-chart .ch-latest b { font-size: 18px; }
+}
+@media (max-width: 760px) {
+  .focus:not(.no-meter) .focus-grid { grid-template-rows: auto 240px; }
+  .focus-map { grid-row: 1; }
+  .focus-chart { grid-row: 2; min-height: 0; padding-top: 8px; border-top: 1px solid var(--line); }
+  .focus-chart .ch-stage { min-height: 0; }
+  .focus-chart .ch-legend { display: none; }
+}

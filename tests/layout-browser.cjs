@@ -133,27 +133,22 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await page.screenshot({ path: "test-results/layout-map-1920.png" });
     await page.evaluate(() => document.querySelector(".table-wrap").scrollTop = 0);
 
-    // Draggable divider between chart and map, remembered after reload.
+    // Chart stays a small strip beneath the map on office screens.
     await page.locator("#rows tr.row").nth(0).locator(".addr").click();
     await page.waitForSelector("#focusChart .ch-stage svg");
-    const handle = page.locator("#focusSplit");
-    const grid = await page.locator(".focus-grid").boundingBox();
-    const box = await handle.boundingBox();
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(grid.x + grid.width * 0.65, box.y + box.height / 2, { steps: 5 });
-    await page.mouse.up();
-    assert.equal(await handle.getAttribute("aria-valuenow"), "65");
-    await page.waitForTimeout(300);
-    const split = await page.evaluate(() => ({ chart: document.getElementById("focusChart").offsetWidth, map: document.querySelector(".focus-map").offsetWidth }));
-    assert.ok(split.chart > split.map * 1.6, "Chart gets the dragged share");
-    await handle.focus();
-    await page.keyboard.press("ArrowLeft");
-    assert.equal(await handle.getAttribute("aria-valuenow"), "60", "Divider works with the keyboard");
-    await page.reload({ waitUntil: "load" });
-    await kit.unlock(page, null, "1234");
-    await page.waitForFunction(() => state.meters.length === 3000);
-    assert.equal(await page.locator("#focusSplit").getAttribute("aria-valuenow"), "60", "Split is remembered");
+    const chartBox = await page.locator("#focusChart").boundingBox();
+    const mapBox = await page.locator("#map").boundingBox();
+    assert.ok(chartBox.height <= 241, "Chart never grows beyond 240px");
+    assert.ok(chartBox.y >= mapBox.y + mapBox.height, "Chart sits beneath the map");
+    assert.ok(mapBox.height > chartBox.height, "Map gets most of the workspace");
+    await page.locator('#focusChart .ch-stage').click();
+    assert.equal(await page.locator('#chartDialog').isVisible(), true, "Compact graph can still be enlarged");
+    await page.locator('#chartDialog [data-close]').click();
+    await page.locator('[data-chart-action="close"]').click();
+    assert.equal(await page.locator('#focusChart').isVisible(), false, "X closes just the compact graph");
+    assert.equal(await page.locator('#map').isVisible(), true, "Map remains visible");
+    await page.locator('#showFocusChart').click();
+    assert.equal(await page.locator('#focusChart').isVisible(), true, "Graph can be restored");
 
     // Narrow browser window on a big screen, and phone.
     for (const [w, h] of [[1100, 1440], [390, 844]]) {
@@ -164,9 +159,9 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await page.evaluate(() => LeakApp.setFocus(state.visible[0].id, { scroll: false }));
     await page.waitForSelector("#focusChart .ch-stage svg");
     await page.screenshot({ path: "test-results/layout-phone.png", fullPage: true });
-    assert.equal(await page.locator("#focusSplit").isVisible(), false, "No divider on phone");
+    assert.equal(await page.locator("#focusSplit").count(), 0, "No split divider");
     assert.deepEqual(errors, []);
-    console.log(`Layout PASS: rows visible 1920×1080 ${mid.visible}, 2560×1440 ${tall.visible}; table ${Math.round(sizes[3440].tableW)} px at 3440; resize keeps selection and scroll; divider saved.`);
+    console.log(`Layout PASS: rows visible 1920×1080 ${mid.visible}, 2560×1440 ${tall.visible}; table ${Math.round(sizes[3440].tableW)} px at 3440; resize keeps selection and scroll; compact chart below map.`);
   } catch (error) {
     await page.screenshot({ path: "test-results/failure-layout.png", fullPage: true }).catch(() => {});
     throw error;

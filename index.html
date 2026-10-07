@@ -82,6 +82,7 @@
         <div class="focus-head">
           <div><b id="focusTitle"></b><button type="button" class="copy-addr" id="focusCopy" title="Kopiera adress" aria-label="Kopiera adress"></button><span id="focusMeta"></span></div>
           <div class="focus-actions">
+            <button type="button" class="secondary" id="showFocusChart" data-chart-action="show" hidden>Visa graf</button>
             <button type="button" class="secondary" id="focusNavigate">Kör hit</button>
             <button type="button" class="secondary" id="focusMenu">Flytta till…</button>
             <button type="button" class="secondary" id="focusClose" aria-label="Stäng vald mätare">Stäng</button>
@@ -89,7 +90,6 @@
         </div>
         <div class="focus-grid">
           <div class="focus-chart" id="focusChart"></div>
-          <div class="split-handle" id="focusSplit" role="separator" aria-orientation="vertical" aria-label="Fördelning mellan graf och karta (dra eller använd piltangenter)" aria-controls="focusChart" tabindex="0" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50"></div>
           <div class="focus-map">
             <div class="map-tools" role="toolbar" aria-label="Karta">
               <button type="button" data-map-style="street" aria-pressed="true">Karta</button>
@@ -191,4 +191,3 @@
   <script src="./src/app.js"></script>
 </body>
 </html>
-

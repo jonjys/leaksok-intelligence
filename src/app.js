@@ -55,7 +55,7 @@
     files: [], labels: loadLabelBackup(), tripList: [], profileId: null, profileName: null,
     areaSignals: [], coordinatesKey: "", prepared: null, cache: new Map(), meters: [], byId: new Map(), latestExport: null,
     list: "all", search: "", sort: "priority", sortReverse: false, area: "all", excluded: new Set(DEFAULT_HIDDEN),
-    page: 1, pageSize: 50, marked: new Set(), focusId: "", expanded: new Set(),
+    page: 1, pageSize: 50, marked: new Set(), focusId: "", chartHidden: false, expanded: new Set(),
     view: readView(), importing: false, storageError: "", visible: [],
   };
   window.state = state; // read-only inspection in tests and the browser console
@@ -623,6 +623,9 @@
     const showMap = state.view === "map";
     els.focus.hidden = !state.files.length || !showMap;
     els.focus.classList.toggle("no-meter", !m);
+    els.focus.classList.toggle("chart-hidden", state.chartHidden);
+    els.focusChart.hidden = state.chartHidden || !m;
+    $("showFocusChart").hidden = !m || !state.chartHidden;
     document.body.classList.toggle("has-focus", !els.focus.hidden);
     if (els.focus.hidden) return;
     if (m) {
@@ -632,8 +635,16 @@
       els.focusMeta.textContent = ` · ${m.serial || m.id} · ${m.status} · prioritet ${m.priority}`;
       const cases = (state.leakCases || []).filter((r) => r.anchorId === m.id);
       if (cases.length) els.focusMeta.textContent += caseGeocoding ? " · söker grannmätarnas kartpositioner…" : ` · ${cases.at(-1).profiles.filter((p) => p.validated).length} jämförelsemönster (Visa underlag)`;
-      if (els.focusChart.__chart?.id !== m.id || els.focusChart.__version !== m) {
+      if (!state.chartHidden && (els.focusChart.__chart?.id !== m.id || els.focusChart.__version !== m)) {
         Chart.render(els.focusChart, m, { compact: true, onEnlarge: openChart });
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "chart-close";
+        close.dataset.chartAction = "close";
+        close.setAttribute("aria-label", "Stäng graf");
+        close.title = "Stäng graf";
+        close.textContent = "×";
+        els.focusChart.appendChild(close);
         els.focusChart.__version = m;
       }
     } else {
@@ -659,6 +670,7 @@
 
   // Selecting a meter only updates the focus panel; the table is not rebuilt.
   function setFocus(id, { scroll = true, keepRow = null } = {}) {
+    if (id !== state.focusId) state.chartHidden = false;
     state.focusId = id;
     focusRequest++;
     els.rows.querySelectorAll("tr.row").forEach((tr) => tr.classList.toggle("is-focus", tr.dataset.id === id));
@@ -1046,44 +1058,6 @@
     }, 150);
   });
 
-  // Draggable divider between chart and map; the split is remembered on this device.
-  const SPLIT_KEY = "leaksok-focus-split";
-  const splitHandle = $("focusSplit");
-  function applySplit(pct, save) {
-    const v = Math.min(75, Math.max(25, Math.round(pct)));
-    els.focus.style.setProperty("--chart-w", `${v}%`);
-    splitHandle.setAttribute("aria-valuenow", String(v));
-    if (save) { try { localStorage.setItem(SPLIT_KEY, String(v)); } catch { /* storage unavailable */ } }
-  }
-  try { const saved = Number(localStorage.getItem(SPLIT_KEY)); if (saved) applySplit(saved, false); } catch { /* storage unavailable */ }
-  splitHandle.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    const grid = splitHandle.parentElement.getBoundingClientRect();
-    splitHandle.setPointerCapture(event.pointerId);
-    splitHandle.classList.add("is-drag");
-    document.body.classList.add("is-splitting");
-    const move = (e) => applySplit(((e.clientX - grid.left) / grid.width) * 100, false);
-    const up = (e) => {
-      applySplit(((e.clientX - grid.left) / grid.width) * 100, true);
-      splitHandle.classList.remove("is-drag");
-      document.body.classList.remove("is-splitting");
-      splitHandle.removeEventListener("pointermove", move);
-      splitHandle.removeEventListener("pointerup", up);
-      splitHandle.removeEventListener("pointercancel", up);
-    };
-    splitHandle.addEventListener("pointermove", move);
-    splitHandle.addEventListener("pointerup", up);
-    splitHandle.addEventListener("pointercancel", up);
-  });
-  splitHandle.addEventListener("keydown", (event) => {
-    const now = Number(splitHandle.getAttribute("aria-valuenow")) || 50;
-    const step = { ArrowLeft: -5, ArrowRight: 5, Home: -100, End: 100 }[event.key];
-    if (step === undefined) return;
-    event.preventDefault();
-    applySplit(now + step, true);
-  });
-  splitHandle.addEventListener("dblclick", () => applySplit(50, true));
-
   let focusTimer = 0;
   els.rows.addEventListener("click", (event) => {
     const row = event.target.closest("tr[data-id]");
@@ -1205,6 +1179,8 @@
   $("focusNavigate").addEventListener("click", () => { const m = state.byId.get(state.focusId); if (m) window.open(LeakMap.navigationUrl(m), "_blank", "noopener,noreferrer"); });
   $("focusMenu").addEventListener("click", (event) => { if (state.focusId) openMenu(targetIds(state.focusId), 0, 0, event.currentTarget); });
   els.focus.addEventListener("click", (event) => {
+    const chartAction = event.target.closest("[data-chart-action]")?.dataset.chartAction;
+    if (chartAction) { state.chartHidden = chartAction === "close"; renderFocus(); return; }
     const style = event.target.closest("[data-map-style]")?.dataset.mapStyle;
     const tool = event.target.closest("[data-map-tool]")?.dataset.mapTool;
     const view = ensureMap();

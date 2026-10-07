@@ -215,7 +215,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, "No horizontal overflow on phone");
     const chart = await page.locator("#focusChart").boundingBox();
     const map = await page.locator("#map").boundingBox();
-    assert.ok(map.y > chart.y + chart.height - 5, "Map below the chart on phone");
+    assert.ok(chart.y > map.y + map.height - 5, "Compact chart below the map on phone");
     await page.screenshot({ path: "test-results/mobile-390.png", fullPage: true });
 
     // Supplemental area evidence: three nearby addresses, same rise, no replacement
