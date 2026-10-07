@@ -629,6 +629,8 @@
     document.body.classList.toggle("has-focus", !els.focus.hidden);
     if (els.focus.hidden) return;
     if (m) {
+      const maxLevel = m.series?.length ? Math.max(...m.series.map((p) => p.value)) : null;
+      $("meterSummary").innerHTML = `<b>${esc(shortAddress(m))}</b><span class="sub">${esc(m.serial || m.id)} · ${m.latest ? esc(Engine.fmtDate(m.latest.date)) : "Ingen avläsning"}</span><span class="pill cat-${esc(m.category)}">${esc(m.status)}</span><dl><div><dt>Senaste nivå</dt><dd>${num(m.latest?.value)}</dd></div><div><dt>Max i historiken</dt><dd>${num(maxLevel)}</dd></div><div><dt>Jämförelsenivå</dt><dd>${num(m.finding?.ref?.level)}</dd></div><div><dt>Förändring</dt><dd>${m.changePrev?.pct != null ? esc(Engine.fmtPct(m.changePrev.pct)) : "–"}</dd></div></dl><p>${esc(m.summary)}</p><button type="button" class="secondary" data-focus-enlarge="${esc(m.id)}">Öppna större graf</button>`;
       els.focusTitle.textContent = m.address;
       $("focusCopy").dataset.copy = m.id;
       $("focusCopy").hidden = false;
@@ -1179,6 +1181,8 @@
   $("focusNavigate").addEventListener("click", () => { const m = state.byId.get(state.focusId); if (m) window.open(LeakMap.navigationUrl(m), "_blank", "noopener,noreferrer"); });
   $("focusMenu").addEventListener("click", (event) => { if (state.focusId) openMenu(targetIds(state.focusId), 0, 0, event.currentTarget); });
   els.focus.addEventListener("click", (event) => {
+    const enlarge = event.target.closest("[data-focus-enlarge]")?.dataset.focusEnlarge;
+    if (enlarge) { openChart(enlarge); return; }
     const chartAction = event.target.closest("[data-chart-action]")?.dataset.chartAction;
     if (chartAction) { state.chartHidden = chartAction === "close"; renderFocus(); return; }
     const style = event.target.closest("[data-map-style]")?.dataset.mapStyle;

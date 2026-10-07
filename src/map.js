@@ -249,7 +249,9 @@
           fillColor: COLORS[m.category] || COLORS.normal,
           fillOpacity: 0.95,
         });
-        marker.bindTooltip(esc(options.label ? options.label(m) : m.address), { permanent: (isFocus || isMarked) && few, direction: "top", offset: [0, -8], className: "map-label" });
+        const address = esc(options.label ? options.label(m) : m.address);
+        const max = m.series?.length ? Math.max(...m.series.map((p) => p.value)) : null;
+        marker.bindTooltip(`<div class="map-meter-tip"><b>${address}</b><span>${esc(m.status || "")}</span><dl><dt>Senaste nivå</dt><dd>${esc(m.latest?.value ?? "–")}</dd><dt>Max i historiken</dt><dd>${esc(max ?? "–")}</dd></dl></div>`, { permanent: false, direction: "top", offset: [0, -8], className: "map-label" });
         marker.on("click", () => options.onFocus?.(m.id));
         marker.addTo(markerLayer);
       }

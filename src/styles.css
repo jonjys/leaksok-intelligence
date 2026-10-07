@@ -580,3 +580,42 @@ fieldset.inline legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
   .focus-chart .ch-stage { min-height: 0; }
   .focus-chart .ch-legend { display: none; }
 }
+/* Compact meter inspector beside the map, with its own bounded graph. */
+.meter-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+.meter-panel-title { font-size: 12px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.meter-panel .focus-chart { grid-template-rows: auto minmax(0, 1fr); height: 260px; flex: none; grid-row: auto; padding: 0; border: 0; }
+.meter-panel .focus-chart .ch-head { display: none; }
+.meter-panel .focus-chart .ch-controls { padding-right: 32px; }
+.meter-panel .chart-close { top: 0; }
+.meter-summary { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.meter-summary > b { font-size: 14px; overflow-wrap: anywhere; }
+.meter-summary > .pill { justify-self: start; }
+.meter-summary dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
+.meter-summary dl > div { padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.meter-summary dt { font-size: 11px; color: var(--muted); }
+.meter-summary dd { margin: 2px 0 0; font-size: 18px; font-weight: 700; }
+.meter-summary p { font-size: 12px; color: var(--muted); }
+.focus.no-meter .meter-panel, .focus.chart-hidden .meter-panel { display: none; }
+.map-meter-tip { min-width: 160px; max-width: 240px; white-space: normal; }
+.map-meter-tip > b { display: block; color: var(--accent); padding-bottom: 5px; }
+.map-meter-tip > span { font-size: 11px; color: var(--muted); }
+.map-meter-tip dl { display: grid; grid-template-columns: 1fr auto; gap: 5px 12px; font-size: 12px; margin: 8px 0 0; }
+.map-meter-tip dd { margin: 0; }
+@media (min-width: 1200px) {
+  body.has-focus .focus:not(.no-meter):not(.chart-hidden) .focus-grid { grid-template-columns: minmax(0, 1fr) clamp(300px, 25vw, 380px); grid-template-rows: minmax(0, 1fr); gap: 12px; }
+  body.has-focus .focus-map { grid-column: 1; grid-row: 1; }
+  .meter-panel { grid-column: 2; grid-row: 1; }
+  body.has-focus .meter-panel .focus-chart { height: 260px; grid-row: auto; }
+}
+@media (max-width: 1199px) {
+  body.has-focus .focus:not(.no-meter):not(.chart-hidden) .focus-grid, .focus:not(.no-meter):not(.chart-hidden) .focus-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(240px, 1fr) auto; }
+  .meter-panel { grid-row: 2; max-height: 290px; }
+}
+@media (min-width: 761px) {
+  body.has-focus .workspace { grid-template-columns: clamp(300px, 23vw, 360px) minmax(0, 1fr); }
+  body.has-focus .brief-items { display: none; }
+  body.has-focus .brief { padding: 8px 10px; }
+  body.has-focus .focus { padding: 8px; }
+  body.has-focus .focus-head b { font-size: 13px; }
+}
+body.has-focus .c-status .prio { display: none; }
