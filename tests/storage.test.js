@@ -67,3 +67,12 @@ test("avbruten transaktion rapporteras aldrig som sparad", async () => {
   await assert.rejects(storage.saveState("p", { labels: {}, tripList: [] }), /quota/);
   assert.equal(fake.data.has("p::state"), false);
 });
+test("mappanslutningen är profilspecifik och påverkas inte av full säkerhetslagring", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  await storage.saveImportSource("p", { name: "Exporter", handle: { kind: "directory" }, seen: { "a.csv": "100:1" } });
+  await storage.saveAll("p", { files: [], labels: {}, tripList: [] });
+  assert.equal((await storage.loadImportSource("p")).seen["a.csv"], "100:1");
+  assert.equal(await storage.loadImportSource("other"), null);
+  await storage.clearImportSource("p"); assert.equal(await storage.loadImportSource("p"), null);
+});
+

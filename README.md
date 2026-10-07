@@ -2,14 +2,24 @@
 
 Morgonverktyg för Kamstrup Leak Detector-exporter: importera senaste 24-timmarsexporten, se vad som förändrats, varför det är relevant och vilka mätare som ska kontrolleras, och ta med en arbetslista i Excel ut i fält.
 
-Allt körs lokalt i webbläsaren. Historik, beslut och kommentarer sparas i webbläsarens IndexedDB på den här enheten (namn + kod låser profilen). Inga mätardata skickas till någon språkmodell eller ny extern tjänst. Kartan slår upp adresser i OpenStreetMap Nominatim (enbart exakta husnummerträffar, cachas lokalt); saknas träff visas ingen position.
+Allt körs lokalt i webbläsaren. Historik, beslut och kommentarer sparas i webbläsarens IndexedDB på den här enheten. Namn + kod öppnar arbetsytan; det är inte kryptering eller ett serverkonto. Inga mätardata skickas till någon språkmodell eller ny extern tjänst. Kartan slår upp adresser i OpenStreetMap Nominatim (enbart exakta husnummerträffar, cachas lokalt); saknas träff visas ingen position.
+
+## Automatisk mappimport
+
+Välj **Anslut mapp → Välj exportmapp** i Chrome eller Edge på dator. Spara Kamstrups exporter direkt i den mappen. LeakSök läser nya och ändrade `.xlsx/.xls/.csv` varje minut medan appen är synlig, öppen och upplåst, samt när du återvänder till appen. Undermappar, tomma filer och Excels tillfälliga `~$`-filer läses inte. Appen hämtar inte exporter från Kamstrup och kör inte när sidan är stängd.
+
+Anslutningen och behandlade filers namn, storlek och ändringstid sparas med den lokala profilen. Oförändrade filer läses inte om. Dubbletter räknas inte dubbelt; ändrade metadata som infokoder, referensvärden och rang uppdateras även om själva avläsningen är oförändrad. En fil kvitteras först efter lyckad import och lagring. Oläsbara filer och misslyckad lagring visas och kan försöka igen.
+
+Om webbläsaren behöver läsbehörighet igen visas **Tillåt läsning**. Mappen läses bara; inget skrivs till den. **Koppla från** behåller historiken. Rensning av importer stoppar även mappimporten. På mobil och i webbläsare utan mappstöd fungerar vanlig flerfilsimport och dra-och-släpp.
+
+**Info → Säkerhetskopiera hela arbetsytan** sparar historik, beslut, kommentarer och arbetslista i en versionerad JSON-fil. **Återställ säkerhetskopia** validerar filen och visar innehållets antal innan den läggs till. Befintliga exporter behålls, dubbletter undviks och nyare beslut, kommentarer och synlighetsändringar jämförs separat. Äldre beslutskopior stöds också. Profilkod och mappbehörigheter ingår inte. Återställningen lagras i en transaktion innan arbetsytan byts.
 
 ## Morgonflöde
 
-1. **＋ Importera Excel** – en eller flera `.xlsx/.xls/.csv`. Tidigare historik behålls; samma fil två gånger räknas som dubblett.
+1. **Anslut mapp** för återkommande import, eller **＋ Importera Excel** – en eller flera `.xlsx/.xls/.csv`. Tidigare historik behålls; samma fil två gånger räknas som dubblett.
 2. **Morgonöversikten** visar senaste exportens tid, hur många som lästs av senaste dygnet och dagens nya signaler.
 3. Listorna: **Nytt i dag**, **Åk ut**, **Misstänk** (automatisk upptäckt), **Bevaka** (din manuella lista), **Efter mätare**, **Aktiva läckor**, **Lagade** och under *Fler listor* Stabilt hög, Störning/tillfällig, Säsong, Kort historik, Utan färsk avläsning, Ignorerade och Gömda.
-4. I **Karta** ligger en egen rullande mätarlista till vänster om kartan, med en kompakt vänstermeny. Kartan täcker aldrig listan när du scrollar. Klicka på en adress för att visa grafen: bredvid kartan på stora skärmar, under den på mindre skärmar. Avdelaren kan dras eller flyttas med piltangenter och fördelningen sparas på enheten. **Lista** utan vald mätare visar hela tabellen. På telefon staplas panelerna och listan visas som kort. **Visa underlag** fäller ut observation, möjlig förklaring, rekommenderad åtgärd, jämförelser, datakvalitet och prioritetens delar.
+4. I **Karta** ligger en egen rullande mätarlista till vänster om kartan. Vänstermenyn fälls ut ovanpå arbetsytan vid hovring eller tangentbordsfokus. Klicka på en adress för att zooma till den valda pluppen och visa en kompakt graf: bredvid kartan på stora skärmar, under den på mindre skärmar. X stänger grafpanelen. Övriga pluppar finns kvar och **Visa alla träffar** visar hela sökurvalet. **Lista** visar en tabell; klick öppnar grafen i en separat dialog. På telefon staplas panelerna och listan visas som kort. **i** fäller ut underlaget. Klick på **Nivå** växlar mellan högst och lägst först.
 5. **Flytta till…** finns på ett ställe: markeringsraden, ⋯ på raden, högerklick eller långtryck. Konstaterad läcka (datum, osäkert datum) och Lagad (datum, AV/SV, ungefärligt avstånd, kommentar) öppnar formulär. Allt kan ångras direkt.
 6. Markera mätare (kryssrutor gäller över sidor och filter) → **Excel (N)** eller **Lägg i arbetslista**. **Markera sidan** och **Markera alla N träffar** gäller uttryckligen aktuell sida respektive hela det filtrerade urvalet. Exporten visar antal innan nedladdning och tar aldrig med alla mätare automatiskt.
 
@@ -60,7 +70,7 @@ Materialet räcker inte för gradvis trend (kräver ≥ 8 avläsningar över 14 
 - Originalexporter från kommunen finns inte i repot. Tester använder syntetiska och anonymiserade data. Kör egna filer lokalt: `node tests/exports-regression.js exports/*.csv`.
 - Tröskelvärdena (25 %, 50 % för enskild avläsning, 50 för stabilt hög, 5 avläsningar/5 dagar för Åk ut) är hypoteser. De kan bara kalibreras mot fältfacit: registrera Konstaterad läcka och Lagad för att bygga det underlaget.
 - Säsongsbedömning kräver minst ett års historik i appen. Historiklängd i appen är inte mätarens installationsålder.
-- Lagring är lokal per webbläsare; använd *Info → Säkerhetskopia av beslut* regelbundet.
+- Lagring är lokal per webbläsare; använd *Info → Säkerhetskopiera hela arbetsytan* regelbundet.
 
 ## Utveckling och verifiering
 
@@ -81,7 +91,8 @@ node --test tests/*.test.js          # motor, import, Excel, grafer, lagring (k�
 node tests/browser-smoke.cjs         # Chromium: 3 000 mätare × 30 exporter, beslut, omladdning, desktop/mobil
 node tests/download-browser.cjs      # Chromium: exakt exporturval över sidor, arbetslista, XLSX-granskning
 node tests/legacy-browser.cjs        # Chromium: gammal profil, XLSX-datum, ett års historik
-node tests/layout-browser.cjs        # Chromium: 1366–3440 px, mobil, storleksbyte, dragbar avdelare
+node tests/layout-browser.cjs        # Chromium: 1366–3440 px, mobil, storleksbyte, kompakt grafpanel
+node tests/import-source-browser.cjs # Chromium: mappimport, ändrade infokoder, omladdning och full återställning
 ```
 
 Webbläsartesterna kräver Playwright. `LEAKSOK_VENDOR=<mapp>` kan peka på lokala kopior av CDN-filerna vid körning utan nät.
@@ -98,3 +109,4 @@ Efter mätare, Störning/tillfällig, Säsong och Ignorerade är dolda i arbetsl
 Lokal jämförelse använder mätares dagliga exportvärden före läckdatum, under läckan och efter lagdatum. Före/efter använder högst 14 dagar; lagdagen undantas eftersom den kan innehålla båda nivåerna. Minst tre avläsningsdagar utan luckor över tre dagar behövs i varje period, tillsammans med en tydlig ökning och återgång efter lagning. Exakta kartpunkter inom 250 m används för närliggande mätare. När jämförelseperioderna har tillräckligt med data hämtas saknade exakta adressträffar för grannarna automatiskt, i små grupper via kartans begränsade sökkö. Adressnärhet på samma gata visas preliminärt, utan att påstå ett uppmätt avstånd eller lära ett grannmönster. Okänd ledningstyp, osäkert läckdatum, efter-mätare-/DRY-infokoder och tunt underlag ger ingen inlärning.
 
 **Visa underlag** visar median, antal dagar och bedömning per mätare. En senare förhöjning under minst tre avläsningsdagar efter jämförelseperioden kan matchas mot samma mätares tidigare verifierade respons. En sådan match ger högst sex extra prioritetspoäng inom befintlig automatisk Misstänk/Åk ut; den ändrar inga manuella beslut och konstaterar aldrig en ny läcka. Närhet bevisar inte ledningskoppling; nivåerna har exportens enhet, inte dB. Underlaget sparas lokalt med profilen och räknas om när nya exporter eller kartpositioner tillkommer.
+

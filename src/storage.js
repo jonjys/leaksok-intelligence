@@ -53,6 +53,19 @@
 
   root.LeakStorage = {
     available: Boolean(root.indexedDB),
+    async loadImportSource(profileId) {
+      await writes.catch(() => {});
+      const { source } = await transact("readonly", (store, out) => {
+        store.get(`${profileId}::import-source`).onsuccess = (e) => { out.source = e.target.result; };
+      });
+      return source || null;
+    },
+    saveImportSource(profileId, source) {
+      return queue(() => transact("readwrite", (store) => store.put(source, `${profileId}::import-source`)));
+    },
+    clearImportSource(profileId) {
+      return queue(() => transact("readwrite", (store) => store.delete(`${profileId}::import-source`)));
+    },
     async load(profileId) {
       await writes.catch(() => {});
       const { main, side } = await transact("readonly", (store, out) => {
@@ -87,3 +100,4 @@
     },
   };
 }(typeof window !== "undefined" ? window : globalThis));
+

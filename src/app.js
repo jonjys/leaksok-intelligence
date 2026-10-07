@@ -93,16 +93,19 @@
     try { localStorage.setItem(LABEL_BACKUP_KEY, JSON.stringify(state.labels)); } catch { /* IndexedDB is primary */ }
     if (!state.profileId || !window.LeakStorage?.available) {
       state.storageError = "Historiken sparas inte i en lokal profil. Spara en säkerhetskopia.";
+      renderSource();
       return false;
     }
     try {
       const snapshot = { files: state.files, labels: state.labels, tripList: state.tripList };
       await (full ? LeakStorage.saveAll(state.profileId, snapshot) : LeakStorage.saveState(state.profileId, snapshot));
       state.storageError = "";
+      renderSource();
       return true;
     } catch (error) {
       state.storageError = `Kunde inte spara lokalt: ${error.message}`;
       toast(state.storageError);
+      renderSource();
       return false;
     }
   }
@@ -135,9 +138,11 @@
   const profileKey = (name) => name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "lokal";
 
   function showProfile() {
+    if (state.importing || folderImport?.isBusy()) { toast("Vänta tills importen är klar innan du låser arbetsytan."); return; }
+    folderImport?.pause();
     const config = profileConfig();
     els.profileTitle.textContent = config ? "Öppna LeakSök" : "Skapa lokal profil";
-    els.profileHelp.textContent = config ? "Ange din kod. Historik och beslut ligger kvar på denna enhet." : "Välj namn och en kod med minst fyra tecken. Det låser appen på denna enhet.";
+    els.profileHelp.textContent = config ? "Ange din kod. Historik och beslut ligger kvar på denna enhet." : "Välj namn och en kod med minst fyra tecken för din lokala arbetsyta.";
     els.profileName.value = config?.name || "";
     els.profileName.readOnly = Boolean(config);
     els.profileCode.value = "";
@@ -182,6 +187,7 @@
     }
     reanalyze(true);
     if (state.files.length) setImportStatus(`${state.files.length} exporter i historiken · ${state.meters.length.toLocaleString("sv-SE")} mätare.`);
+    await folderImport.open(state.profileId);
   });
 
   // ---------------- import ----------------
@@ -197,11 +203,11 @@
 
   async function handleFiles(list) {
     const files = [...list].filter((f) => /\.(xlsx|xls|csv)$/i.test(f.name));
-    if (state.importing) { setImportStatus("En import pågår redan."); return; }
-    if (!files.length) { setImportStatus("Ingen Excel- eller CSV-fil vald."); return; }
+    if (state.importing) { setImportStatus("En import pågår redan."); return { saved: false, accepted: [] }; }
+    if (!files.length) { setImportStatus("Ingen Excel- eller CSV-fil vald."); return { saved: false, accepted: [] }; }
     state.importing = true;
     els.pickFiles.disabled = true;
-    const warnings = [], errors = [];
+    const warnings = [], errors = [], accepted = [];
     let added = 0, duplicates = 0, updated = 0;
     const next = [...state.files];
     const signature = (rows) => rows.map((r) => `${r.id}|${r.readAt?.getTime?.() ?? ""}|${r.current}`).join(";");
@@ -220,19 +226,22 @@
             const existing = next[duplicateIndex];
             let changed = false;
             const rows = existing.rows.map((row, index) => {
-              const rank = parsed.rows[index].interestRank;
-              if (rank === undefined || rank === row.interestRank) return row;
+              const patch = Object.fromEntries(Object.entries(parsed.rows[index]).filter(([key, value]) => value !== undefined && !["source", "exportDate"].includes(key)));
+              const merged = { ...row, ...patch };
+              if (JSON.stringify(merged) === JSON.stringify(row)) return row;
               changed = true;
-              return { ...row, interestRank: rank };
+              return merged;
             });
             // Copy, do not mutate: failed analysis can still roll back safely.
             if (changed) { next[duplicateIndex] = { ...existing, rows }; updated++; }
+            accepted.push(file.name);
             continue;
           }
           // A same-named file from another day, or with other content, is kept: history is never dropped.
           next.push({ name: file.name, exportDate: parsed.exportDate, exportDateSource: parsed.exportDateSource, importedAt: new Date().toISOString(), rows: parsed.rows });
           parsed.warnings.forEach((w) => warnings.push(`${file.name}: ${w}`));
           added++;
+          accepted.push(file.name);
         } catch (error) { errors.push(`${file.name}: ${error.message}`); }
       }
       const previous = state.files;
@@ -245,12 +254,14 @@
         state.files = previous;
         reanalyze(true);
         setImportStatus(`Importen avbröts, inget sparades: ${error.message}`);
-        return;
+        return { saved: false, accepted: [] };
       }
-      const saved = added || updated ? await persist(true) : true;
-      const latest = state.latestExport ? `senaste export ${Engine.fmtDate(state.latestExport, true)} ${String(state.latestExport.getHours()).padStart(2, "0")}:${String(state.latestExport.getMinutes()).padStart(2, "0")}` : "";
-      setImportStatus(`${added} nya filer · ${duplicates} dubbletter${updated ? ` · ${updated} uppdaterade exporter` : ""} · ${latest} · ${state.meters.length.toLocaleString("sv-SE")} mätare. ${saved ? "Sparat på denna enhet." : state.storageError}`);
+      const saved = added || updated || state.storageError ? await persist(true) : true;
+      const outcome = [added ? `${added} nya exporter` : "", updated ? `${updated} uppdaterade exporter` : "", duplicates && !updated ? `${duplicates} redan i historiken` : ""].filter(Boolean).join(" · ") || "Inga exporter kunde läsas";
+      setImportStatus(`${outcome} · ${state.meters.length.toLocaleString("sv-SE")} mätare. ${saved ? "Sparat på denna enhet." : state.storageError}`);
       renderImportLog(warnings, errors);
+      renderSource();
+      return { saved, accepted: saved ? accepted : [], added, updated, duplicates, errors };
     } finally {
       state.importing = false;
       els.pickFiles.disabled = false;
@@ -264,6 +275,57 @@
     els.importLog.open = false;
     els.importLogSummary.textContent = `Importlogg · ${warnings.length} varningar · ${errors.length} filer kunde inte läsas`;
   }
+
+  // One source, one status. The directory handle stays local in IndexedDB.
+  const folderSupported = typeof window.showDirectoryPicker === "function" && window.isSecureContext;
+  const folderImport = LeakFolderImport.create({
+    storage: LeakStorage,
+    pickDirectory: folderSupported ? (options) => window.showDirectoryPicker(options) : null,
+    onFiles: handleFiles,
+    onStatus: renderSource,
+    isReady: () => Boolean(state.profileId) && !els.profileDialog.open && !state.importing && !document.hidden,
+  });
+  function renderSource() {
+    const source = folderImport.getStatus();
+    const connected = ["connected", "scanning"].includes(source.phase);
+    const needsPermission = source.phase === "permission";
+    const button = $("folderButton");
+    button.textContent = connected ? "Autoimport aktiv" : needsPermission ? "Återanslut mapp" : source.name ? "Mappimport" : "Anslut mapp";
+    button.dataset.phase = source.phase;
+    button.title = source.name ? `Exportmapp: ${source.name}` : "Läs nya exporter automatiskt från en mapp";
+    const last = source.lastChecked ? new Intl.DateTimeFormat("sv-SE", { hour: "2-digit", minute: "2-digit" }).format(new Date(source.lastChecked)) : "";
+    const message = connected ? `Automatisk import från ${source.name}${last ? ` · kontrollerad ${last}` : ""}` : source.message || (source.name ? `Mappimport pausad · ${source.name}` : "");
+    $("sourceLine").hidden = !message && !state.storageError;
+    $("sourceLine").classList.toggle("is-error", Boolean(state.storageError) || ["error", "permission"].includes(source.phase));
+    $("sourceLine").replaceChildren();
+    if (state.storageError) {
+      const warning = document.createElement("span"); warning.textContent = state.storageError; $("sourceLine").append(warning);
+    } else if (message) {
+      const label = document.createElement("span"); label.textContent = message; $("sourceLine").append(label);
+      if (needsPermission || source.phase === "error") {
+        const action = document.createElement("button"); action.className = "link"; action.textContent = needsPermission ? "Tillåt läsning" : "Visa datakälla";
+        action.addEventListener("click", () => { if (needsPermission) folderImport.resume(); else openSource(); });
+        $("sourceLine").append(action);
+      }
+    }
+    $("sourceStatus").textContent = !folderSupported ? "Automatisk mappimport stöds inte här. Använd Chrome eller Edge på dator, eller knappen Importera Excel." : source.name ? message : "Ingen exportmapp ansluten. Välj mappen där du sparar dina exporter.";
+    $("sourceConnect").hidden = !folderSupported || needsPermission;
+    $("sourceConnect").textContent = source.name ? "Byt exportmapp" : "Välj exportmapp";
+    $("sourceResume").hidden = !needsPermission;
+    $("sourceCheck").hidden = !source.name || needsPermission || source.phase === "paused";
+    $("sourceDisconnect").hidden = !source.name;
+    for (const id of ["sourceConnect", "sourceResume", "sourceCheck", "sourceDisconnect"]) $(id).disabled = folderImport.isBusy() || state.importing;
+  }
+  function openSource() { renderSource(); $("sourceDialog").showModal(); }
+  $("folderButton").addEventListener("click", openSource);
+  $("sourceConnect").addEventListener("click", async () => { await folderImport.connect(); renderSource(); });
+  $("sourceResume").addEventListener("click", async () => { await folderImport.resume(); renderSource(); });
+  $("sourceCheck").addEventListener("click", async () => { await folderImport.scan(); renderSource(); });
+  $("sourceDisconnect").addEventListener("click", async () => {
+    try { await folderImport.disconnect(); renderSource(); } catch (error) { toast(`Kunde inte koppla från: ${error.message}`); }
+  });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) folderImport.scan(); });
+  window.addEventListener("focus", () => folderImport.scan());
 
   // ---------------- analysis ----------------
   let caseGeocoding = false;
@@ -392,7 +454,7 @@
 
   function renderBrief() {
     if (!state.files.length) {
-      els.brief.innerHTML = `<div class="brief-empty"><h2>Morgonanalys</h2><p>Importera senaste 24-timmarsexporten från Kamstrup. Appen jämför med historiken som sparats på den här enheten och visar vad som förändrats.</p><button type="button" class="primary" data-act="import">＋ Importera Excel</button></div>`;
+      els.brief.innerHTML = `<div class="brief-empty"><p class="eyebrow">Från signal till åtgärd</p><h2>Se förändringen. Hitta nästa kontroll.</h2><p>Jämför dina Kamstrup-exporter med mätarens egen historik. Få en prioriterad lista, se utvecklingen på kartan och ta arbetslistan med ut.</p><div class="empty-actions"><button type="button" class="primary" data-act="source">Anslut exportmapp</button><button type="button" class="secondary" data-act="import">Importera Excel</button></div><p class="small">Historik och beslut sparas på den här enheten. Du kan börja med en fil och bygga historiken över tid.</p></div>`;
       return;
     }
     const areaOpen = els.brief.querySelector(".area-signals")?.open;
@@ -406,7 +468,7 @@
     }).join("");
     els.brief.innerHTML = `
       <div class="brief-row">
-        <p class="brief-date${ageHours > 30 ? " is-old" : ""}">${ageHours > 30 ? "Äldre export" : "Senaste export"} <b>${esc(time)}</b> · ${report.fresh.toLocaleString("sv-SE")} av ${report.total.toLocaleString("sv-SE")} avlästa senaste dygnet</p>
+        <div class="brief-heading"><p class="eyebrow">Läget i nätet</p><h2>${esc(LIST[state.list]?.label || "Alla mätare")}</h2><p class="brief-date${ageHours > 30 ? " is-old" : ""}">${ageHours > 30 ? "Äldre export" : "Senaste export"} <b>${esc(time)}</b> · ${report.fresh.toLocaleString("sv-SE")} av ${report.total.toLocaleString("sv-SE")} avlästa senaste exportdygnet</p></div>
         <div class="brief-stats">
           <button type="button" data-list="today"><b>${report.newToday.length}</b> nya signaler</button>
           <button type="button" data-list="dispatch"><b>${report.dispatch}</b> åk ut</button>
@@ -974,19 +1036,63 @@
     els.rulesDialog.showModal();
   }
   function backup() {
-    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), labels: state.labels, tripList: state.tripList }, null, 2)], { type: "application/json" });
+    const blob = new Blob([LeakBackup.stringify(state)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `leaksok-beslut-${today()}.json`;
+    a.download = `leaksok-arbetsyta-${today()}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
+  let pendingRestore = null;
+  $("backupInput").addEventListener("change", async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    pendingRestore = null;
+    try {
+      pendingRestore = LeakBackup.parse(await file.text());
+      $("restoreSummary").textContent = `${pendingRestore.files.length} exporter · ${Object.keys(pendingRestore.labels).length} beslut · ${pendingRestore.tripList.length} mätare i arbetslistan.`;
+      $("restoreError").textContent = "";
+      $("restoreApply").disabled = false;
+      $("restoreDialog").showModal();
+    } catch (error) { toast(`Kunde inte öppna säkerhetskopian: ${error.message}`); }
+    finally { event.target.value = ""; }
+  });
+  $("restoreApply").addEventListener("click", async () => {
+    if (!pendingRestore || state.importing || folderImport.isBusy()) { $("restoreError").textContent = "Vänta tills pågående import är klar."; return; }
+    $("restoreApply").disabled = true;
+    state.importing = true;
+    const previous = { files: state.files, labels: state.labels, tripList: state.tripList };
+    try {
+      const merged = LeakBackup.merge(previous, { ...pendingRestore, files: hydrateFiles(pendingRestore.files) });
+      // Analyse before committing the transaction; a failed restore leaves
+      // both the on-disk snapshot and the current workspace intact.
+      const prepared = Engine.prepare(merged.files);
+      Engine.analyzePrepared(prepared, merged.labels);
+      await LeakStorage.saveAll(state.profileId, merged);
+      Object.assign(state, merged);
+      state.storageError = "";
+      reanalyze(true);
+      try { localStorage.setItem(LABEL_BACKUP_KEY, JSON.stringify(state.labels)); } catch { /* IndexedDB saved */ }
+      pendingRestore = null;
+      $("restoreDialog").close();
+      renderSource();
+      setImportStatus(`${state.files.length} exporter i historiken · arbetsytan återställd och sparad.`);
+      toast("Säkerhetskopian tillagd. Befintlig historik och nyare beslut har behållits.");
+    } catch (error) { $("restoreError").textContent = `Kunde inte återställa: ${error.message}. Befintlig arbetsyta finns kvar.`; }
+    finally { state.importing = false; $("restoreApply").disabled = false; }
+  });
   async function clearFiles() {
+    if (state.importing || folderImport.isBusy()) { toast("Vänta tills importen är klar."); return; }
     if (!confirm(`Rensa ${state.files.length} importerade filer på den här enheten? Manuella beslut, kommentarer och arbetslistan behålls.`)) return;
+    try { await folderImport.disconnect(); }
+    catch (error) { toast(`Kunde inte stoppa mappimporten: ${error.message}. Inget har rensats.`); return; }
+    const previous = state.files;
     state.files = [];
+    if (!await persist(true)) { state.files = previous; renderSource(); return; }
     reanalyze(true);
-    await persist(true);
-    toast("Importerade filer rensade. Beslut och kommentarer finns kvar.");
+    setImportStatus("");
+    renderImportLog([], []);
+    toast("Importerade filer rensade och mappimport frånkopplad. Beslut och kommentarer finns kvar.");
   }
 
   // ---------------- events ----------------
@@ -1021,6 +1127,7 @@
     const focusButton = t.closest("[data-focus]");
     if (focusButton) { setFocus(focusButton.dataset.focus); return; }
     if (t.closest("[data-act='import']")) els.fileInput.click();
+    if (t.closest("[data-act='source']")) openSource();
     const viewButton = t.closest("button[data-view]");
     if (viewButton) {
       state.view = viewButton.dataset.view;
@@ -1033,6 +1140,7 @@
     if (info) document.querySelectorAll("details.menu[open]").forEach((d) => { d.open = false; });
     if (info === "rules") openRules();
     if (info === "backup") backup();
+    if (info === "restore") $("backupInput").click();
     if (info === "lock") showProfile();
     if (info === "clear") clearFiles();
   });
@@ -1198,7 +1306,7 @@
     if (event.key === "Escape" && !els.menu.hidden) closeMenu();
   });
 
-  window.LeakApp = { state, reanalyze, render, applyDecision, setHidden, openChart, setFocus, worklist, handleFiles };
+  window.LeakApp = { state, reanalyze, render, applyDecision, setHidden, openChart, setFocus, worklist, handleFiles, folderImport };
 
   // ---------------- start ----------------
   if (window.indexedDB && window.LeakStorage) showProfile();

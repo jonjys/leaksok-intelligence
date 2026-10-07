@@ -3,7 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LeakSök · Morgonanalys</title>
+  <title>LeakSök · Från signal till åtgärd</title>
+  <meta name="description" content="Jämför Kamstrup-exporter, hitta nya förändringar och planera kontroller med karta, historik och arbetslista.">
+  <meta name="theme-color" content="#102b3a">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="./src/styles.css">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js" defer></script>
@@ -12,7 +14,7 @@
 <body data-view="list">
   <header class="topbar">
     <div class="brand">
-      <span class="eyebrow">Botkyrka · Vatten</span>
+      <span class="eyebrow">Vatten · Insikt · Åtgärd</span>
       <h1>LeakSök</h1>
     </div>
     <div class="top-actions">
@@ -22,17 +24,20 @@
       </div>
       <button type="button" id="openWorklist" class="secondary">Arbetslista <b id="worklistCount">0</b></button>
       <button type="button" id="pickFiles" class="primary">＋ Importera Excel</button>
+      <button type="button" id="folderButton" class="secondary source-button" title="Läs nya exporter automatiskt från en mapp">Anslut mapp</button>
       <details class="menu" id="infoMenu">
         <summary aria-label="Info och inställningar">Info</summary>
         <div class="menu-panel" role="menu">
           <button type="button" data-info="rules" role="menuitem">Om analysen</button>
-          <button type="button" data-info="backup" role="menuitem">Säkerhetskopia av beslut (JSON)</button>
+          <button type="button" data-info="backup" role="menuitem">Säkerhetskopiera hela arbetsytan</button>
+          <button type="button" data-info="restore" role="menuitem">Återställ säkerhetskopia…</button>
           <button type="button" data-info="lock" role="menuitem" id="profileButton">Lås</button>
           <button type="button" data-info="clear" role="menuitem" class="danger-text">Rensa importerade filer…</button>
         </div>
       </details>
     </div>
     <input id="fileInput" type="file" multiple accept=".xlsx,.xls,.csv" hidden>
+    <input id="backupInput" type="file" accept=".json,application/json" hidden>
   </header>
 
   <div class="layout">
@@ -40,6 +45,7 @@
 
     <main class="work" id="dropzone">
       <section id="brief" class="brief" aria-label="Morgonöversikt"></section>
+      <div id="sourceLine" class="source-line" role="status" aria-live="polite" hidden></div>
 
       <section class="import-line" id="importLine" hidden>
         <p id="importStatus" role="status" aria-live="polite"></p>
@@ -50,7 +56,7 @@
       </section>
 
       <section class="toolbar" aria-label="Sök och filter">
-        <input id="search" type="search" placeholder="Sök adress eller serienummer (flera: radbrytning eller komma)" aria-label="Sök">
+        <input id="search" type="search" placeholder="Sök adress eller serienummer" aria-label="Sök">
         <label class="field"><span>Sortera efter</span>
           <select id="sort">
             <option value="priority">Prioritet</option>
@@ -168,12 +174,31 @@
   <dialog id="worklistDialog" class="wide-dialog" aria-labelledby="worklistTitle"></dialog>
   <dialog id="exportDialog" class="form-dialog" aria-labelledby="exportTitle"></dialog>
   <dialog id="rulesDialog" class="wide-dialog" aria-labelledby="rulesTitle"></dialog>
+  <dialog id="sourceDialog" class="form-dialog" aria-labelledby="sourceTitle">
+    <div class="dialog-head"><div><p class="eyebrow">Din datakälla</p><h2 id="sourceTitle">Automatisk mappimport</h2></div><button type="button" class="secondary" data-close>Stäng</button></div>
+    <p class="source-help">Spara Kamstrups Excel-exporter i samma mapp. LeakSök läser nya och ändrade filer varje minut medan appen är öppen och upplåst. Historiken och dina beslut behålls.</p>
+    <p id="sourceStatus" class="source-status" role="status"></p>
+    <div class="source-actions">
+      <button type="button" class="primary" id="sourceConnect">Välj exportmapp</button>
+      <button type="button" class="primary" id="sourceResume" hidden>Tillåt läsning</button>
+      <button type="button" class="secondary" id="sourceCheck" hidden>Kontrollera nu</button>
+      <button type="button" class="link" id="sourceDisconnect" hidden>Koppla från</button>
+    </div>
+    <p class="small source-footnote">Mappen läses bara. Appen hämtar inte exporter från Kamstrup. På mobil och i webbläsare utan mappstöd kan du importera flera filer samtidigt.</p>
+  </dialog>
+  <dialog id="restoreDialog" class="form-dialog" aria-labelledby="restoreTitle">
+    <div class="dialog-head"><h2 id="restoreTitle">Återställ arbetsyta</h2><button type="button" class="secondary" data-close>Avbryt</button></div>
+    <p id="restoreSummary"></p>
+    <p class="small source-help">Historiken läggs ihop med din befintliga arbetsyta. Nyare beslut och kommentarer behålls. Mappanslutningen ändras inte.</p>
+    <p id="restoreError" class="form-error" role="alert"></p>
+    <button type="button" id="restoreApply" class="primary">Lägg till i arbetsytan</button>
+  </dialog>
 
   <dialog id="profileDialog" class="form-dialog profile-dialog">
     <form id="profileForm">
       <p class="eyebrow">Din lokala arbetsyta</p>
       <h2 id="profileTitle">Öppna LeakSök</h2>
-      <p class="small" id="profileHelp">Namn och kod låser historiken på den här enheten.</p>
+      <p class="small" id="profileHelp">Namn och kod öppnar din lokala arbetsyta på den här enheten.</p>
       <label class="stack">Namn<input id="profileName" autocomplete="username" required></label>
       <label class="stack">Kod<input id="profileCode" type="password" inputmode="numeric" autocomplete="current-password" minlength="4" required></label>
       <p id="profileStatus" class="form-error" role="status"></p>
@@ -182,6 +207,8 @@
   </dialog>
 
   <script src="./src/storage.js"></script>
+  <script src="./src/folder-import.js"></script>
+  <script src="./src/backup.js"></script>
   <script src="./src/parse.js"></script>
   <script src="./src/history.js"></script>
   <script src="./src/area-signals.js"></script>
