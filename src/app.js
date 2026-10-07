@@ -600,7 +600,7 @@
   }
   function renderFocus() {
     const m = state.byId.get(state.focusId);
-    const showMap = state.view === "map" || m;
+    const showMap = state.view === "map";
     els.focus.hidden = !state.files.length || !showMap;
     els.focus.classList.toggle("no-meter", !m);
     document.body.classList.toggle("has-focus", !els.focus.hidden);

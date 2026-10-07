@@ -54,6 +54,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.match(await row("90000009").innerText(), /Ingen ny avläsning sedan 9 sep/);
 
     // Laptop focus stacks map and chart beside the meter list; values agree.
+    await page.locator('button[data-view="map"]').click();
     await list("suspect");
     await row("90000002").locator(".addr").click();
     await page.waitForSelector("#focusChart .ch-stage svg");
@@ -321,4 +322,3 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     server.close();
   }
 })().catch((e) => { console.error(e); process.exitCode = 1; });
-

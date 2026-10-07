@@ -22,6 +22,7 @@ const {buildDailyExports,toCsv} = require('./fixtures/synthetic-exports.js');
     });
     await kit.importFiles(page,files);
     await page.waitForFunction(()=>state.byId.has("90000001"));
+    await page.locator('button[data-view="map"]').click();
     await page.evaluate(()=>LeakApp.setFocus('90000001',{scroll:false}));
     await page.locator('#focusMenu').click();await page.locator('#contextMenu [data-decision="leak"]').click();
     await page.locator('[name="confirmedDate"]').fill('2026-09-08');

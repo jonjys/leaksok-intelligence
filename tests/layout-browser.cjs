@@ -40,6 +40,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await kit.unlock(page, "Layout", "1234");
     await kit.importFiles(page, buildDailyExports({ meters: 3000, days: 30 }).map((f) => ({ name: f.name, text: toCsv(f.rows) })));
     await page.waitForFunction(() => state.meters.length === 3000);
+    await page.locator('button[data-view="map"]').click();
 
     // Laptop: compact layout, select a meter, mark two, scroll down.
     await page.locator("#rows tr.row").nth(0).locator("[data-mark]").check();
@@ -174,4 +175,3 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     server.close();
   }
 })().catch((e) => { console.error(e); process.exitCode = 1; });
-
