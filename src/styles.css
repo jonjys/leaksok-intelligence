@@ -150,7 +150,7 @@ details.menu > summary::after { content: "▾"; font-size: 11px; color: var(--mu
 .focus.no-meter .split-handle { display: none; }
 body.is-splitting { cursor: col-resize; user-select: none; }
 .focus.no-meter .focus-chart, .focus.no-meter #focusNavigate, .focus.no-meter #focusMenu, .focus.no-meter #focusClose { display: none; }
-.focus-map { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 6px; min-width: 0; min-height: 0; }
+.focus-map { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; gap: 6px; min-width: 0; min-height: 0; }
 .map { width: 100%; height: 100%; min-height: 180px; border-radius: 6px; border: 1px solid var(--line); position: relative; z-index: 0; }
 .map-tools { display: flex; gap: 4px; flex-wrap: wrap; }
 .map-tools button { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 6px; padding: 3px 9px; font-size: 12.5px; font-weight: 600; min-height: 28px; }
@@ -383,7 +383,7 @@ fieldset.inline legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
   .focus-grid { grid-template-columns: minmax(0, 1fr); height: auto; row-gap: 12px; }
   .split-handle { display: none; }
   .focus-chart { min-height: 300px; }
-  .focus-map { grid-template-rows: auto 230px auto; }
+  .focus-map { grid-template-rows: auto 230px auto auto; }
   .map { min-height: 230px; }
   .table-wrap { background: none; border: 0; }
   table.meters, .meters tbody { display: block; }
@@ -483,7 +483,7 @@ fieldset.inline legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
   body.has-focus .focus:not(.no-meter) .focus-map { grid-row: 1; }
   body.has-focus .focus:not(.no-meter) .focus-chart { grid-row: 2; }
   body.has-focus .split-handle { display: none; }
-  body.has-focus .workspace { height: max(640px, calc(100dvh - 265px)); }
+
 }
 @media (max-width: 760px) {
   .workspace { display: flex; flex-direction: column; }
@@ -501,3 +501,43 @@ fieldset.inline legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
 
 .selection-menu > summary { font-size: 12px; padding: 4px 8px !important; min-height: 28px !important; }
 .selection-menu .menu-panel { min-width: 220px; max-width: calc(100vw - 32px); }
+
+
+/* Overlay navigation reserves only its icon strip; opening it never shifts work. */
+.rail-icon { display: none; font-style: normal; font-weight: 800; }
+.map-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--muted); }
+.map-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.map-legend i { width: 9px; height: 9px; border-radius: 50%; }
+@media (min-width: 761px) {
+  .layout { grid-template-columns: 52px minmax(0, 1fr); gap: 12px; padding: 10px 12px; }
+  .rail { width: 52px; z-index: 70; overflow: hidden; transition: width .15s ease; }
+  .rail:not(.is-dismissed):hover, .rail:not(.is-dismissed):focus-within { width: 218px; box-shadow: var(--shadow); }
+  .rail button, .rail-more > summary { display: flex; width: 204px; align-items: center; gap: 10px; padding: 8px; }
+  .rail-icon { display: inline-grid; place-items: center; width: 22px; flex: 0 0 22px; font-size: 17px; }
+  .rail button span, .rail-more > summary span { flex: 1; text-align: left; }
+  .rail button b, .rail-more > summary b { margin-left: auto; }
+  .rail button span, .rail button b, .rail-more > summary span, .rail-more > summary b { visibility: hidden; }
+  .rail:not(.is-dismissed):hover button span, .rail:not(.is-dismissed):hover button b, .rail:not(.is-dismissed):hover .rail-more > summary span, .rail:not(.is-dismissed):hover .rail-more > summary b,
+  .rail:not(.is-dismissed):focus-within button span, .rail:not(.is-dismissed):focus-within button b, .rail:not(.is-dismissed):focus-within .rail-more > summary span, .rail:not(.is-dismissed):focus-within .rail-more > summary b { visibility: visible; }
+  .rail-more > summary { list-style: none; }
+  .rail-more > summary::-webkit-details-marker { display: none; }
+  body.has-focus { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+  body.has-focus .layout { flex: 1; min-height: 0; }
+  body.has-focus .work { display: flex; flex-direction: column; min-height: 0; }
+  body.has-focus .brief, body.has-focus .toolbar, body.has-focus .import-line { flex-shrink: 0; }
+  body.has-focus .brief { max-height: 22vh; overflow: auto; }
+  body.has-focus .workspace { flex: 1; height: auto; min-height: 0; grid-template-columns: clamp(340px, 28vw, 440px) minmax(0, 1fr); }
+  body.has-focus .selection-bar { flex-direction: column; align-items: stretch; padding: 8px 10px; }
+  body.has-focus .sel-actions { justify-content: flex-end; flex-wrap: wrap; }
+  body.has-focus .focus-head > div:first-child { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+  body.has-focus .focus-head b { font-size: 14px; }
+  body.has-focus .focus-actions { gap: 4px; }
+  body.has-focus .focus-actions button { font-size: 12px; min-height: 28px; padding: 4px 7px; }
+  body.has-focus .map { min-height: 0; }
+  body.has-focus .focus:not(.no-meter) .focus-grid { grid-template-columns: minmax(0, calc(var(--chart-w, 50%) - 9px)) 10px minmax(0, 1fr); }
+  body.has-focus .selection-bar { z-index: 10; }
+}
+@media (min-width: 761px) and (max-width: 1599px) {
+  body.has-focus .focus:not(.no-meter) .focus-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .rail { transition: none; } }

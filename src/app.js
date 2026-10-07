@@ -363,12 +363,13 @@
   function renderRail() {
     const counts = Object.fromEntries(LISTS.map((l) => [l.key, 0]));
     for (const m of state.meters) for (const l of LISTS) if (inList(m, l.key)) counts[l.key]++;
-    const button = (l) => `<button type="button" data-list="${l.key}" aria-pressed="${state.list === l.key}"${l.hint ? ` title="${esc(l.hint)}"` : ""}><span>${esc(l.label)}</span><b>${counts[l.key].toLocaleString("sv-SE")}</b></button>`;
+    const icons = { today: "✦", all: "◉", dispatch: "!", suspect: "?", watch: "◎", confirmed: "●", repaired: "✓", stable_high: "↔", learning: "◷", stale_contact: "○", hidden: "⊘" };
+    const button = (l) => `<button type="button" data-list="${l.key}" aria-label="${esc(l.label)} (${counts[l.key]})" aria-pressed="${state.list === l.key}" title="${esc(l.hint || l.label)}"><i class="rail-icon" aria-hidden="true">${icons[l.key] || "○"}</i><span>${esc(l.label)}</span><b>${counts[l.key].toLocaleString("sv-SE")}</b></button>`;
     const more = LISTS.filter((l) => l.more && !l.group);
-    const moreOpen = more.some((l) => l.key === state.list);
+    const moreOpen = more.some((l) => l.key === state.list) || !!els.rail.querySelector(".rail-more[open]");
     els.rail.innerHTML = `
       <div class="rail-lists">${LISTS.filter((l) => !l.more && !l.group).map(button).join("")}</div>
-      <details class="rail-more"${moreOpen ? " open" : ""}><summary>Fler listor <b>${more.reduce((s, l) => s + (l.key === "hidden" ? 0 : counts[l.key]), 0).toLocaleString("sv-SE")}</b></summary><div class="rail-lists">${more.map(button).join("")}</div></details>
+      <details class="rail-more"${moreOpen ? " open" : ""}><summary aria-label="Fler listor"><i class="rail-icon" aria-hidden="true">⋯</i><span>Fler listor</span><b>${more.reduce((s, l) => s + (l.key === "hidden" ? 0 : counts[l.key]), 0).toLocaleString("sv-SE")}</b></summary><div class="rail-lists">${more.map(button).join("")}</div></details>
       <label class="rail-select"><span class="sr-only">Lista</span><select id="listSelect">${LISTS.filter((l) => !l.group).map((l) => `<option value="${l.key}"${state.list === l.key ? " selected" : ""}>${esc(l.label)} (${counts[l.key]})</option>`).join("")}</select></label>`;
   }
 
@@ -548,6 +549,7 @@
   }
 
   function renderSelection() {
+    const menuOpen = !!els.selection.querySelector(".selection-menu[open]");
     const total = state.visible.length;
     const start = (state.page - 1) * state.pageSize;
     const pageCount = Math.min(state.pageSize, Math.max(0, total - start));
@@ -561,7 +563,7 @@
       <div class="sel-actions">
         ${marked ? `<button type="button" class="secondary" data-sel="move">Flytta till…</button>
         <button type="button" class="primary" data-sel="excel">Excel</button>` : ""}
-        <details class="menu selection-menu"><summary>${marked ? "Mer" : "Markera"}</summary>
+        <details class="menu selection-menu"${menuOpen ? " open" : ""}><summary>${marked ? "Mer" : "Markera"}</summary>
           <div class="menu-panel">
             <button type="button" data-sel="page" ${pageCount ? "" : "disabled"}>Markera sidan (${pageCount})</button>
             <button type="button" data-sel="all" ${total && !allMarked ? "" : "disabled"}>Markera alla ${total.toLocaleString("sv-SE")} träffar</button>
@@ -621,12 +623,13 @@
     }
     const view = ensureMap();
     if (!view) return;
-    const mode = m ? "focus" : "overview";
-    const meters = m ? [...new Set([m, ...[...state.marked].map((id) => state.byId.get(id)).filter(Boolean)])] : state.visible.slice(0, 600);
-    const key = `${mode}|${focusRequest}|${state.focusId}|${[...state.marked].join(",")}|${meters.length}|${state.list}|${state.search}|${state.area}|${meters[0]?.id}`;
+    const mode = state.search.trim() ? "results" : "overview";
+    // Keep every filtered result on the map, even when a chart is open.
+    const meters = [...new Set([...state.visible, ...(m ? [m] : []), ...[...state.marked].map((id) => state.byId.get(id)).filter(Boolean)])];
+    const key = `${mode}|${focusRequest}|${state.focusId}|${[...state.marked].join(",")}|${state.list}|${state.search}|${state.area}|${meters.map((meter) => `${meter.id}:${meter.category}`).join(",")}`;
     if (key === lastMapKey) return;
     lastMapKey = key;
-    requestAnimationFrame(() => { view.invalidate(); Promise.resolve(view.update({ meters, focusId: state.focusId, focusRequest, marked: state.marked, mode })).then(() => {
+    requestAnimationFrame(() => { view.invalidate(); Promise.resolve(view.update({ meters, focusId: state.focusId, focusRequest, marked: state.marked, mode, resultIds: state.visible.map((m) => m.id) })).then(() => {
       if (!state.prepared) return;
       const coords = LeakMap.coordinates([...state.prepared.histories.values()]);
       const key = JSON.stringify([...coords].sort(([a], [b]) => a.localeCompare(b)));
@@ -977,7 +980,10 @@
       return;
     }
     const listButton = t.closest("[data-list]");
-    if (listButton) { setList(listButton.dataset.list); return; }
+    if (listButton) {
+      if (event.detail) els.rail.classList.add("is-dismissed");
+      setList(listButton.dataset.list); return;
+    }
     const focusButton = t.closest("[data-focus]");
     if (focusButton) { setFocus(focusButton.dataset.focus); return; }
     if (t.closest("[data-act='import']")) els.fileInput.click();
@@ -998,6 +1004,7 @@
   });
   $("openWorklist").addEventListener("click", () => worklist.open());
   $("rail").addEventListener("change", (e) => { if (e.target.id === "listSelect") setList(e.target.value); });
+  els.rail.addEventListener("pointerleave", () => els.rail.classList.remove("is-dismissed"));
 
   function setList(key) {
     if (!LIST[key]) return;
@@ -1180,6 +1187,7 @@
     if (style) view.setStyle(style);
     if (tool) view.setTool(event.target.closest("button").getAttribute("aria-pressed") === "true" ? "" : tool);
     if (event.target.closest("[data-map-action='locate']")) view.locate();
+    if (event.target.closest("[data-map-action='results']")) view.fitResults();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !els.menu.hidden) closeMenu();
@@ -1191,4 +1199,3 @@
   if (window.indexedDB && window.LeakStorage) showProfile();
   reanalyze(true);
 }());
-

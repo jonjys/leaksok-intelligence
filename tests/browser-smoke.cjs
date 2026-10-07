@@ -47,7 +47,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await list("suspect");
     assert.match(await row("90000001").innerText(), /5 → 10 \(\+100 %\)/);
     assert.match(await row("90000001").locator(".c-latest").innerText(), /\+5 \(\+100 %\)/);
-    assert.equal(await page.locator("#rail [data-list='suspect'] b").innerText(), String(await page.evaluate(() => state.visible.length)));
+    assert.equal(await page.locator("#rail [data-list='suspect'] b").textContent(), String(await page.evaluate(() => state.visible.length)));
     await list("customer_side");
     assert.equal(await row("90000014").count(), 1, "LEAK info code goes to Efter mätare");
     await list("stale_contact");

@@ -121,6 +121,7 @@
     let version = 0, tool = "", rectStart = null, rect = null, entries = [], current = { meters: [], focusId: "", marked: new Set() };
     let userMarker = null;
     let lastFlight = "";
+    let lastResults = "";
 
     // Touch: the page scrolls past the map until the user taps it.
     if (touch) {
@@ -200,19 +201,17 @@
       if (pos && mark.leak) L.polyline([[pos.lat, pos.lng], mark.leak], { color: "#b3261e", weight: 3, dashArray: "8 6", interactive: false }).addTo(markLayer);
     }
 
-    async function update({ meters, focusId = "", marked = new Set(), mode = "overview", fitAll = false, focusRequest = 0 }) {
+    async function update({ meters, focusId = "", marked = new Set(), mode = "overview", focusRequest = 0, resultIds = meters.map((m) => m.id) }) {
       const run = ++version;
-      current = { meters, focusId, marked, focusRequest };
-      const wanted = mode === "focus"
-        ? meters.filter((m) => m.id === focusId || marked.has(m.id)).slice(0, 40)
-        : meters;
+      current = { meters, focusId, marked, focusRequest, resultIds: new Set(resultIds) };
+      const wanted = [...meters].sort((a, b) => Number(b.id === focusId || marked.has(b.id)) - Number(a.id === focusId || marked.has(a.id)));
       const located = [];
       const queue = [];
       for (const m of wanted) {
         const pos = cachedPosition(m);
         if (pos) located.push({ m, pos }); else queue.push(m);
       }
-      const limit = mode === "focus" ? 25 : 10;
+      const limit = mode === "results" ? queue.length : focusId ? 25 : 10;
       draw(located, mode);
       if (queue.length) status(`Söker adress ${Math.min(limit, queue.length)} av ${queue.length} utan känd position…`);
       for (const m of queue.slice(0, limit)) {
@@ -222,14 +221,15 @@
           if (run !== version) return;
           if (pos) {
             located.push({ m, pos });
-            if (m.id === focusId) draw(located, mode);
+            draw(located, mode);
           }
         } catch (error) { status(error.message); break; }
       }
       if (run !== version) return;
       draw(located, mode, true);
       const missing = wanted.length - located.length;
-      status(`${located.length} av ${wanted.length} på kartan${missing ? ` · ${missing} utan exakt adressträff visas inte (inga gissade positioner)` : ""}`);
+      const pending = Math.max(0, queue.length - limit);
+      status(`${located.length} av ${wanted.length} på kartan${pending ? ` · ${pending} adresser återstår att söka` : ""}${missing - pending ? ` · ${missing - pending} saknar exakt adressträff` : ""}`);
     }
 
     function draw(located, mode, final) {
@@ -255,7 +255,10 @@
       }
       drawMarks();
       const focused = located.find(({ m }) => m.id === current.focusId);
-      if (current.focusId) {
+      if (mode === "results") {
+        const resultKey = located.filter(({ m }) => current.resultIds.has(m.id)).map(({ m }) => m.id).join(",");
+        if (resultKey !== lastResults || final) { fitResults(); lastResults = resultKey; }
+      } else if (current.focusId) {
         // A selection always wins over the bounds of other marked meters.
         // Wait for its exact position rather than jumping to another address.
         if (focused) {
@@ -274,6 +277,14 @@
         if (pts.length === 1) map.setView(pts[0], 17);
         else if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [24, 24], maxZoom: 14 });
       }
+    }
+
+    function fitResults() {
+      const pts = entries.filter((e) => current.resultIds.has(e.id)).map((e) => [e.lat, e.lng]);
+      map.stop();
+      if (pts.length === 1) map.setView(pts[0], 17);
+      else if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [32, 32], maxZoom: 17 });
+      else map.setView(CENTER, 12);
     }
 
     function setStyle(style) {
@@ -296,7 +307,7 @@
     }
 
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && tool) { rect?.remove(); rect = null; rectStart = null; setTool(""); status("Verktyget avbröts."); } });
-    return { update, setTool, setStyle, locate, invalidate: () => map.invalidateSize({ pan: false }), map };
+    return { update, setTool, setStyle, locate, fitResults, invalidate: () => map.invalidateSize({ pan: false }), map };
   }
 
   function navigationUrl(meter) {
@@ -317,4 +328,3 @@
 
   root.LeakMap = { resolvePositions, create, navigationUrl, coordinates, markFor: (id) => marks[id] || null, addressForMap, parseAddress, exactHit, cachedPosition };
 }(typeof globalThis !== "undefined" ? globalThis : this));
-

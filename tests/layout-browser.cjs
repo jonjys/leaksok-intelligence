@@ -71,6 +71,17 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.ok(laptop.listRight <= laptop.focusX, "List sits to the left of the map, without overlap");
     assert.ok(laptop.listScroll > 0, "Meter list scrolls in its own container");
     assert.equal(laptop.scrollY, 0, "Scrolling the list leaves the map and page in place");
+    assert.ok(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight), "Laptop workspace fits the viewport after marking meters");
+
+    // Navigation overlays the workspace on hover and keyboard focus.
+    const listBeforeHover = await page.locator(".table-wrap").boundingBox();
+    await page.locator("#rail").hover();
+    await page.waitForTimeout(200);
+    assert.ok((await page.locator("#rail").boundingBox()).width >= 200);
+    assert.deepEqual(await page.locator(".table-wrap").boundingBox(), listBeforeHover, "Navigation opens without moving the list");
+    await page.locator("#search").hover();
+    await page.waitForTimeout(200);
+    assert.ok((await page.locator("#rail").boundingBox()).width <= 56);
 
     // Right-click sort links act immediately, including with several rows marked.
     await page.locator("#rows tr.row").first().locator(".addr").click({ button: "right" });
