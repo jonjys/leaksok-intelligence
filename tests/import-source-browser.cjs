@@ -43,6 +43,20 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     assert.equal(await page.evaluate(() => state.files.length), 3);
     assert.equal(await page.evaluate(id => state.byId.get(id).category, String(rows[1][0])), 'customer_side');
 
+    // A failed full save must not be hidden by a later successful decision
+    // save: that decision must also retry the unsaved history.
+    await page.evaluate(() => {
+      const original = LeakStorage.saveAll.bind(LeakStorage); let fail = true;
+      LeakStorage.saveAll = (...args) => { if (fail) { fail = false; return Promise.reject(new Error('Test quota')); } return original(...args); };
+    });
+    rows[1][5] = Number(rows[1][5]) + 1; await write({ name: modified.name, text: toCsv(rows) });
+    await page.evaluate(() => LeakApp.folderImport.scan());
+    assert.equal(await page.evaluate(() => state.historyDirty), true);
+    assert.equal(await page.evaluate(() => LeakApp.folderImport.getStatus().phase), 'error');
+    await page.evaluate(id => LeakApp.applyDecision([id], 'interesting', {}, 'Lyssna vid ventilen'), id);
+    await page.waitForFunction(() => !state.historyDirty && !state.storageError);
+    await page.evaluate(() => LeakApp.folderImport.scan());
+
     const downloadEvent = page.waitForEvent('download');
     await page.locator('#infoMenu summary').click(); await page.locator('[data-info="backup"]').click();
     const backup = fs.readFileSync(await (await downloadEvent).path(), 'utf8');

@@ -56,7 +56,7 @@
     areaSignals: [], coordinatesKey: "", prepared: null, cache: new Map(), meters: [], byId: new Map(), latestExport: null,
     list: "all", search: "", sort: "priority", sortReverse: false, area: "all", excluded: new Set(DEFAULT_HIDDEN),
     page: 1, pageSize: 50, marked: new Set(), focusId: "", chartHidden: false, expanded: new Set(),
-    view: readView(), importing: false, storageError: "", visible: [],
+    view: readView(), importing: false, historyDirty: false, storageError: "", visible: [],
   };
   window.state = state; // read-only inspection in tests and the browser console
 
@@ -98,7 +98,9 @@
     }
     try {
       const snapshot = { files: state.files, labels: state.labels, tripList: state.tripList };
-      await (full ? LeakStorage.saveAll(state.profileId, snapshot) : LeakStorage.saveState(state.profileId, snapshot));
+      const saveHistory = full || state.historyDirty;
+      await (saveHistory ? LeakStorage.saveAll(state.profileId, snapshot) : LeakStorage.saveState(state.profileId, snapshot));
+      if (saveHistory) state.historyDirty = false;
       state.storageError = "";
       renderSource();
       return true;
@@ -169,6 +171,7 @@
       const snapshot = await LeakStorage.load(state.profileId);
       if (snapshot) {
         state.files = hydrateFiles(snapshot.files);
+        state.historyDirty = false;
         state.tripList = Array.isArray(snapshot.tripList) ? snapshot.tripList : [];
         const local = state.labels;
         state.labels = { ...knownCases, ...(snapshot.labels || {}) };
@@ -245,18 +248,21 @@
         } catch (error) { errors.push(`${file.name}: ${error.message}`); }
       }
       const previous = state.files;
+      const previousDirty = state.historyDirty;
       state.files = next.sort((a, b) => a.exportDate - b.exportDate || a.name.localeCompare(b.name));
+      state.historyDirty ||= Boolean(added || updated);
       setImportStatus("Analyserar…");
       await new Promise((r) => setTimeout(r, 0));
       try { reanalyze(true); }
       catch (error) {
         // Never keep (or save) an import the engine cannot analyse.
         state.files = previous;
+        state.historyDirty = previousDirty;
         reanalyze(true);
         setImportStatus(`Importen avbröts, inget sparades: ${error.message}`);
         return { saved: false, accepted: [] };
       }
-      const saved = added || updated || state.storageError ? await persist(true) : true;
+      const saved = state.historyDirty || state.storageError ? await persist(true) : true;
       const outcome = [added ? `${added} nya exporter` : "", updated ? `${updated} uppdaterade exporter` : "", duplicates && !updated ? `${duplicates} redan i historiken` : ""].filter(Boolean).join(" · ") || "Inga exporter kunde läsas";
       setImportStatus(`${outcome} · ${state.meters.length.toLocaleString("sv-SE")} mätare. ${saved ? "Sparat på denna enhet." : state.storageError}`);
       renderImportLog(warnings, errors);
@@ -1070,6 +1076,7 @@
       Engine.analyzePrepared(prepared, merged.labels);
       await LeakStorage.saveAll(state.profileId, merged);
       Object.assign(state, merged);
+      state.historyDirty = false;
       state.storageError = "";
       reanalyze(true);
       try { localStorage.setItem(LABEL_BACKUP_KEY, JSON.stringify(state.labels)); } catch { /* IndexedDB saved */ }
@@ -1087,8 +1094,10 @@
     try { await folderImport.disconnect(); }
     catch (error) { toast(`Kunde inte stoppa mappimporten: ${error.message}. Inget har rensats.`); return; }
     const previous = state.files;
+    const previousDirty = state.historyDirty;
     state.files = [];
-    if (!await persist(true)) { state.files = previous; renderSource(); return; }
+    state.historyDirty = true;
+    if (!await persist(true)) { state.files = previous; state.historyDirty = previousDirty; renderSource(); return; }
     reanalyze(true);
     setImportStatus("");
     renderImportLog([], []);

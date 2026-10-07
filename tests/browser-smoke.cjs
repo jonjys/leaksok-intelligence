@@ -156,7 +156,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
 
     // Duplicate import and the next morning's export.
     await kit.importFiles(page, [{ name: files[29].name, text: toCsv(files[29].rows) }]);
-    assert.match(await page.locator("#importStatus").innerText(), /0 nya filer · 1 dubbletter/);
+    assert.match(await page.locator("#importStatus").innerText(), /1 redan i historiken/);
     const next = buildDailyExports({ meters: 3000, days: 31, end: "2026-09-30" }).at(-1);
     next.rows = next.rows.map((r) => (r[0] === "90000001" ? [...r.slice(0, 4), 11, ...r.slice(5)] : r));
     await kit.importFiles(page, [{ name: next.name, text: toCsv(next.rows) }]);
