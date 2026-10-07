@@ -38,7 +38,17 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     await page.waitForFunction(id => state.focusId === id, id);
     await page.locator('#rows tr.row').nth(1).locator('[data-mark]').check();
     await page.waitForFunction(() => document.querySelector('#mapStatus').textContent.startsWith('60 av 60'));
+    await page.waitForFunction(() => {
+      const selected = state.byId.get(state.focusId);
+      const pos = LeakMap.cachedPosition(selected);
+      return pos && testMap.getZoom() === 17 && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2;
+    });
+    assert.equal(await page.locator('.map-meter-tip b').textContent(), await page.evaluate(() => state.byId.get(state.focusId).address.replace(/\s+\d{3}\s?\d{2}$/, '')), 'Selected meter stays labeled on the map');
     await page.locator('[data-map-action="results"]').click();
+    await page.waitForFunction(() => {
+      const dots = []; testMap.eachLayer(l => { if (l instanceof L.CircleMarker) dots.push(l); });
+      return dots.every(l => testMap.getBounds().contains(l.getLatLng()));
+    });
     assert.equal((await read()).count, 60, 'Opening a chart and marking a meter preserves all street markers');
     assert.equal((await read()).inView, true, 'Street markers fit within the map');
     await page.evaluate(() => {

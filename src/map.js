@@ -57,12 +57,12 @@
   let chain = Promise.resolve();
   let lastRequest = 0;
   const inflight = new Map();
-  function geocode(meter) {
+  function geocode(meter, retryMissing = false) {
     const key = keyOf(meter);
     if (!key) return Promise.resolve(null);
     const known = cachedPosition(meter);
     if (known) return Promise.resolve(known);
-    if (cache[key]?.missing && Date.now() - Number(cache[key].at || 0) < 7 * 86400000) return Promise.resolve(null);
+    if (!retryMissing && cache[key]?.missing && Date.now() - Number(cache[key].at || 0) < 7 * 86400000) return Promise.resolve(null);
     if (inflight.has(key)) return inflight.get(key);
     const task = chain.then(async () => {
       const wait = Math.max(0, 1100 - (Date.now() - lastRequest));
@@ -204,7 +204,8 @@
     async function update({ meters, focusId = "", marked = new Set(), mode = "overview", focusRequest = 0, resultIds = meters.map((m) => m.id) }) {
       const run = ++version;
       current = { meters, focusId, marked, focusRequest, resultIds: new Set(resultIds) };
-      const wanted = [...meters].sort((a, b) => Number(b.id === focusId || marked.has(b.id)) - Number(a.id === focusId || marked.has(a.id)));
+      const rank = (m) => m.id === focusId ? 2 : marked.has(m.id) ? 1 : 0;
+      const wanted = [...meters].sort((a, b) => rank(b) - rank(a));
       const located = [];
       const queue = [];
       for (const m of wanted) {
@@ -217,7 +218,7 @@
       for (const m of queue.slice(0, limit)) {
         if (run !== version) return;
         try {
-          const pos = await geocode(m);
+          const pos = await geocode(m, m.id === focusId);
           if (run !== version) return;
           if (pos) {
             located.push({ m, pos });
@@ -229,16 +230,17 @@
       draw(located, mode, true);
       const missing = wanted.length - located.length;
       const pending = Math.max(0, queue.length - limit);
-      status(`${located.length} av ${wanted.length} på kartan${pending ? ` · ${pending} adresser återstår att söka` : ""}${missing - pending ? ` · ${missing - pending} saknar exakt adressträff` : ""}`);
+      const selected = wanted.find((m) => m.id === focusId);
+      const noSelectedPosition = selected && !located.some(({ m }) => m.id === focusId);
+      status(`${noSelectedPosition ? `Vald mätare: ingen säker kartposition för ${selected.address}. ` : ""}${located.length} av ${wanted.length} på kartan${pending ? ` · ${pending} adresser återstår att söka` : ""}${missing - pending ? ` · ${missing - pending} saknar exakt adressträff` : ""}`);
     }
 
     function draw(located, mode, final) {
       markerLayer.clearLayers();
       entries = located.map(({ m, pos }) => ({ id: m.id, ...pos }));
-      const focusIds = new Set([current.focusId, ...current.marked]);
-      const few = located.filter(({ m }) => focusIds.has(m.id)).length <= 8;
-      // Draw highlighted meters last so they stay on top.
-      located.sort((a, b) => Number(focusIds.has(a.m.id)) - Number(focusIds.has(b.m.id)));
+      const rank = (m) => m.id === current.focusId ? 2 : current.marked.has(m.id) ? 1 : 0;
+      // Draw the selected meter last so its marker stays on top.
+      located.sort((a, b) => rank(a.m) - rank(b.m));
       for (const { m, pos } of located) {
         const isFocus = m.id === current.focusId;
         const isMarked = current.marked.has(m.id);
@@ -251,16 +253,13 @@
         });
         const address = esc(options.label ? options.label(m) : m.address);
         const max = m.series?.length ? Math.max(...m.series.map((p) => p.value)) : null;
-        marker.bindTooltip(`<div class="map-meter-tip"><b>${address}</b><span>${esc(m.status || "")}</span><dl><dt>Senaste nivå</dt><dd>${esc(m.latest?.value ?? "–")}</dd><dt>Max i historiken</dt><dd>${esc(max ?? "–")}</dd></dl></div>`, { permanent: false, direction: "top", offset: [0, -8], className: "map-label" });
+        marker.bindTooltip(`<div class="map-meter-tip"><b>${address}</b><span>${esc(m.status || "")}</span><dl><dt>Senaste nivå</dt><dd>${esc(m.latest?.value ?? "–")}</dd><dt>Max i historiken</dt><dd>${esc(max ?? "–")}</dd></dl></div>`, { permanent: isFocus, direction: "top", offset: [0, -8], className: "map-label" });
         marker.on("click", () => options.onFocus?.(m.id));
         marker.addTo(markerLayer);
       }
       drawMarks();
       const focused = located.find(({ m }) => m.id === current.focusId);
-      if (mode === "results") {
-        const resultKey = located.filter(({ m }) => current.resultIds.has(m.id)).map(({ m }) => m.id).join(",");
-        if (resultKey !== lastResults || final) { fitResults(); lastResults = resultKey; }
-      } else if (current.focusId) {
+      if (current.focusId) {
         // A selection always wins over the bounds of other marked meters.
         // Wait for its exact position rather than jumping to another address.
         if (focused) {
@@ -273,6 +272,9 @@
             });
           }
         }
+      } else if (mode === "results") {
+        const resultKey = located.filter(({ m }) => current.resultIds.has(m.id)).map(({ m }) => m.id).join(",");
+        if (resultKey !== lastResults || final) { fitResults(); lastResults = resultKey; }
       } else if (final || located.length) {
         lastFlight = "";
         const pts = located.map(({ pos }) => [pos.lat, pos.lng]);
