@@ -62,7 +62,7 @@
     if (!key) return Promise.resolve(null);
     const known = cachedPosition(meter);
     if (known) return Promise.resolve(known);
-    if (!retryMissing && cache[key]?.missing && Date.now() - Number(cache[key].at || 0) < 7 * 86400000) return Promise.resolve(null);
+    if (!retryMissing && cache[key]?.missing && cache[key].lookupVersion === 3 && Date.now() - Number(cache[key].at || 0) < 7 * 86400000) return Promise.resolve(null);
     if (inflight.has(key)) return inflight.get(key);
     const task = chain.then(async () => {
       const wait = Math.max(0, 1100 - (Date.now() - lastRequest));
@@ -76,9 +76,22 @@
       const response = await fetch(url, { headers: { Accept: "application/json" } });
       if (!response.ok) throw new Error(`Adressökning misslyckades (${response.status})`);
       const results = await response.json();
-      const hit = Array.isArray(results) && parsed ? results.find((c) => exactHit(c, parsed)) : null;
+      let hit = Array.isArray(results) && parsed ? results.find((c) => exactHit(c, parsed)) : null;
+      // Postal towns such as Tullinge/Norsborg are not always indexed as cities.
+      // Retry within the same bounds and still require the exact road/house.
+      if (!hit && parsed) {
+        const wait = Math.max(0, 1100 - (Date.now() - lastRequest));
+        if (wait) await new Promise((r) => setTimeout(r, wait));
+        lastRequest = Date.now();
+        ["street", "city", "postalcode", "country"].forEach((key) => url.searchParams.delete(key));
+        url.searchParams.set("q", `${parsed.street}, Botkyrka, Sverige`);
+        const fallback = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!fallback.ok) throw new Error(`Adressökning misslyckades (${fallback.status})`);
+        const candidates = await fallback.json();
+        hit = Array.isArray(candidates) ? candidates.find((c) => exactHit(c, parsed)) : null;
+      }
       const pos = hit ? { lat: Number(hit.lat), lng: Number(hit.lon) } : null;
-      if (!inside(pos)) { cache[key] = { missing: true, at: Date.now() }; persistCache(); return null; }
+      if (!inside(pos)) { cache[key] = { missing: true, lookupVersion: 3, at: Date.now() }; persistCache(); return null; }
       cache[key] = { ...pos, at: Date.now() };
       persistCache();
       return pos;

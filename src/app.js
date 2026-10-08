@@ -724,9 +724,9 @@
     }
     const view = ensureMap();
     if (!view) return;
-    const mode = state.search.trim() ? "results" : "overview";
+    const mode = "results";
     // Keep every filtered result on the map, even when a chart is open.
-    const meters = [...new Set([...state.visible, ...(m ? [m] : []), ...[...state.marked].map((id) => state.byId.get(id)).filter(Boolean)])];
+    const meters = [...new Set([...state.visible, ...(m ? [m] : [])])];
     const key = `${mode}|${focusRequest}|${state.focusId}|${[...state.marked].join(",")}|${state.list}|${state.search}|${state.area}|${meters.map((meter) => `${meter.id}:${meter.category}`).join(",")}`;
     if (key === lastMapKey) return;
     lastMapKey = key;
@@ -1161,6 +1161,9 @@
     if (!LIST[key]) return;
     state.list = key;
     state.page = 1;
+    state.focusId = "";
+    focusRequest++;
+    lastMapKey = "";
     render();
   }
 
