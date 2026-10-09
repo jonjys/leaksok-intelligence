@@ -740,12 +740,17 @@
 
   // Selecting a meter only updates the focus panel; the table is not rebuilt.
   function setFocus(id, { scroll = true, keepRow = null } = {}) {
-    if (id !== state.focusId) state.chartHidden = false;
+    if (id) state.chartHidden = false;
+    const switchToMap = Boolean(id) && state.view !== "map";
+    if (switchToMap) {
+      state.view = "map";
+      try { localStorage.setItem(VIEW_KEY, state.view); } catch { /* optional */ }
+    }
     state.focusId = id;
     focusRequest++;
     els.rows.querySelectorAll("tr.row").forEach((tr) => tr.classList.toggle("is-focus", tr.dataset.id === id));
     const rowTop = keepRow?.isConnected ? keepRow.getBoundingClientRect().top : null;
-    renderFocus();
+    if (switchToMap) render(); else renderFocus();
     if (rowTop != null && window.matchMedia("(min-width: 761px)").matches) {
       const list = keepRow.closest(".table-wrap");
       list.scrollTop += keepRow.getBoundingClientRect().top - rowTop;
@@ -1159,7 +1164,10 @@
 
   function setList(key) {
     if (!LIST[key]) return;
+    clearTimeout(focusTimer);
     state.list = key;
+    state.view = "map";
+    try { localStorage.setItem(VIEW_KEY, state.view); } catch { /* optional */ }
     state.page = 1;
     state.focusId = "";
     focusRequest++;
@@ -1201,7 +1209,6 @@
       els.rows.querySelectorAll("tr.row").forEach((tr) => tr.classList.toggle("is-focus", tr.dataset.id === id));
       focusTimer = setTimeout(() => {
         setFocus(id, { keepRow: row });
-        if (state.view === "list") openChart(id);
       }, event.detail === 0 ? 0 : 230);
     }
   });
