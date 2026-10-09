@@ -306,9 +306,9 @@
     function fitResults() {
       const pts = entries.filter((e) => current.resultIds.has(e.id)).map((e) => [e.lat, e.lng]);
       map.stop();
-      if (pts.length === 1) map.setView(pts[0], 17);
-      else if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [32, 32], maxZoom: 17 });
-      else map.setView(CENTER, 12);
+      if (pts.length === 1) map.setView(pts[0], 17, { animate: false });
+      else if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [32, 32], maxZoom: 17, animate: false });
+      else map.setView(CENTER, 12, { animate: false });
     }
 
     function setStyle(style) {
