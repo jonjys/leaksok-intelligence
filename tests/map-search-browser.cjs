@@ -72,6 +72,7 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     assert.equal(await page.locator('#focusChart').isVisible(), true, 'Address click shows its compact graph');
     assert.equal(await page.locator('#chartDialog').isVisible(), false, 'Map and graph stay together in the workspace');
     assert.deepEqual(await page.evaluate(() => [...state.marked]), marked, 'Switching views keeps marked meters');
+    await page.locator('button[data-view="list"]').click();
     await page.locator('thead [data-sort="value"]').click();
     let values = await page.evaluate(() => state.visible.map(m => m.latest?.value).filter(v => v != null));
     assert.deepEqual(values, [...values].sort((a, b) => b - a), 'Level header sorts highest first');
