@@ -100,6 +100,12 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     await page.waitForFunction(() => {
       const dots = []; testMap.eachLayer(l => { if (l instanceof L.CircleMarker) dots.push(l); });
       return dots.length === 60 && dots.every(l => testMap.getBounds().contains(l.getLatLng()));
+    }).catch(async error => {
+      console.log('Misstänk map diagnostics', await page.evaluate(() => {
+        const dots = []; testMap.eachLayer(l => { if (l instanceof L.CircleMarker) dots.push(l); });
+        return { count: dots.length, outside: dots.filter(l => !testMap.getBounds().contains(l.getLatLng())).map(l => l.getLatLng()), bounds: testMap.getBounds(), center: testMap.getCenter(), size: testMap.getSize(), focus: state.focusId, list: state.list, visible: state.visible.map(m => m.id), status: document.querySelector('#mapStatus').textContent };
+      }));
+      throw error;
     });
     assert.equal((await read()).count, 60, 'Misstänk shows exactly the selected list, beyond pagination');
     assert.equal((await read()).inView, true, 'Choosing Misstänk fits every list marker');
