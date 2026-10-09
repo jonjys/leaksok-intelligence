@@ -751,9 +751,9 @@
     els.rows.querySelectorAll("tr.row").forEach((tr) => tr.classList.toggle("is-focus", tr.dataset.id === id));
     const rowTop = keepRow?.isConnected ? keepRow.getBoundingClientRect().top : null;
     if (switchToMap) render(); else renderFocus();
-    if (rowTop != null && window.matchMedia("(min-width: 761px)").matches) {
+    if (rowTop != null && keepRow?.isConnected && window.matchMedia("(min-width: 761px)").matches) {
       const list = keepRow.closest(".table-wrap");
-      list.scrollTop += keepRow.getBoundingClientRect().top - rowTop;
+      if (list) list.scrollTop += keepRow.getBoundingClientRect().top - rowTop;
     }
     if (scroll && window.matchMedia("(max-width: 760px)").matches) {
       els.focus.scrollIntoView({ behavior: "smooth", block: "start" });
