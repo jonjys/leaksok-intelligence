@@ -95,6 +95,12 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     await page.locator('button[data-view="list"]').click();
     await page.locator('#rail [data-list="suspect"]').click();
     await page.waitForFunction(() => state.view === 'map' && !state.focusId && document.querySelector('#mapStatus').textContent.startsWith('60 av 60'));
+    // The previous map also had 60 markers: wait for the new list's bounds,
+    // rather than mistaking its old status text for a completed map update.
+    await page.waitForFunction(() => {
+      const dots = []; testMap.eachLayer(l => { if (l instanceof L.CircleMarker) dots.push(l); });
+      return dots.length === 60 && dots.every(l => testMap.getBounds().contains(l.getLatLng()));
+    });
     assert.equal((await read()).count, 60, 'Misstänk shows exactly the selected list, beyond pagination');
     assert.equal((await read()).inView, true, 'Choosing Misstänk fits every list marker');
     await page.locator('#rows tr.row').first().locator('.addr').click();
