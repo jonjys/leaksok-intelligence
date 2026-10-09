@@ -155,7 +155,7 @@
       // Leaflet's old pixel origin can otherwise leave edge markers off-screen.
       if (current.focusId) {
         const focused = entries.find((entry) => entry.id === current.focusId);
-        if (focused) map.setView([focused.lat, focused.lng], map.getZoom(), { animate: false });
+        if (focused) map.setView([focused.lat, focused.lng], 17, { animate: false });
       } else if (entries.length) fitResults();
     }
     if (typeof ResizeObserver === "function") new ResizeObserver(resizeMap).observe(el);
