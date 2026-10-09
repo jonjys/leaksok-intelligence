@@ -34,11 +34,11 @@ jobs:
           node-version: '22'
       - run: npm install --no-save --package-lock=false playwright@1.58.2
       - run: npx playwright install --with-deps chromium
+      - run: node tests/map-search-browser.cjs
       - run: node tests/browser-smoke.cjs
       - run: node tests/download-browser.cjs
       - run: node tests/legacy-browser.cjs
       - run: node tests/layout-browser.cjs
-      - run: node tests/map-search-browser.cjs
       - run: node tests/import-source-browser.cjs
       - run: node tests/case-learning-browser.cjs
       - uses: actions/upload-artifact@v4
