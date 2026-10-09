@@ -148,7 +148,17 @@
       gate.addEventListener("click", () => { map.dragging.enable(); gate.hidden = true; });
       document.addEventListener("pointerdown", (e) => { if (!el.contains(e.target)) { map.dragging.disable(); gate.hidden = false; } });
     }
-    if (typeof ResizeObserver === "function") new ResizeObserver(() => { if (el.clientWidth && el.clientHeight) map.invalidateSize({ pan: false }); }).observe(el);
+    function resizeMap() {
+      if (!el.clientWidth || !el.clientHeight) return;
+      map.invalidateSize({ pan: false });
+      // Changing between list and selected-meter layouts changes the map size.
+      // Leaflet's old pixel origin can otherwise leave edge markers off-screen.
+      if (current.focusId) {
+        const focused = entries.find((entry) => entry.id === current.focusId);
+        if (focused) map.setView([focused.lat, focused.lng], map.getZoom(), { animate: false });
+      } else if (entries.length) fitResults();
+    }
+    if (typeof ResizeObserver === "function") new ResizeObserver(resizeMap).observe(el);
 
     map.on("click", (e) => {
       if (tool === "valve" || tool === "leak") {
@@ -331,7 +341,7 @@
     }
 
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && tool) { rect?.remove(); rect = null; rectStart = null; setTool(""); status("Verktyget avbröts."); } });
-    return { update, setTool, setStyle, locate, fitResults, invalidate: () => map.invalidateSize({ pan: false }), map };
+    return { update, setTool, setStyle, locate, fitResults, invalidate: resizeMap, map };
   }
 
   function navigationUrl(meter) {
