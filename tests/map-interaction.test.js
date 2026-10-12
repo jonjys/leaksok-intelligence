@@ -46,6 +46,30 @@ test('Misstänk opens map and sends every result beyond pagination; clicking sho
   assert.equal(charts.at(-1), '6');
 });
 
+test('Marked addresses stay on the map across tabs, search and address corrections', () => {
+  const { context, state, updates, meters } = appHarness();
+  state.marked = new Set(['0', '1', '2']);
+  state.visible = meters.slice(10, 12);
+  state.view = 'map'; state.focusId = '10';
+  context.renderFocus();
+  assert.deepEqual(Array.from(updates.at(-1).meters, m => m.id).sort(), ['0', '1', '10', '11', '2'].sort());
+  assert.ok(updates.at(-1).resultIds.includes('0'), 'Show all results includes retained marked pins');
+  context.setFocus('0');
+  assert.ok(updates.at(-1).meters.some(m => m.id === '2'));
+  assert.equal(updates.at(-1).meters.filter(m => m.id === '0').length, 1);
+  const before = updates.length;
+  meters[0].address = 'NY ADRESS 1 TUMBA';
+  context.renderFocus();
+  assert.equal(updates.length, before + 1, 'An updated address invalidates the map even for the same serial');
+});
+
+test('Address navigation ignores meter GPS fields and cached coordinates', () => {
+  const { api } = mapHarness({ cache: { 'falkvagen 6, 14730 tumba, sverige': { lat: 59.2, lng: 17.8 } } });
+  const meter = { id: '6', address: 'FALKVÄGEN 6 TUMBA 14730', lat: 0, lng: 0, latitude: 10, longitude: 20, gps: { lat: 30, lng: 40 } };
+  assert.equal(new URL(api.navigationUrl(meter)).searchParams.get('destination'), 'FALKVÄGEN 6, 14730 TUMBA, Sverige');
+  assert.equal(api.cachedPosition(meter).lat, 59.2, 'Map pins use only the address cache');
+});
+
 function mapHarness({ cache = {}, fetch, timers = {} } = {}) {
   const maps = [], groups = [];
   const layer = () => ({ addTo() { return this; }, on() { return this; }, bindTooltip() { return this; } });

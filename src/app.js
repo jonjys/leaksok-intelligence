@@ -557,6 +557,7 @@
     }
     if (f?.older) rows.push(["Äldre nivå", `${Engine.fmtPeriod(f.older.from, f.older.to, year)} (${f.older.n} avl.)`, num(f.older.level), "", ""]);
     if (m.excel.E != null) rows.push(["P = E/F − 1 (senaste exportraden)", m.excel.exportDate ? D(m.excel.exportDate) : "", `F ${num(m.excel.F)} · E ${num(m.excel.E)} · G ${num(m.excel.G)}`, "", m.excel.P != null ? Engine.fmtPct(m.excel.P) : "beräknas inte"]);
+    rows.push(["Minimiflöde (inte brus)", m.excel.minimumFlowAt ? D(m.excel.minimumFlowAt) : "Datum saknas", m.excel.minimumFlow == null ? "Saknas i exporten" : `${num(m.excel.minimumFlow)} l/h`, "", ""]);
     if (m.season?.sameTimeLastYear) rows.push(["Samma tid i fjol", Engine.fmtPeriod(m.season.sameTimeLastYear.from, m.season.sameTimeLastYear.to, 0), num(m.season.sameTimeLastYear.level), "", ""]);
     return rows.map((r) => `<tr><th scope="row">${r[0]}</th><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td>${esc(r[3])}</td><td>${esc(r[4])}</td></tr>`).join("");
   }
@@ -704,7 +705,7 @@
       $("focusCopy").hidden = false;
       els.focusMeta.textContent = ` · ${m.serial || m.id} · ${m.status} · prioritet ${m.priority}`;
       const cases = (state.leakCases || []).filter((r) => r.anchorId === m.id);
-      if (cases.length) els.focusMeta.textContent += caseGeocoding ? " · söker grannmätarnas kartpositioner…" : ` · ${cases.at(-1).profiles.filter((p) => p.validated).length} jämförelsemönster (Visa underlag)`;
+    if (cases.length) els.focusMeta.textContent += caseGeocoding ? " · söker grannmätarnas adresspositioner…" : ` · ${cases.at(-1).profiles.filter((p) => p.validated).length} jämförelsemönster (Visa underlag)`;
       if (!state.chartHidden && (els.focusChart.__chart?.id !== m.id || els.focusChart.__version !== m)) {
         Chart.render(els.focusChart, m, { compact: true, onEnlarge: openChart });
         const close = document.createElement("button");
@@ -725,12 +726,15 @@
     const view = ensureMap();
     if (!view) return;
     const mode = "results";
-    // Keep every filtered result on the map, even when a chart is open.
-    const meters = [...new Set([...state.visible, ...(m ? [m] : [])])];
-    const key = `${mode}|${focusRequest}|${state.focusId}|${[...state.marked].join(",")}|${state.list}|${state.search}|${state.area}|${meters.map((meter) => `${meter.id}:${meter.category}`).join(",")}`;
+    // The list may change, but marked addresses remain on the map across tabs,
+    // search, hidden groups and pagination. Focus only moves the camera.
+    const markedMeters = [...state.marked].map((id) => state.byId.get(id)).filter(Boolean);
+    const meters = [...new Map([...state.visible, ...markedMeters, ...(m ? [m] : [])].map((meter) => [meter.id, meter])).values()];
+    const resultIds = [...new Set([...state.visible.map((meter) => meter.id), ...markedMeters.map((meter) => meter.id)])];
+    const key = `${mode}|${focusRequest}|${state.focusId}|${[...state.marked].join(",")}|${state.list}|${state.search}|${state.area}|${meters.map((meter) => `${meter.id}:${meter.address}:${meter.area}:${meter.category}`).join(",")}`;
     if (key === lastMapKey) return;
     lastMapKey = key;
-    requestAnimationFrame(() => { view.invalidate(); Promise.resolve(view.update({ meters, focusId: state.focusId, focusRequest, marked: state.marked, mode, resultIds: state.visible.map((m) => m.id) })).then(() => {
+    requestAnimationFrame(() => { view.invalidate(); Promise.resolve(view.update({ meters, focusId: state.focusId, focusRequest, marked: state.marked, mode, resultIds })).then(() => {
       if (!state.prepared) return;
       const coords = LeakMap.coordinates([...state.prepared.histories.values()]);
       const key = JSON.stringify([...coords].sort(([a], [b]) => a.localeCompare(b)));
@@ -1004,6 +1008,7 @@
     dialog: $("worklistDialog"), exportDialog: $("exportDialog"),
     getEntries: () => state.tripList, setEntries: (list) => { state.tripList = list; },
     getMeter: (id) => state.byId.get(id), getLabels: () => state.labels, copyButton,
+    onFocus: (id, ids) => { ids.forEach((pickedId) => state.marked.add(pickedId)); setFocus(id); },
     getComment: (id) => state.labels[id]?.comment ?? state.labels[id]?.note ?? "",
     setComment: (id, text) => { setComment(id, text); },
     persist: () => persist(), onChange: () => render(), notify: (t) => toast(t),
@@ -1269,6 +1274,11 @@
   els.checkPage.addEventListener("change", () => {
     const page = state.visible.slice((state.page - 1) * state.pageSize, state.page * state.pageSize);
     page.forEach((m) => (els.checkPage.checked ? state.marked.add(m.id) : state.marked.delete(m.id)));
+    if (els.checkPage.checked && page.length) {
+      setFocus(state.marked.has(state.focusId) ? state.focusId : page[0].id);
+      renderSelection();
+      return;
+    }
     render();
   });
   els.selection.addEventListener("click", (event) => {
@@ -1282,6 +1292,10 @@
     if (act === "worklist") { addToWorklist([...state.marked]); return; }
     if (act === "excel") { worklist.exportMeters([...state.marked], `${state.marked.size} markerade i listan`); return; }
     if (act === "hide") { setHidden([...state.marked], state.list !== "hidden"); return; }
+    if ((act === "page" || act === "all") && state.marked.size) {
+      const first = state.visible.find((m) => state.marked.has(m.id));
+      if (first) { setFocus(state.marked.has(state.focusId) ? state.focusId : first.id); renderSelection(); return; }
+    }
     render();
   });
   els.search.addEventListener("input", () => { state.search = els.search.value; state.page = 1; render(); });
@@ -1331,3 +1345,4 @@
   if (window.indexedDB && window.LeakStorage) showProfile();
   reanalyze(true);
 }());
+

@@ -153,6 +153,53 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
       assert.equal(approximate, index !== 0);
       assert.equal(await fresh.evaluate(() => LeakMap.coordinates([state.byId.get(state.focusId)]).size), index === 0 ? 1 : 0);
     }
+    // Mark a whole street, narrow the list, switch category, and focus one
+    // address. Every retained marked pin must remain visible in the viewport.
+    await fresh.locator('#search').fill('Broängsvägen');
+    await fresh.waitForFunction(() => state.visible.length === 2);
+    await fresh.locator('#selectionBar .selection-menu summary').click();
+    await fresh.locator('#selectionBar [data-sel="all"]').click();
+    await fresh.waitForFunction(() => state.marked.size === 2);
+    const markedStreet = await fresh.evaluate(() => [...state.marked]);
+    await fresh.locator('#rail [data-list="suspect"]').click();
+    await fresh.evaluate(id => LeakApp.setFocus(id), markedStreet[0]);
+    await fresh.waitForFunction(() => {
+      const pos = LeakMap.cachedPosition(state.byId.get(state.focusId));
+      return pos && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2 && [...state.marked].every(id => {
+        const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
+      });
+    });
+    const countPins = () => fresh.evaluate(() => { let n = 0; testMap.eachLayer(layer => { if (layer instanceof L.CircleMarker) n++; }); return n; });
+    assert.equal(await countPins(), 2, 'Marked addresses survive an empty category tab');
+    await fresh.locator('#search').fill('Alhagsvägen');
+    await fresh.locator('#rail [data-list="all"]').click();
+    await fresh.waitForFunction(() => state.visible.length === 1);
+    await fresh.locator('#rows tr.row .addr').click();
+    await fresh.waitForFunction(() => {
+      const pos = LeakMap.cachedPosition(state.byId.get(state.focusId));
+      return pos?.lat === 59.24 && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2 && [...state.marked].every(id => {
+        const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
+      });
+    });
+    assert.equal(await countPins(), 3, 'Focus from another filter keeps all marked street pins');
+    await fresh.locator('[data-map-action="results"]').click();
+    await fresh.waitForFunction(() => {
+      const dots = []; testMap.eachLayer(layer => { if (layer instanceof L.CircleMarker) dots.push(layer); });
+      return dots.length === 3 && dots.every(layer => testMap.getBounds().contains(layer.getLatLng()));
+    });
+    await fresh.evaluate(ids => LeakApp.worklist.add(ids), markedStreet);
+    await fresh.locator('#openWorklist').click();
+    await fresh.locator('#worklistDialog [data-pick]').first().check();
+    await fresh.locator('#worklistDialog [data-pick]').nth(1).check();
+    const worklistId = await fresh.locator('#worklistDialog tr[data-id]').first().getAttribute('data-id');
+    await fresh.locator('#worklistDialog [data-act="focus"]').first().click();
+    await fresh.waitForFunction(id => !document.querySelector('#worklistDialog').open && state.focusId === id, worklistId);
+    await fresh.waitForFunction(() => {
+      const pos = LeakMap.cachedPosition(state.byId.get(state.focusId));
+      return pos && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2 && [...state.marked].every(id => {
+        const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
+      });
+    });
     await fresh.close();
     console.log('Map search PASS: 60 results, persistent markers, warning colors, fitted bounds and mobile width.');
   } finally { await browser.close(); server.close(); }

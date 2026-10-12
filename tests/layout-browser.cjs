@@ -49,7 +49,8 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await page.waitForFunction((id) => {
       const pos = LeakMap.coordinates([...state.prepared.histories.values()]).get(id);
       const center = window.testMap?.getCenter();
-      return state.focusId === id && pos && center && testMap.getZoom() === 17 && Math.abs(center.lat - pos.lat) < 0.00001 && Math.abs(center.lng - pos.lng) < 0.00001;
+      return state.focusId === id && pos && center && testMap.getZoom() <= 17 && Math.abs(center.lat - pos.lat) < 0.00001 && Math.abs(center.lng - pos.lng) < 0.00001
+        && [...state.marked].every(id => { const p = LeakMap.cachedPosition(state.byId.get(id)); return !p || testMap.getBounds().contains([p.lat, p.lng]); });
     }, checkedId);
     const chosenId = await page.locator("#rows tr.row").nth(2).getAttribute("data-id");
     await page.locator("#rows tr.row").nth(2).locator(".addr").click();
@@ -64,7 +65,8 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await page.locator(`#rows tr[data-id="${focusId}"] .addr`).click();
     await page.waitForFunction((id) => {
       const pos = LeakMap.cachedPosition(state.byId.get(id));
-      return testMap.getZoom() === 17 && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2;
+      return testMap.getZoom() <= 17 && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2
+        && [...state.marked].every(id => { const p = LeakMap.cachedPosition(state.byId.get(id)); return !p || testMap.getBounds().contains([p.lat, p.lng]); });
     }, focusId);
     await page.evaluate(() => { document.querySelector(".table-wrap").scrollTop = 500; });
     const laptop = await measure();
@@ -170,3 +172,4 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     server.close();
   }
 })().catch((e) => { console.error(e); process.exitCode = 1; });
+

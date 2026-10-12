@@ -67,7 +67,7 @@
           const rise = before.level == null || during.level == null ? null : during.level - before.level;
           const drop = after.level == null || during.level == null ? null : during.level - after.level;
           const threshold = Math.max(2, (before.level || 0) * 0.25, (before.spread || 0) * 3);
-          const excluded = m.codes?.dry || m.codes?.leak || m.codes?.burst || m.codes?.afterMeterText;
+          const excluded = m.codes?.dry || m.codes?.leak || m.codes?.burst || m.codes?.afterMeterText || m.codes?.minimumFlowContinuous;
           const shape = rise >= threshold && drop >= rise * 0.5 && after.level <= before.level + threshold;
           const validated = Boolean(repair != null && ['AV', 'SV'].includes(incident.lineType) && !incident.confirmedDateUncertain && near.basis !== 'address'
             && before.sufficient && during.sufficient && after.sufficient && shape && !excluded);
@@ -94,3 +94,4 @@
   }
   return { RULES, build };
 }));
+

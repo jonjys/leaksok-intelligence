@@ -133,6 +133,8 @@
     col.current = findColumn(header, ["senaste värde", "brusvärde", "brus", "noise", "value"]);
     col.average = findColumn(header, ["genomsnittsvärde", "genomsnitt", "medelvärde", "average", "avg"], [col.current]);
     col.max = findColumn(header, ["maxvärde", "max", "högsta"], [col.current]);
+    col.minimumFlowAt = findColumn(header, ["minimum flödesdatum", "minimiflödesdatum", "minimum flow date", "min flow date"]);
+    col.minimumFlow = findColumn(header, ["minimiflöde", "minimumflöde", "minimum flow", "min flow"], [col.minimumFlowAt]);
     col.readAt = findColumn(header, ["senaste avläsning", "avläsningstid", "avläsning", "tidpunkt", "date", "datum"]);
     col.info = findColumn(header, ["infokod", "info code", "infocode"]);
     col.activeEvents = findColumn(header, ["aktiva händelser", "active events"]);
@@ -219,6 +221,8 @@
         current,
         average: col.average >= 0 ? parseNumber(row[col.average]) : null,
         max: col.max >= 0 ? parseNumber(row[col.max]) : null,
+        ...(col.minimumFlow >= 0 ? { minimumFlow: (() => { const v = parseNumber(row[col.minimumFlow]); return v != null && v >= 0 ? v : null; })() } : {}),
+        ...(col.minimumFlowAt >= 0 ? { minimumFlowAt: parseDate(row[col.minimumFlowAt]) } : {}),
         infoCode,
         activeEvents,
         closedEvents: col.closedEvents >= 0 ? cleanText(row[col.closedEvents]) : "",
@@ -260,3 +264,4 @@
 
   return { DISTRICTS, districtOf, parseNumber, parseDate, fromExcelSerial, dateFromFileName, parseCsvRows, findHeaderIndex, mapColumns, parseTable, areaOf, cleanText, normalizeAddressId, localDate };
 }));
+

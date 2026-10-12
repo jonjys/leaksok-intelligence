@@ -57,6 +57,18 @@ test('area: small simultaneous rises can be visible before individual signal thr
   assert.ok(r.areaSignals[0].members.every(m=>m.readings===1));
   for(const m of r.meters)assert.notEqual(m.category,'dispatch');
 });
+
+test('area: two baseline days allow only a stronger, explicitly preliminary neighbourhood warning', () => {
+  const strong = specs(3, { values: [6, 7, 52, 59] });
+  const r = Engine.analyzeAll(filesFor(strong, 4));
+  assert.equal(r.areaSignals.length, 1);
+  assert.equal(r.areaSignals[0].stage, 'early');
+  assert.equal(r.areaSignals[0].shortBaseline, true);
+  assert.ok(r.areaSignals[0].notes.some(n => /två tidigare/.test(n)));
+  assert.equal(Engine.analyzeAll(filesFor(specs(3, { values: [9, 9, 12, 12] }), 4)).areaSignals.length, 0, 'Weak change with two reference days is not promoted');
+  assert.equal(Engine.analyzeAll(filesFor(specs(3, { values: [6, 25, 52, 59] }), 4)).areaSignals.length, 0, 'Unstable two-day reference is not enough');
+  assert.equal(Engine.analyzeAll(filesFor(specs(3, { values: [6, 52] }), 2)).areaSignals.length, 0, 'One baseline day is not enough');
+});
 test('area: one or two meters, a single building and distant house numbers do not qualify',()=>{
   assert.equal(analyze(specs(2)).areaSignals.length,0);
   assert.equal(analyze(specs(4,{address:'TESTVÄGEN 1 TUMBA 14730'})).areaSignals.length,0);
@@ -74,7 +86,7 @@ test('area: no spatial or time chains, stale readings, returned spikes or thin b
   assert.equal(analyze([{}, {onset:6}, {onset:10}]).areaSignals.length,0);
   assert.equal(analyze([{}, {}, {stale:true}]).areaSignals.length,0);
   assert.equal(analyze(specs(3,{values:[9,9,9,9,9,9,9,9,9,23,9,9]})).areaSignals.length,0);
-  assert.equal(analyze(specs(3,{onset:2})).areaSignals.length,0);
+  assert.equal(analyze(specs(3,{onset:1})).areaSignals.length,0);
   const files=filesFor(specs()).filter((_,i)=>i<5 || i>=10);
   assert.equal(Engine.analyzeAll(files).areaSignals.length,0,'Gap before rise gives uncertain onset');
   const chain=analyze([1,19,37].map(n=>({address:`TESTVÄGEN ${n} TUMBA 14730`})));

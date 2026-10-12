@@ -169,7 +169,7 @@
     if (!root.L) { status("Kartan kunde inte laddas. Kör hit fungerar ändå."); return null; }
     const L = root.L;
     const touch = root.matchMedia?.("(pointer: coarse)").matches;
-    const map = L.map(el, { zoomControl: true, scrollWheelZoom: false, dragging: !touch, tap: false, minZoom: 10, maxBounds: BOUNDS, maxBoundsViscosity: 1, preferCanvas: true }).setView(CENTER, 12);
+    const map = L.map(el, { zoomControl: true, scrollWheelZoom: false, dragging: !touch, tap: false, minZoom: 8, preferCanvas: true }).setView(CENTER, 12);
     const layers = {
       street: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }),
       satellite: L.layerGroup([
@@ -184,6 +184,17 @@
     let userMarker = null;
     let lastFlight = "";
     let lastResults = "";
+
+    function focusZoom(focused) {
+      const selected = entries.filter((entry) => current.marked.has(entry.id));
+      if (selected.length < 2 || typeof map.getBoundsZoom !== "function") return 17;
+      // Keep the camera centred on the clicked address, but zoom out enough
+      // for the other marked addresses to remain visible around it.
+      const lat = Math.max(...selected.map((p) => Math.abs(p.lat - focused.lat))) * 1.12;
+      const lng = Math.max(...selected.map((p) => Math.abs(p.lng - focused.lng))) * 1.12;
+      const bounds = L.latLngBounds([[focused.lat - lat, focused.lng - lng], [focused.lat + lat, focused.lng + lng]]);
+      return Math.max(8, Math.min(17, map.getBoundsZoom(bounds, false, [72, 72])));
+    }
 
     // Touch: the page scrolls past the map until the user taps it.
     if (touch) {
@@ -202,7 +213,7 @@
       // Leaflet's old pixel origin can otherwise leave edge markers off-screen.
       if (current.focusId) {
         const focused = entries.find((entry) => entry.id === current.focusId);
-        if (focused) map.setView([focused.lat, focused.lng], 17, { animate: false });
+        if (focused) map.setView([focused.lat, focused.lng], focusZoom(focused), { animate: false });
       } else if (entries.length) fitResults();
     }
     if (typeof ResizeObserver === "function") new ResizeObserver(resizeMap).observe(el);
@@ -343,11 +354,12 @@
         // A selection always wins over the bounds of other marked meters.
         // Address pins are sufficient, including labelled street fallbacks.
         if (focused) {
-          const flight = `${current.focusId}|${current.focusRequest}|${focused.pos.lat}|${focused.pos.lng}`;
+          const zoom = focusZoom(focused.pos);
+          const flight = `${current.focusId}|${current.focusRequest}|${focused.pos.lat}|${focused.pos.lng}|${zoom}`;
           if (flight !== lastFlight) {
             lastFlight = flight;
             map.stop();
-            map.flyTo([focused.pos.lat, focused.pos.lng], 17, {
+            map.flyTo([focused.pos.lat, focused.pos.lng], zoom, {
               duration: 0.7, animate: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
             });
           }
@@ -395,8 +407,7 @@
   }
 
   function navigationUrl(meter) {
-    const pos = cachedPosition(meter);
-    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(pos ? `${pos.lat},${pos.lng}` : addressForMap(meter))}`;
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addressForMap(meter))}`;
   }
 
   function coordinates(meters) {
