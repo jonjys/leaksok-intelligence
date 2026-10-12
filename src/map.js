@@ -21,7 +21,7 @@
   const norm = (v) => String(v || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  function addressForMap(meter) {
+  function addressForMap(meter = {}) {
     const raw = String(meter.address || "").replace(/\s+/g, " ").trim();
     if (!raw) return "";
     const postal = raw.match(/^(.*?\d+(?:[-/]\d+)?[A-Za-z]?)\s+(.+?)\s+(\d{5})$/i);
@@ -29,7 +29,7 @@
     const area = String(meter.area || "").trim();
     return `${raw}${area && !norm(raw).includes(norm(area)) ? `, ${area}` : ""}, Sverige`;
   }
-  function parseAddress(meter) {
+  function parseAddress(meter = {}) {
     const raw = String(meter.address || "").replace(/[–—]/g, "-").replace(/(\d)\s*([-\/])\s*(?=\d)/g, "$1$2").replace(/(\d)\s+([A-Za-z])(?=\s|$)/g, "$1$2").replace(/([A-Za-zÅÄÖåäö])(?=\d)/g, "$1 ").replace(/(\d{3})\s+(\d{2})(?=\s|$)/g, "$1$2").replace(/,+/g, " ").replace(/\s+/g, " ").trim();
     const atEnd = raw.match(/^(.+?)\s+(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(.+?)\s+(\d{5})$/i);
     const before = raw.match(/^(.+?)\s+(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(\d{5})\s+(.+)$/i);
@@ -57,6 +57,7 @@
   const keyOf = (meter) => norm(addressForMap(meter));
 
   function cachedPosition(meter) {
+    if (!meter?.address) return null;
     const hit = cache[keyOf(meter)];
     return inside(hit) ? { lat: hit.lat, lng: hit.lng, ...(hit.approximate ? { approximate: true } : {}) } : null;
   }
