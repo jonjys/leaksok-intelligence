@@ -187,13 +187,14 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
       const dots = []; testMap.eachLayer(layer => { if (layer instanceof L.CircleMarker) dots.push(layer); });
       return dots.length === 3 && dots.every(layer => testMap.getBounds().contains(layer.getLatLng()));
     });
-    await fresh.evaluate(ids => LeakApp.worklist.add(ids), markedStreet);
+    await fresh.evaluate(ids => { LeakApp.worklist.add(ids); state.marked.clear(); LeakApp.render(); }, markedStreet);
     await fresh.locator('#openWorklist').click();
     await fresh.locator('#worklistDialog [data-pick]').first().check();
     await fresh.locator('#worklistDialog [data-pick]').nth(1).check();
     const worklistId = await fresh.locator('#worklistDialog tr[data-id]').first().getAttribute('data-id');
     await fresh.locator('#worklistDialog [data-act="focus"]').first().click();
     await fresh.waitForFunction(id => !document.querySelector('#worklistDialog').open && state.focusId === id, worklistId);
+    assert.match(await fresh.locator('#selectionBar p b').textContent(), /2 markerade/, 'Worklist navigation updates the global selection count');
     await fresh.waitForFunction(() => {
       const pos = LeakMap.cachedPosition(state.byId.get(state.focusId));
       return pos && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2 && [...state.marked].every(id => {

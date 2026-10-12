@@ -1008,7 +1008,7 @@
     dialog: $("worklistDialog"), exportDialog: $("exportDialog"),
     getEntries: () => state.tripList, setEntries: (list) => { state.tripList = list; },
     getMeter: (id) => state.byId.get(id), getLabels: () => state.labels, copyButton,
-    onFocus: (id, ids) => { ids.forEach((pickedId) => state.marked.add(pickedId)); setFocus(id); },
+    onFocus: (id, ids) => { ids.forEach((pickedId) => state.marked.add(pickedId)); setFocus(id); render(); },
     getComment: (id) => state.labels[id]?.comment ?? state.labels[id]?.note ?? "",
     setComment: (id, text) => { setComment(id, text); },
     persist: () => persist(), onChange: () => render(), notify: (t) => toast(t),
