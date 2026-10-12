@@ -85,6 +85,8 @@
       ageDays: m.latest?.ageDays ?? null,
       E: m.excel.E, F: m.excel.F, G: m.excel.G, P: m.excel.P,
       interestRank: m.excel.interestRank,
+      minimumFlow: m.excel.minimumFlow,
+      minimumFlowAt: m.excel.minimumFlowAt,
       infoCode: m.codes.infoCode,
       events: [m.codes.activeEvents, m.codes.closedEvents && `stängd: ${m.codes.closedEvents}`, m.codes.follow && "Följs i Kamstrup"].filter(Boolean).join(" · "),
       quality: m.dataQuality.join("\n"),
@@ -163,6 +165,8 @@
             { header: "P = E/F − 1", key: "P", type: "percent", width: 9 },
             { header: "Infokod", key: "infoCode", width: 10 },
             { header: "Kamstrup intresserang", key: "interestRank", type: "number", width: 14 },
+            { header: "Minimiflöde (l/h)", key: "minimumFlow", type: "number", width: 16 },
+            { header: "Minimum flödesdatum", key: "minimumFlowAt", type: "date", width: 18 },
             { header: "Aktiva händelser", key: "events", width: 14 },
             { header: "Datakvalitet", key: "quality", width: 42 },
             { header: "Observationer", key: "observations", width: 60 },
@@ -211,3 +215,4 @@
 
   return { buildWorkbook, rowFor, statusText, fileName, DEFINITIONS };
 }));
+

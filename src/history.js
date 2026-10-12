@@ -74,6 +74,8 @@
       current: current != null && current >= 0 ? current : null,
       average: finite(raw.average),
       max: finite(raw.max),
+      minimumFlow: finite(raw.minimumFlow) != null && finite(raw.minimumFlow) >= 0 ? finite(raw.minimumFlow) : null,
+      minimumFlowAt: toDate(raw.minimumFlowAt),
       infoCode: String(raw.infoCode ?? "").trim(),
       activeEvents: String(raw.activeEvents ?? "").trim(),
       closedEvents: String(raw.closedEvents ?? "").trim(),
@@ -168,3 +170,4 @@
 
   return { buildHistories, summarize, compare, dayKey, calendarDays, validDate };
 }));
+

@@ -119,6 +119,90 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     assert.equal((await read()).count, 60, 'Focused marker keeps every list pin');
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, 'Phone has no horizontal overflow');
+    // Previously failing Excel addresses must work without a preloaded cache.
+    const fresh = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+    await kit.routeExternal(fresh);
+    await fresh.route('https://nominatim.openstreetmap.org/**', route => {
+      const params = new URL(route.request().url()).searchParams;
+      const query = params.get('q') || params.get('street');
+      const hit = (road, house, lat) => ({ lat: String(lat), lon: '17.8', address: { road, ...(house ? { house_number: house } : {}) } });
+      const replies = {
+        'Broängsvägen 34A': [hit('Broängsvägen', '34A', 59.19)],
+        'Alhagsvägen 58, Botkyrka, Sverige': [hit('Alhagsvägen', '58', 59.24)],
+        'Broängsvägen, Botkyrka, Sverige': [hit('Broängsvägen', '', 59.20)],
+      };
+      return route.fulfill({ json: replies[query] || [] });
+    });
+    await fresh.goto('http://127.0.0.1:4182/');
+    await fresh.evaluate(() => {
+      const original = L.Map.prototype.flyTo;
+      L.Map.prototype.flyTo = function (...args) { window.testMap = this; return original.apply(this, args); };
+    });
+    await kit.unlock(fresh);
+    const addressFiles = buildDailyExports({ meters: 3, days: 5, includeScenarios: false });
+    const addresses = ['Broängsvägen 34 A TUMBA 14732', 'Alhagsvägen 58 -60 NORSBORG 14559', 'Broängsvägen 36 TUMBA 14732'];
+    addressFiles.forEach(f => f.rows.slice(1).forEach((r, i) => { r[1] = addresses[i]; }));
+    await kit.importFiles(fresh, addressFiles.map(f => ({ name: f.name, text: toCsv(f.rows) })));
+    for (const [index, lat] of [[0, 59.19], [1, 59.24], [2, 59.20]]) {
+      await fresh.locator('#search').fill(addresses[index]);
+      await fresh.waitForFunction(() => state.visible.length === 1);
+      await fresh.locator('#rows tr.row .addr').click();
+      await fresh.waitForFunction(lat => window.testMap && testMap.getZoom() === 17 && testMap.getCenter().distanceTo([lat, 17.8]) < 2, lat);
+      assert.equal(await fresh.locator('.map-meter-tip b').count(), 1);
+      const approximate = await fresh.evaluate(() => LeakMap.cachedPosition(state.byId.get(state.focusId)).approximate === true);
+      assert.equal(approximate, index !== 0);
+      assert.equal(await fresh.evaluate(() => LeakMap.coordinates([state.byId.get(state.focusId)]).size), index === 0 ? 1 : 0);
+    }
+    // Mark a whole street, narrow the list, switch category, and focus one
+    // address. Every retained marked pin must remain visible in the viewport.
+    await fresh.locator('#search').fill('Broängsvägen');
+    await fresh.waitForFunction(() => state.visible.length === 2);
+    await fresh.locator('#selectionBar .selection-menu summary').click();
+    await fresh.locator('#selectionBar [data-sel="all"]').click();
+    await fresh.waitForFunction(() => state.marked.size === 2);
+    const markedStreet = await fresh.evaluate(() => [...state.marked]);
+    await fresh.locator('#rail [data-list="suspect"]').click();
+    await fresh.evaluate(id => LeakApp.setFocus(id), markedStreet[0]);
+    await fresh.waitForFunction(() => {
+      const pos = LeakMap.cachedPosition(state.byId.get(state.focusId));
+      return pos && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2 && [...state.marked].every(id => {
+        const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
+      });
+    });
+    const countPins = () => fresh.evaluate(() => { let n = 0; testMap.eachLayer(layer => { if (layer instanceof L.CircleMarker) n++; }); return n; });
+    assert.equal(await countPins(), 2, 'Marked addresses survive an empty category tab');
+    await fresh.locator('#search').fill('Alhagsvägen');
+    await fresh.locator('#rail [data-list="all"]').click();
+    await fresh.waitForFunction(() => state.visible.length === 1);
+    await fresh.locator('#rows tr.row .addr').click();
+    await fresh.waitForFunction(() => {
+      const pos = LeakMap.cachedPosition(state.byId.get(state.focusId));
+      return pos?.lat === 59.24 && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2 && [...state.marked].every(id => {
+        const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
+      });
+    });
+    assert.equal(await countPins(), 3, 'Focus from another filter keeps all marked street pins');
+    await fresh.locator('[data-map-action="results"]').click();
+    await fresh.waitForFunction(() => {
+      const dots = []; testMap.eachLayer(layer => { if (layer instanceof L.CircleMarker) dots.push(layer); });
+      return dots.length === 3 && dots.every(layer => testMap.getBounds().contains(layer.getLatLng()));
+    });
+    await fresh.evaluate(ids => { LeakApp.worklist.add(ids); state.marked.clear(); LeakApp.render(); }, markedStreet);
+    await fresh.locator('#openWorklist').click();
+    await fresh.locator('#worklistDialog [data-pick]').first().check();
+    await fresh.locator('#worklistDialog [data-pick]').nth(1).check();
+    const worklistId = await fresh.locator('#worklistDialog tr[data-id]').first().getAttribute('data-id');
+    await fresh.locator('#worklistDialog [data-act="focus"]').first().click();
+    await fresh.waitForFunction(id => !document.querySelector('#worklistDialog').open && state.focusId === id, worklistId);
+    assert.match(await fresh.locator('#selectionBar p b').textContent(), /2 markerade/, 'Worklist navigation updates the global selection count');
+    await fresh.waitForFunction(() => {
+      const pos = LeakMap.cachedPosition(state.byId.get(state.focusId));
+      return pos && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2 && [...state.marked].every(id => {
+        const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
+      });
+    });
+    await fresh.close();
     console.log('Map search PASS: 60 results, persistent markers, warning colors, fitted bounds and mobile width.');
   } finally { await browser.close(); server.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
+

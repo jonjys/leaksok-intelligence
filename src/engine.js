@@ -450,6 +450,8 @@
       E: latestRow?.current ?? null,
       F: latestRow?.average ?? null,
       G: latestRow?.max ?? null,
+      minimumFlow: latestRow?.minimumFlow ?? null,
+      minimumFlowAt: latestRow?.minimumFlowAt || null,
       interestRank: latestRow?.interestRank ?? null,
       exportDate: latestRow?.exportDate || null,
       readAt: latestRow?.readAt || null,
@@ -473,6 +475,12 @@
     const latest = series[n - 1] || null;
     const previous = series[n - 2] || null;
     const ageDays = latest && latestExport ? Math.max(0, days(latest.date, latestExport)) : null;
+    // Only a dated, current minimum-flow observation supports customer-side
+    // routing. Missing flow/date is unknown, never zero or inferred from Q3.
+    const flowAge = excel.minimumFlowAt && latestExport ? days(excel.minimumFlowAt, latestExport) : null;
+    codes.minimumFlowContinuous = Boolean(!codes.dry && excel.E != null && excel.readAt && days(excel.readAt, latestExport) >= 0 && days(excel.readAt, latestExport) <= 1
+      && excel.minimumFlow > 0 && flowAge != null && flowAge >= 0 && flowAge <= 1
+      && excel.exportDate && days(excel.exportDate, latestExport) <= 1 && latest && ageDays <= 1);
     const missedExports = ctx.exportDays && history.lastExport
       ? ctx.exportDays.filter((key) => key > History.dayKey(history.lastExport)).length : 0;
 
@@ -691,6 +699,7 @@
     const lowerFirst = (text) => text ? text[0].toLowerCase() + text.slice(1) : text;
     if (codes.burst) summary = `Infokod BURST (högt flöde efter mätaren) · ${lowerFirst(summary)}`;
     else if (codes.leak) summary = `Infokod LEAK (flöde utan uppehåll efter mätaren) · ${lowerFirst(summary)}`;
+    else if (codes.minimumFlowContinuous) summary = `Positivt minimiflöde ${fmtNum(excel.minimumFlow)} l/h (möjlig påverkan efter mätaren) · ${lowerFirst(summary)}`;
     if (codes.dry) summary = `Infokod DRY (mätaren ej vattenfylld) · ${lowerFirst(summary)}`;
     if (codes.acousticLeak && !upFinding && !codes.leak && !codes.burst) summary = `Leak Detector-händelse ${codes.activeEvents} · ${lowerFirst(summary)}`;
     if (latest && stale) summary = `Ingen ny avläsning sedan ${D(latest.date)} (${ageDays} dagar). Senast: ${lowerFirst(summary)}`;
@@ -703,6 +712,10 @@
     if (missedExports > 0) quality.push(`Mätaren saknas i ${missedExports} senare export${missedExports > 1 ? "er" : ""}. Det bevisar inte förlorad kontakt.`);
     if (history.missingValues && latestRow?.current == null) quality.push("Senaste exporten saknar Senaste värde för mätaren.");
     if (history.conflicts) quality.push(`${history.conflicts} avläsningar exporterades med olika värden; senaste exporten används.`);
+    if (excel.minimumFlow == null) missing.push("Minimiflöde saknas i exporten. Brus ensamt avgör inte om läckan är före eller efter mätaren.");
+    else {
+      obs.push(`Minimiflöde ${fmtNum(excel.minimumFlow)} l/h${excel.minimumFlowAt ? ` (${D(excel.minimumFlowAt)})` : " – datum saknas"}. ${codes.minimumFlowContinuous ? "Färskt positivt minimiflöde tyder på kontinuerligt flöde efter mätaren; kontrollera fastigheten." : excel.minimumFlow === 0 ? "Nollflöde utesluter inte en läcka före mätaren." : "Datum och aktualitet behöver verifieras innan flödet styr bedömningen."}`);
+    }
     for (const gap of result.history.gaps.slice(-2)) quality.push(`Inga avläsningar ${D(gap.from)}–${D(gap.to)} (${gap.days} dagar).`);
     if (history.undated) quality.push(`${history.undated} exportrader saknar avläsningsdatum och används inte.`);
     if (result.history.readings && result.history.spanDays < 14 && (n < 3 || upFinding)) quality.push(`Historiken i appen omfattar ${result.history.spanDays + 1} ${result.history.spanDays ? "dagar" : "dag"} sedan första import – inte samma sak som mätarens ålder.`);
@@ -790,7 +803,7 @@
     const withinSeason = upFinding && season?.status === "verified" && season.expected != null && upFinding.now.level <= season.expected * 1.6 + 5;
     if (!latest && reset) category = "normal";
     else if (!latest || stale) category = "stale_contact";
-    else if (codes.leak || codes.burst || codes.afterMeterText) category = "customer_side";
+    else if (codes.leak || codes.burst || codes.afterMeterText || codes.minimumFlowContinuous) category = "customer_side";
     else if (upFinding && withinSeason) category = "seasonal";
     else if (upFinding) {
       const per = upFinding.persistence;
@@ -854,7 +867,7 @@
     if (f.type === "transient") explain.push("Kortvarig topp med observerad återgång – oftast en tillfällig ljudkälla.");
     if (f.type === "level_shift" && f.direction === "down") explain.push("Lägre nivå kan bero på lagning, ändrad förbrukning eller mätförhållanden – bekräfta manuellt.");
     if (category === "stable_high") explain.push("Hög men oförändrad nivå kan vara en äldre läcka, pump eller ljudmiljö. Kamstrup anger att kurvans beteende väger tyngre än absolutnivån.");
-    if (codes.leak || codes.burst) explain.push("Kamstrup rekommenderar att läcka efter mätaren (infokod) utesluts innan läcksökning på ledningsnätet.");
+    if (codes.leak || codes.burst || codes.minimumFlowContinuous) explain.push("Kamstrup rekommenderar att påverkan efter mätaren utesluts innan läcksökning på ledningsnätet. Kontinuerligt flöde kan också bero på legitim förbrukning.");
     if (upFinding && upFinding.type === "new_signal") missing.push("Fler avläsningar på den nya nivån.");
     if (upFinding && upFinding.persistence && upFinding.persistence.n < 5) missing.push("Minst 5 avläsningar under minst 5 dagar för att räknas som bestående.");
     if (!upFinding && n < 3) missing.push("Minst tre avläsningsdagar för egen jämförelse.");
@@ -1070,4 +1083,5 @@
 
   return { RULES, CATEGORY, LABELS, analyzeMeter, analyzeAll, prepare, analyzePrepared, labelKey, attachNeighbors, morning, segment, noiseSigma, trendOf, seasonProfile, codesOf, placeOf, interferenceOf, fmtDate, fmtNum, fmtPct, fmtSigned, fmtPeriod, median };
 }));
+
 

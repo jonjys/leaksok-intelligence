@@ -49,8 +49,19 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await page.waitForFunction((id) => {
       const pos = LeakMap.coordinates([...state.prepared.histories.values()]).get(id);
       const center = window.testMap?.getCenter();
-      return state.focusId === id && pos && center && testMap.getZoom() === 17 && Math.abs(center.lat - pos.lat) < 0.00001 && Math.abs(center.lng - pos.lng) < 0.00001;
-    }, checkedId);
+      const pixel = pos && window.testMap?.latLngToContainerPoint([pos.lat, pos.lng]);
+      const size = window.testMap?.getSize();
+      // At a wider zoom Leaflet rounds the pixel origin: centring is a screen
+      // property, not sub-metre coordinate precision.
+      return state.focusId === id && pos && center && testMap.getZoom() <= 17 && pixel.distanceTo(L.point(size.x / 2, size.y / 2)) <= 3
+        && [...state.marked].every(id => { const p = LeakMap.cachedPosition(state.byId.get(id)); return !p || testMap.getBounds().contains([p.lat, p.lng]); });
+    }, checkedId).catch(async error => {
+      console.log('Marked focus diagnostics', await page.evaluate(() => ({
+        focus: state.focusId, marked: [...state.marked], center: window.testMap?.getCenter(), zoom: window.testMap?.getZoom(), bounds: window.testMap?.getBounds(),
+        chosen: [...state.marked].map(id => ({ id, address: state.byId.get(id)?.address, pos: LeakMap.cachedPosition(state.byId.get(id)) })), status: document.querySelector('#mapStatus').textContent,
+      })));
+      throw error;
+    });
     const chosenId = await page.locator("#rows tr.row").nth(2).getAttribute("data-id");
     await page.locator("#rows tr.row").nth(2).locator(".addr").click();
     await page.waitForFunction((id) => state.focusId === id, chosenId);
@@ -58,13 +69,17 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     const focusId = await page.evaluate(() => state.focusId);
     await page.waitForFunction((id) => {
       const pos = LeakMap.cachedPosition(state.byId.get(id));
-      return pos && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2;
+      const pixel = pos && testMap.latLngToContainerPoint([pos.lat, pos.lng]);
+      const size = testMap.getSize();
+      return pos && pixel.distanceTo(L.point(size.x / 2, size.y / 2)) <= 3;
     }, focusId);
     await page.evaluate(() => testMap.setView([59.18, 17.8], 12));
     await page.locator(`#rows tr[data-id="${focusId}"] .addr`).click();
     await page.waitForFunction((id) => {
       const pos = LeakMap.cachedPosition(state.byId.get(id));
-      return testMap.getZoom() === 17 && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2;
+      const pixel = testMap.latLngToContainerPoint([pos.lat, pos.lng]), size = testMap.getSize();
+      return testMap.getZoom() <= 17 && pixel.distanceTo(L.point(size.x / 2, size.y / 2)) <= 3
+        && [...state.marked].every(id => { const p = LeakMap.cachedPosition(state.byId.get(id)); return !p || testMap.getBounds().contains([p.lat, p.lng]); });
     }, focusId);
     await page.evaluate(() => { document.querySelector(".table-wrap").scrollTop = 500; });
     const laptop = await measure();
@@ -170,3 +185,4 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     server.close();
   }
 })().catch((e) => { console.error(e); process.exitCode = 1; });
+

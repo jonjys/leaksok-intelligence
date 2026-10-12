@@ -2,7 +2,9 @@
 
 Morgonverktyg för Kamstrup Leak Detector-exporter: importera senaste 24-timmarsexporten, se vad som förändrats, varför det är relevant och vilka mätare som ska kontrolleras, och ta med en arbetslista i Excel ut i fält.
 
-Allt körs lokalt i webbläsaren. Historik, beslut och kommentarer sparas i webbläsarens IndexedDB på den här enheten. Namn + kod öppnar arbetsytan; det är inte kryptering eller ett serverkonto. Inga mätardata skickas till någon språkmodell eller ny extern tjänst. Kartan slår upp adresser i OpenStreetMap Nominatim (enbart exakta husnummerträffar, cachas lokalt); saknas träff visas ingen position.
+Allt körs lokalt i webbläsaren. Historik, beslut och kommentarer sparas i webbläsarens IndexedDB på den här enheten. Namn + kod öppnar arbetsytan; det är inte kryptering eller ett serverkonto. Inga mätardata skickas till någon språkmodell. Kartan skickar adresser till OpenStreetMap Nominatim och cachar träffarna lokalt. Pluppen visar adressen, inte vattenmätarens exakta position. Ett klick på mätaren öppnar kartan och zoomar till adressen. Husnummer söks först; nummerintervall/bokstav kan få träff på huvudnumret och saknade husnummer kan få en träff på rätt gata. Dessa reservträffar märks **Ungefärlig adressposition** och används inte för uppmätta avstånd, positionbaserade områdesgrupper eller inlärning av grannmönster. Finns inte heller gatan visas att adressen inte kunde hittas, utan en påhittad plupp. Den valda adressen prioriteras före köade bakgrundssökningar; varje nätanrop avbryts efter 10 sekunder så att en otillgänglig tjänst inte låser hela kön.
+
+Adressökningen är begränsad till Botkyrka. Den publika tjänstens [användningspolicy](https://operations.osmfoundation.org/policies/nominatim/) gäller: högst en förfrågan per sekund för hela appen, cache och begränsad användning; regelbunden massgeokodning är starkt avrådd. Appens lokala kö begränsar bara en webbläsare. Vid återkommande stora importer eller flera användare behövs en annan tjänst eller befintliga adresskoordinater.
 
 ## Automatisk mappimport
 
@@ -15,6 +17,8 @@ Om webbläsaren behöver läsbehörighet igen visas **Tillåt läsning**. Mappen
 **Info → Säkerhetskopiera hela arbetsytan** sparar historik, beslut, kommentarer och arbetslista i en versionerad JSON-fil. **Återställ säkerhetskopia** validerar filen och visar innehållets antal innan den läggs till. Befintliga exporter behålls, dubbletter undviks och nyare beslut, kommentarer och synlighetsändringar jämförs separat. Äldre beslutskopior stöds också. Profilkod och mappbehörigheter ingår inte. Återställningen lagras i en transaktion innan arbetsytan byts.
 
 ## Morgonflöde
+
+**Adress och markeringar på kartan:** varje plupp kommer från mätarens adress, inte GPS-fält eller vattenmätarens fysiska placering. Markerade mätare ligger kvar på kartan när flik, sökning, område eller sida ändras. Ett klick på en adress, även i arbetslistan, fokuserar den adressen. Om flera adresser är markerade zoomas utsnittet ut så att deras pluppar ryms samtidigt som den valda adressen ligger i centrum. **Visa alla träffar** omfattar både nuvarande träffar och kvarvarande markeringar. **Avmarkera** släpper de kvarvarande markeringarna.
 
 1. **Anslut mapp** för återkommande import, eller **＋ Importera Excel** – en eller flera `.xlsx/.xls/.csv`. Tidigare historik behålls; samma fil två gånger räknas som dubblett.
 2. **Morgonöversikten** visar senaste exportens tid, hur många som lästs av senaste dygnet och dagens nya signaler.
@@ -44,7 +48,7 @@ Om webbläsaren behöver läsbehörighet igen visas **Tillåt läsning**. Mappen
 
 Ett separat analyslager söker samtidiga ökningar på minst tre olika adresser. Exempel: 9 → 23 på tre närliggande adresser ger en möjlig gemensam källa och en föreslagen startadress för områdeskontroll. Det bevisar varken huvudledningsläcka eller en viss läckplats; ledningsnätets topologi finns inte i appen.
 
-- Varje mätare behöver minst tre tidigare avläsningsdagar. Ökningen ska vara minst 2 värdeenheter, 25 % och två gånger uppskattad variation. Baslinjen är medianen av upp till 14 föregående avläsningsdagar. Procent avser exportvärdet, inte akustisk energi eller läckflöde.
+- Normalt behövs minst tre tidigare avläsningsdagar. Ökningen ska vara minst 2 värdeenheter, 25 % och två gånger uppskattad variation. Med endast två tidigare dagar kan en stabil referens och starkare ökning ändå ge en **Preliminär områdessignal**: minst 3 värdeenheter, 50 % och tre gånger uppskattad variation. En sådan grupp förblir preliminär även efter flera förhöjda avläsningar. En enda tidigare dag räcker aldrig. Baslinjen är medianen av upp till 14 föregående avläsningsdagar. Procent avser exportvärdet, inte akustisk energi eller läckflöde.
 - Ökningarna ska börja inom tre dagar från varandra och under de senaste 14 dagarna. Luckor över tre dagar och avläsningar äldre än en dag mot senaste exporten utesluts. Samma dags upprepade exporter räknas en gång.
 - Alla par av kartpunkter ska ligga högst 250 meter från varandra. Utan fullständiga kartpositioner används samma gata/ort och högst 20 husnummer i spann; då anges uttryckligen att fysisk närhet inte är verifierad. Kartpunkter är adresspositioner, inte ledningsdata. Flera mätare i samma byggnad eller vid samma kartpunkt räknas inte som flera oberoende adresser.
 - En enda förhöjd avläsningsdag ger **Preliminär**; minst två per mätare ger **Upprepad ökning**. Återgång efter en topp, kundsidans LEAK/BURST, DRY, gömda, ignorerade och lagade mätare bildar inte en grupp. Nollställningens historikgräns respekteras.
@@ -66,6 +70,11 @@ Fem exporter (22, 23, 24, 25 och 28 sep) granskades lokalt; filerna finns inte i
 Materialet räcker inte för gradvis trend (kräver ≥ 8 avläsningar över 14 dagar), säsong eller *Åk ut* (≥ 5 avläsningar under ≥ 5 dagar efter en förändring). De fallen täcks av syntetiska tester. Inga läckor är bekräftade av fältfacit i materialet utöver appens inbyggda facit.
 
 ## Begränsningar
+
+- **Minimiflöde** läses tillsammans med Minimum flödesdatum när kolumnerna finns. Tomma värden är okända, aldrig noll. Ett färskt daterat positivt minimiflöde ger förslag om kontroll efter mätaren, inte en bekräftad läcka; legitim kontinuerlig förbrukning är också möjlig. Saknat/gammalt/framtida datum, DRY eller saknad aktuell brusavläsning styr inte om en akustisk varning. Uppgifterna visas i analysunderlaget och Excel-exporten. Det är ett observerat flöde, inte mätarens tekniska Q1/minimiflödesgräns.
+- Filerna kan inte avslöja mätarmodell, Q3/storlek, rörmaterial, tryck, nätets kopplingar eller andra READy-data om dessa uppgifter inte exporteras. Appen jämför mätaren med dess egen brusnivå och räknar inte fram ett läckflöde ur brusvärdet.
+
+Tillverkarkällor: [flowIQ 2200, svensk produktinformation](https://www.kamstrup.com/se-se/product-centre/flowiq-2200), [datablad KWM2230/KWM2231/KWM3230, augusti 2026](https://kamstrup-delivery.sitecorecontenthub.cloud/api/public/content/59081-downloadOriginal?v=c3c00f17), [bedömning av bruskurvor](https://kamstrup-delivery.sitecorecontenthub.cloud/api/public/content/61955-downloadOriginal?v=21d57698) och [Leak Detector 1.5.3: minimiflöde i export](https://kamstrup-delivery.sitecorecontenthub.cloud/api/public/content/121718-downloadOriginal?v=1b05f0ff). Appens numeriska detektionströsklar är egna hypoteser, inte Kamstrups interna algoritm.
 
 - Originalexporter från kommunen finns inte i repot. Tester använder syntetiska och anonymiserade data. Kör egna filer lokalt: `node tests/exports-regression.js exports/*.csv`.
 - Tröskelvärdena (25 %, 50 % för enskild avläsning, 50 för stabilt hög, 5 avläsningar/5 dagar för Åk ut) är hypoteser. De kan bara kalibreras mot fältfacit: registrera Konstaterad läcka och Lagad för att bygga det underlaget.
@@ -109,4 +118,5 @@ Efter mätare, Störning/tillfällig, Säsong och Ignorerade är dolda i arbetsl
 Lokal jämförelse använder mätares dagliga exportvärden före läckdatum, under läckan och efter lagdatum. Före/efter använder högst 14 dagar; lagdagen undantas eftersom den kan innehålla båda nivåerna. Minst tre avläsningsdagar utan luckor över tre dagar behövs i varje period, tillsammans med en tydlig ökning och återgång efter lagning. Exakta kartpunkter inom 250 m används för närliggande mätare. När jämförelseperioderna har tillräckligt med data hämtas saknade exakta adressträffar för grannarna automatiskt, i små grupper via kartans begränsade sökkö. Adressnärhet på samma gata visas preliminärt, utan att påstå ett uppmätt avstånd eller lära ett grannmönster. Okänd ledningstyp, osäkert läckdatum, efter-mätare-/DRY-infokoder och tunt underlag ger ingen inlärning.
 
 **Visa underlag** visar median, antal dagar och bedömning per mätare. En senare förhöjning under minst tre avläsningsdagar efter jämförelseperioden kan matchas mot samma mätares tidigare verifierade respons. En sådan match ger högst sex extra prioritetspoäng inom befintlig automatisk Misstänk/Åk ut; den ändrar inga manuella beslut och konstaterar aldrig en ny läcka. Närhet bevisar inte ledningskoppling; nivåerna har exportens enhet, inte dB. Underlaget sparas lokalt med profilen och räknas om när nya exporter eller kartpositioner tillkommer.
+
 

@@ -1,10 +1,11 @@
-/* Map view (Leaflet + OpenStreetMap). Positions come only from exact house
-   number matches in Nominatim; nothing is guessed. Cached locally. */
+/* Map view (Leaflet + OpenStreetMap). Pins represent addresses, not meter GPS.
+   Street/range fallbacks are labelled approximate and excluded from distance analysis. */
 (function (root) {
   const GEOCODE_CACHE_KEY = "leaksok_geocode_v2_exact";
   const MAP_MARKS_KEY = "leaksok_map_marks_v1";
   const BOUNDS = [[59.065, 17.54], [59.29, 18.035]];
   const CENTER = [59.18, 17.8];
+  const LOOKUP_VERSION = 5;
   const COLORS = {
     dispatch: "#c62828", confirmed: "#8e1b1b", suspect_auto: "#e08a00", watch: "#2f6fd6", customer_side: "#0e8fa3",
     stable_high: "#7b4bc4", noise: "#6b7785", seasonal: "#6b7785", repaired: "#2e7d4f", learning: "#90a0b0",
@@ -20,7 +21,7 @@
   const norm = (v) => String(v || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  function addressForMap(meter) {
+  function addressForMap(meter = {}) {
     const raw = String(meter.address || "").replace(/\s+/g, " ").trim();
     if (!raw) return "";
     const postal = raw.match(/^(.*?\d+(?:[-/]\d+)?[A-Za-z]?)\s+(.+?)\s+(\d{5})$/i);
@@ -28,23 +29,27 @@
     const area = String(meter.area || "").trim();
     return `${raw}${area && !norm(raw).includes(norm(area)) ? `, ${area}` : ""}, Sverige`;
   }
-  function parseAddress(meter) {
-    const raw = String(meter.address || "").replace(/(\d{3})\s+(\d{2})(?=\s|$)/g, "$1$2").replace(/,+/g, " ").replace(/\s+/g, " ").trim();
+  function parseAddress(meter = {}) {
+    const raw = String(meter.address || "").replace(/[–—]/g, "-").replace(/(\d)\s*([-\/])\s*(?=\d)/g, "$1$2").replace(/(\d)\s+([A-Za-z])(?=\s|$)/g, "$1$2").replace(/([A-Za-zÅÄÖåäö])(?=\d)/g, "$1 ").replace(/(\d{3})\s+(\d{2})(?=\s|$)/g, "$1$2").replace(/,+/g, " ").replace(/\s+/g, " ").trim();
     const atEnd = raw.match(/^(.+?)\s+(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(.+?)\s+(\d{5})$/i);
     const before = raw.match(/^(.+?)\s+(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(\d{5})\s+(.+)$/i);
     if (atEnd) return { street: `${atEnd[1]} ${atEnd[2]}`, road: atEnd[1], house: atEnd[2], city: atEnd[3], postcode: atEnd[4] };
     if (before) return { street: `${before[1]} ${before[2]}`, road: before[1], house: before[2], city: before[4], postcode: before[3] };
+    const onlyPostcode = raw.match(/^(.+?)\s+(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(\d{5})$/i);
+    if (onlyPostcode) return { street: `${onlyPostcode[1]} ${onlyPostcode[2]}`, road: onlyPostcode[1], house: onlyPostcode[2], city: meter.area || "Botkyrka", postcode: onlyPostcode[3] };
     const noPostcode = raw.match(/^(.+?)\s+(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)(?:\s+(.+?))?$/i);
     if (noPostcode) return { street: `${noPostcode[1]} ${noPostcode[2]}`, road: noPostcode[1], house: noPostcode[2], city: noPostcode[3] || meter.area || "Botkyrka", postcode: "" };
     return null;
   }
+  const roadKey = (v) => norm(v).replace(/['’´`]/g, "").replace(/\s*[-]\s*/g, "-");
+  function sameRoad(hit, parsed) {
+    const a = hit?.address || {};
+    return Boolean(parsed && roadKey(a.road || a.pedestrian || a.residential || a.footway || (hit?.addresstype === "road" ? hit.name : "")) === roadKey(parsed.road));
+  }
   function exactHit(hit, parsed) {
     const a = hit?.address || {};
     if (!parsed || norm(a.house_number).replace(/\s/g, "") !== norm(parsed.house).replace(/\s/g, "")) return false;
-    const road = norm(a.road || a.pedestrian || a.residential || a.footway || "");
-    const expected = norm(parsed.road);
-    const words = expected.split(" ").filter((w) => w.length > 2);
-    if (!road || !(road === expected || road.includes(expected) || expected.includes(road) || (words.length && words.every((w) => road.includes(w))))) return false;
+    if (!sameRoad(hit, parsed)) return false;
     const postcode = String(a.postcode || "").replace(/\s/g, "");
     return !parsed.postcode || !postcode || postcode === parsed.postcode;
   }
@@ -52,56 +57,99 @@
   const keyOf = (meter) => norm(addressForMap(meter));
 
   function cachedPosition(meter) {
+    if (!meter?.address) return null;
     const hit = cache[keyOf(meter)];
-    return inside(hit) ? { lat: hit.lat, lng: hit.lng } : null;
+    return inside(hit) ? { lat: hit.lat, lng: hit.lng, ...(hit.approximate ? { approximate: true } : {}) } : null;
   }
 
-  let chain = Promise.resolve();
+  const jobs = [];
+  let searching = false;
   let lastRequest = 0;
   const inflight = new Map();
+  async function search(url) {
+    const wait = Math.max(0, 1100 - (Date.now() - lastRequest));
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    lastRequest = Date.now();
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), 10000) : null;
+    try {
+      const response = await fetch(url, { headers: { Accept: "application/json" }, ...(controller ? { signal: controller.signal } : {}) });
+      if (!response.ok) throw new Error(`Adressökning misslyckades (${response.status})`);
+      const hits = await response.json();
+      return Array.isArray(hits) ? hits : [];
+    } catch (error) {
+      if (error.name === "AbortError") throw new Error("Adressökningen tog för lång tid. Klicka på adressen igen för att försöka på nytt.");
+      throw error;
+    } finally { if (timer != null) clearTimeout(timer); }
+  }
+  async function runSearches() {
+    if (searching) return;
+    searching = true;
+    try {
+      while (jobs.length) {
+        jobs.sort((a, b) => Number(b.priority) - Number(a.priority));
+        const job = jobs.shift();
+        try { job.resolve(await job.run()); } catch (error) { job.reject(error); }
+        finally { inflight.delete(job.key); }
+      }
+    } finally { searching = false; }
+  }
   function geocode(meter, retryMissing = false) {
     const key = keyOf(meter);
     if (!key) return Promise.resolve(null);
     const known = cachedPosition(meter);
     if (known) return Promise.resolve(known);
-    if (!retryMissing && cache[key]?.missing && cache[key].lookupVersion === 4 && Date.now() - Number(cache[key].at || 0) < 7 * 86400000) return Promise.resolve(null);
-    if (inflight.has(key)) return inflight.get(key);
-    const task = chain.then(async () => {
-      const wait = Math.max(0, 1100 - (Date.now() - lastRequest));
-      if (wait) await new Promise((r) => setTimeout(r, wait));
-      lastRequest = Date.now();
+    if (!retryMissing && cache[key]?.missing && cache[key].lookupVersion === LOOKUP_VERSION && Date.now() - Number(cache[key].at || 0) < 7 * 86400000) return Promise.resolve(null);
+    if (inflight.has(key)) {
+      const queued = jobs.find((job) => job.key === key);
+      if (queued && retryMissing) queued.priority = true;
+      return inflight.get(key);
+    }
+    const lookup = async () => {
       const url = new URL("https://nominatim.openstreetmap.org/search");
       const parsed = parseAddress(meter);
+      if (!parsed) return null;
       Object.entries({ format: "jsonv2", limit: "5", addressdetails: "1", countrycodes: "se", "accept-language": "sv", bounded: "1", viewbox: `${BOUNDS[0][1]},${BOUNDS[1][0]},${BOUNDS[1][1]},${BOUNDS[0][0]}` }).forEach(([k, v]) => url.searchParams.set(k, v));
       if (parsed) { url.searchParams.set("street", parsed.street); url.searchParams.set("city", parsed.city); if (parsed.postcode) url.searchParams.set("postalcode", parsed.postcode); url.searchParams.set("country", "Sverige"); }
       else url.searchParams.set("q", addressForMap(meter));
-      const response = await fetch(url, { headers: { Accept: "application/json" } });
-      if (!response.ok) throw new Error(`Adressökning misslyckades (${response.status})`);
-      const results = await response.json();
-      let hit = Array.isArray(results) && parsed ? results.find((c) => exactHit(c, parsed)) : null;
+      const results = await search(url);
+      const validHit = (c) => inside({ lat: Number(c.lat), lng: Number(c.lon) });
+      let hit = results.find((c) => validHit(c) && exactHit(c, parsed));
+      let approximate = false;
       // Postal towns such as Tullinge/Norsborg are not always indexed as cities.
       // Retry within the same bounds and still require the exact road/house.
       if (!hit && parsed) {
-        const wait = Math.max(0, 1100 - (Date.now() - lastRequest));
-        if (wait) await new Promise((r) => setTimeout(r, wait));
-        lastRequest = Date.now();
         ["street", "city", "postalcode", "country"].forEach((key) => url.searchParams.delete(key));
         url.searchParams.set("q", `${parsed.street}, Botkyrka, Sverige`);
-        const fallback = await fetch(url, { headers: { Accept: "application/json" } });
-        if (!fallback.ok) throw new Error(`Adressökning misslyckades (${fallback.status})`);
-        const candidates = await fallback.json();
-        hit = Array.isArray(candidates) ? candidates.find((c) => exactHit(c, parsed)) : null;
+        const candidates = await search(url);
+        hit = candidates.find((c) => validHit(c) && exactHit(c, parsed));
+        // "58-60" or "6A" can be mapped to the same building at 58 or 6.
+        const firstHouse = parsed.house.match(/^\d+/)?.[0];
+        if (!hit && firstHouse && parsed.house !== firstHouse) {
+          url.searchParams.set("q", `${parsed.road} ${firstHouse}, Botkyrka, Sverige`);
+          const buildings = await search(url);
+          hit = buildings.find((c) => validHit(c) && exactHit(c, { ...parsed, house: firstHouse, postcode: "" }));
+          approximate = Boolean(hit);
+        }
+        // Address navigation may use the correct street when OSM lacks a house.
+        // Never substitute a different numbered house or a different street.
+        if (!hit) {
+          url.searchParams.set("q", `${parsed.road}, Botkyrka, Sverige`);
+          const streets = await search(url);
+          hit = streets.find((c) => validHit(c) && sameRoad(c, parsed) && !c.address?.house_number);
+          approximate = Boolean(hit);
+        }
       }
-      const pos = hit ? { lat: Number(hit.lat), lng: Number(hit.lon) } : null;
-      if (!inside(pos)) { cache[key] = { missing: true, lookupVersion: 4, at: Date.now() }; persistCache(); return null; }
-      cache[key] = { ...pos, at: Date.now() };
+      const pos = hit ? { lat: Number(hit.lat), lng: Number(hit.lon), ...(approximate ? { approximate: true } : {}) } : null;
+      if (!inside(pos)) { cache[key] = { missing: true, lookupVersion: LOOKUP_VERSION, at: Date.now() }; persistCache(); return null; }
+      cache[key] = { ...pos, lookupVersion: LOOKUP_VERSION, at: Date.now() };
       persistCache();
       return pos;
-    });
-    chain = task.catch(() => null);
-    const tracked = task.finally(() => inflight.delete(key));
-    inflight.set(key, tracked);
-    return tracked;
+    };
+    const task = new Promise((resolve, reject) => jobs.push({ key, priority: retryMissing, run: lookup, resolve, reject }));
+    inflight.set(key, task);
+    runSearches();
+    return task;
   }
   function persistCache() {
     const entries = Object.entries(cache);
@@ -122,7 +170,7 @@
     if (!root.L) { status("Kartan kunde inte laddas. Kör hit fungerar ändå."); return null; }
     const L = root.L;
     const touch = root.matchMedia?.("(pointer: coarse)").matches;
-    const map = L.map(el, { zoomControl: true, scrollWheelZoom: false, dragging: !touch, tap: false, minZoom: 10, maxBounds: BOUNDS, maxBoundsViscosity: 1, preferCanvas: true }).setView(CENTER, 12);
+    const map = L.map(el, { zoomControl: true, scrollWheelZoom: false, dragging: !touch, tap: false, minZoom: 8, preferCanvas: true }).setView(CENTER, 12);
     const layers = {
       street: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }),
       satellite: L.layerGroup([
@@ -137,6 +185,17 @@
     let userMarker = null;
     let lastFlight = "";
     let lastResults = "";
+
+    function focusZoom(focused) {
+      const selected = entries.filter((entry) => current.marked.has(entry.id));
+      if (selected.length < 2 || typeof map.getBoundsZoom !== "function") return 17;
+      // Keep the camera centred on the clicked address, but zoom out enough
+      // for the other marked addresses to remain visible around it.
+      const lat = Math.max(...selected.map((p) => Math.abs(p.lat - focused.lat))) * 1.12;
+      const lng = Math.max(...selected.map((p) => Math.abs(p.lng - focused.lng))) * 1.12;
+      const bounds = L.latLngBounds([[focused.lat - lat, focused.lng - lng], [focused.lat + lat, focused.lng + lng]]);
+      return Math.max(8, Math.min(17, map.getBoundsZoom(bounds, false, [72, 72])));
+    }
 
     // Touch: the page scrolls past the map until the user taps it.
     if (touch) {
@@ -155,7 +214,7 @@
       // Leaflet's old pixel origin can otherwise leave edge markers off-screen.
       if (current.focusId) {
         const focused = entries.find((entry) => entry.id === current.focusId);
-        if (focused) map.setView([focused.lat, focused.lng], 17, { animate: false });
+        if (focused) map.setView([focused.lat, focused.lng], focusZoom(focused), { animate: false });
       } else if (entries.length) fitResults();
     }
     if (typeof ResizeObserver === "function") new ResizeObserver(resizeMap).observe(el);
@@ -201,7 +260,7 @@
     function refreshMark(id, mark) {
       const meter = current.meters.find((m) => m.id === id);
       const pos = meter ? cachedPosition(meter) : null;
-      mark.distanceFromMeter = mark.leak && pos ? Math.round(distance(pos, mark.leak)) : null;
+      mark.distanceFromMeter = mark.leak && pos && !pos.approximate ? Math.round(distance(pos, mark.leak)) : null;
       mark.distanceValveToLeak = mark.leak && mark.valve ? Math.round(distance(mark.valve, mark.leak)) : null;
       mark.updatedAt = new Date().toISOString();
       marks[id] = mark;
@@ -223,7 +282,7 @@
         const marker = L.marker(mark[kind], { icon, draggable: true, title: kind === "leak" ? "Läckpunkt" : "Ventil" }).addTo(markLayer);
         marker.on("dragend", () => { mark[kind] = marker.getLatLng(); refreshMark(id, mark); });
       }
-      if (pos && mark.leak) L.polyline([[pos.lat, pos.lng], mark.leak], { color: "#b3261e", weight: 3, dashArray: "8 6", interactive: false }).addTo(markLayer);
+      if (pos && !pos.approximate && mark.leak) L.polyline([[pos.lat, pos.lng], mark.leak], { color: "#b3261e", weight: 3, dashArray: "8 6", interactive: false }).addTo(markLayer);
     }
 
     async function update({ meters, focusId = "", marked = new Set(), mode = "overview", focusRequest = 0, resultIds = meters.map((m) => m.id) }) {
@@ -240,7 +299,7 @@
       const limit = queue.length;
       const failures = [];
       draw(located, mode);
-      if (queue.length) status(`Söker adress ${Math.min(limit, queue.length)} av ${queue.length} utan känd position…`);
+      if (queue.length) status(focusId && queue.some((m) => m.id === focusId) ? `Söker adress för ${wanted.find((m) => m.id === focusId).address}…` : `Söker ${queue.length} adresser utan känd position…`);
       for (const m of queue.slice(0, limit)) {
         if (run !== version) return;
         try {
@@ -249,6 +308,8 @@
           if (pos) {
             located.push({ m, pos });
             draw(located, mode);
+            const selected = located.find(({ m }) => m.id === focusId);
+            status(`${selected?.pos.approximate ? "Vald mätare: ungefärlig adressposition. " : ""}${located.length} av ${wanted.length} på kartan · söker återstående adresser…`);
           }
         } catch (error) {
           failures.push(m.id);
@@ -262,7 +323,8 @@
       const pending = Math.max(0, queue.length - limit);
       const selected = wanted.find((m) => m.id === focusId);
       const noSelectedPosition = selected && !located.some(({ m }) => m.id === focusId);
-      status(`${noSelectedPosition ? `Vald mätare: ingen säker kartposition för ${selected.address}. ` : ""}${located.length} av ${wanted.length} på kartan${pending ? ` · ${pending} adresser återstår att söka` : ""}${missing - pending - failures.length ? ` · ${missing - pending - failures.length} saknar exakt adressträff` : ""}${failures.length ? ` · ${failures.length} adressökningar misslyckades, välj listan igen för att försöka på nytt` : ""}`);
+      const selectedApproximate = located.find(({ m }) => m.id === focusId)?.pos.approximate;
+      status(`${noSelectedPosition ? `Vald mätare: adressen ${selected.address} kunde inte hittas. ` : selectedApproximate ? "Vald mätare: ungefärlig adressposition. " : ""}${located.length} av ${wanted.length} på kartan${pending ? ` · ${pending} adresser återstår att söka` : ""}${missing - pending - failures.length ? ` · ${missing - pending - failures.length} adresser kunde inte hittas` : ""}${failures.length ? ` · ${failures.length} adressökningar misslyckades, klicka på adressen för att försöka på nytt` : ""}`);
     }
 
     function draw(located, mode, final) {
@@ -283,7 +345,7 @@
         });
         const address = esc(options.label ? options.label(m) : m.address);
         const max = m.series?.length ? Math.max(...m.series.map((p) => p.value)) : null;
-        marker.bindTooltip(`<div class="map-meter-tip"><b>${address}</b><span>${esc(m.status || "")}</span><dl><dt>Senaste nivå</dt><dd>${esc(m.latest?.value ?? "–")}</dd><dt>Max i historiken</dt><dd>${esc(max ?? "–")}</dd></dl></div>`, { permanent: isFocus, direction: "top", offset: [0, -8], className: "map-label" });
+        marker.bindTooltip(`<div class="map-meter-tip"><b>${address}</b><span>${esc(m.status || "")}${pos.approximate ? " · Ungefärlig adressposition" : " · Adressposition"}</span><dl><dt>Senaste nivå</dt><dd>${esc(m.latest?.value ?? "–")}</dd><dt>Max i historiken</dt><dd>${esc(max ?? "–")}</dd></dl></div>`, { permanent: isFocus, direction: "top", offset: [0, -8], className: "map-label" });
         marker.on("click", () => options.onFocus?.(m.id));
         marker.addTo(markerLayer);
       }
@@ -291,13 +353,14 @@
       const focused = located.find(({ m }) => m.id === current.focusId);
       if (current.focusId) {
         // A selection always wins over the bounds of other marked meters.
-        // Wait for its exact position rather than jumping to another address.
+        // Address pins are sufficient, including labelled street fallbacks.
         if (focused) {
-          const flight = `${current.focusId}|${current.focusRequest}|${focused.pos.lat}|${focused.pos.lng}`;
+          const zoom = focusZoom(focused.pos);
+          const flight = `${current.focusId}|${current.focusRequest}|${focused.pos.lat}|${focused.pos.lng}|${zoom}`;
           if (flight !== lastFlight) {
             lastFlight = flight;
             map.stop();
-            map.flyTo([focused.pos.lat, focused.pos.lng], 17, {
+            map.flyTo([focused.pos.lat, focused.pos.lng], zoom, {
               duration: 0.7, animate: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
             });
           }
@@ -345,13 +408,12 @@
   }
 
   function navigationUrl(meter) {
-    const pos = cachedPosition(meter);
-    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(pos ? `${pos.lat},${pos.lng}` : addressForMap(meter))}`;
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addressForMap(meter))}`;
   }
 
   function coordinates(meters) {
     const out = new Map();
-    for (const m of meters) { const pos = cachedPosition(m); if (pos) out.set(m.id, pos); }
+    for (const m of meters) { const pos = cachedPosition(m); if (pos && !pos.approximate) out.set(m.id, pos); }
     return out;
   }
 
@@ -362,3 +424,4 @@
 
   root.LeakMap = { resolvePositions, create, navigationUrl, coordinates, markFor: (id) => marks[id] || null, addressForMap, parseAddress, exactHit, cachedPosition };
 }(typeof globalThis !== "undefined" ? globalThis : this));
+
