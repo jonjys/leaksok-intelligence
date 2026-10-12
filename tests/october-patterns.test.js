@@ -8,9 +8,9 @@ const Engine = require('../src/engine');
 function dailyExports() {
   const exports = ['2026-10-07 16-17', '2026-10-08 06-27', '2026-10-09 06-15', '2026-10-09 20-15', '2026-10-12 06-34'];
   const specs = [
-    { house: '33', values: [13, 15, 106, 106, 131], average: 15 },
-    { house: '35', values: [6, 7, 7, 52, 59], average: 6, rank: 2, readDays: [6, 8, 8, 9, 12] },
-    { house: '36 A', values: [7, 7, 66, 66, 69], average: 6 },
+    { house: '33', values: [13, 15, 106, 110, 131], average: 15 },
+    { house: '35', values: [6, 7, 54, 52, 59], average: 6, rank: 2 },
+    { house: '36 A', values: [7, 7, 66, 68, 69], average: 6 },
     { house: '37', values: [23, 26, 59, 59, 63], average: 26 },
     { house: '2', street: 'ANNAN PROVVÄG', values: [6, 6, 229, 229, 297], average: 10 },
     { house: '36', values: [6, 6, 6, 6, 46], average: 5, readDates: ['2026-09-24', '2026-09-24', '2026-09-24', '2026-09-24', '2026-10-12'] },
@@ -19,7 +19,7 @@ function dailyExports() {
   return exports.map((stamp, i) => {
     const name = `Filtrerade mätare ${stamp}.xlsx`;
     const rows = specs.map((s, j) => [i === 4 ? s.rank || '' : '', `${s.street || 'PROVVÄGEN'} ${s.house} TUMBA 14732`, `9900020${j}`,
-      `${s.readDates?.[i] || `2026-10-${String((s.readDays || [6, 8, 9, 9, 12])[i]).padStart(2, '0')}`} 02:00`, s.values[i], s.average, Math.max(...s.values), '', '', '', '', '', false, false]);
+      `${s.readDates?.[i] || `2026-10-${String((s.readDays || [6, 8, 9, 9, 12])[i]).padStart(2, '0')}`} ${i === 3 && !s.readDates ? '16:00' : '02:00'}`, s.values[i], s.average, Math.max(...s.values), '', '', '', '', '', false, false]);
     return { name, ...Parse.parseTable([[], [], [], [], [], header, ...rows], { name }, { now: new Date('2026-10-13T00:00:00') }) };
   });
 }
@@ -36,9 +36,11 @@ test('Five October Excel snapshots flag the real-shaped rise without counting re
   assert.equal(r.meters.find(m => m.id === '99000201').excel.interestRank, 2);
   for (const m of r.meters.slice(0, 5)) {
     assert.equal(m.history.readings, 4);
+    assert.equal(m.history.conflicts, 0);
     assert.equal(m.excel.minimumFlow, null);
     assert.ok(m.missing.some(n => n.includes('Minimiflöde saknas')));
   }
+  assert.deepEqual(r.meters.find(m => m.id === '99000201').series.map(p => p.value), [6, 7, 52, 59], 'Two same-day readings use the daily minimum');
   const sparse = r.meters.find(m => m.id === '99000205');
   assert.equal(sparse.finding.type, 'new_signal');
   assert.equal(sparse.areaSignal, undefined, 'Old September reading cannot prove a shared October onset');
