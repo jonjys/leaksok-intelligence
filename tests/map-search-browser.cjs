@@ -147,7 +147,7 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
       await fresh.locator('#search').fill(addresses[index]);
       await fresh.waitForFunction(() => state.visible.length === 1);
       await fresh.locator('#rows tr.row .addr').click();
-      await fresh.waitForFunction(lat => testMap.getZoom() === 17 && testMap.getCenter().distanceTo([lat, 17.8]) < 2, lat);
+      await fresh.waitForFunction(lat => window.testMap && testMap.getZoom() === 17 && testMap.getCenter().distanceTo([lat, 17.8]) < 2, lat);
       assert.equal(await fresh.locator('.map-meter-tip b').count(), 1);
       const approximate = await fresh.evaluate(() => LeakMap.cachedPosition(state.byId.get(state.focusId)).approximate === true);
       assert.equal(approximate, index !== 0);
