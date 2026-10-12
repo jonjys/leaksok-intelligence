@@ -135,7 +135,7 @@
     col.max = findColumn(header, ["maxvärde", "max", "högsta"], [col.current]);
     col.minimumFlowAt = findColumn(header, ["minimum flödesdatum", "minimiflödesdatum", "minimum flow date", "min flow date"]);
     col.minimumFlow = findColumn(header, ["minimiflöde", "minimumflöde", "minimum flow", "min flow"], [col.minimumFlowAt]);
-    col.readAt = findColumn(header, ["senaste avläsning", "avläsningstid", "avläsning", "tidpunkt", "date", "datum"]);
+    col.readAt = findColumn(header, ["senaste avläsning", "avläsningstid", "avläsning", "tidpunkt", "date", "datum"], [col.minimumFlowAt]);
     col.info = findColumn(header, ["infokod", "info code", "infocode"]);
     col.activeEvents = findColumn(header, ["aktiva händelser", "active events"]);
     col.closedEvents = findColumn(header, ["stängda händelser", "closed events"]);

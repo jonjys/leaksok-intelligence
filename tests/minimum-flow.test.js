@@ -23,6 +23,12 @@ test('Minimum-flow import preserves zero, blanks, dates and old export layouts',
   assert.ok(zero.observations.some(n => /utesluter inte en läcka före/.test(n)));
   const old = Parse.parseTable([['Serienummer', 'Adress', 'Senaste värde'], ['1', 'PROVVÄGEN 1', 10]], { name: '2026-10-12.xlsx' });
   assert.equal(old.rows[0].minimumFlow, undefined);
+  const noReadDate = Parse.parseTable([
+    ['Serienummer', 'Adress', 'Senaste värde', 'Minimiflöde', 'Minimum flödesdatum'],
+    ['1', 'PROVVÄGEN 1', 10, 12, '2026-10-12 02:00'],
+  ], { name: '2026-10-12.xlsx' });
+  assert.equal(noReadDate.rows[0].readAt, null, 'Minimum-flow date is never used as the acoustic reading date');
+  assert.ok(noReadDate.rows[0].minimumFlowAt);
 });
 
 test('Dated current positive minimum flow suggests checking customer-side installations', () => {
