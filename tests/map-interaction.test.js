@@ -46,7 +46,7 @@ test('Misstänk opens map and sends every result beyond pagination; clicking sho
   assert.equal(charts.at(-1), '6');
 });
 
-function mapHarness({ cache = {}, fetch } = {}) {
+function mapHarness({ cache = {}, fetch, timers = {} } = {}) {
   const maps = [], groups = [];
   const layer = () => ({ addTo() { return this; }, on() { return this; }, bindTooltip() { return this; } });
   const L = {
@@ -56,7 +56,7 @@ function mapHarness({ cache = {}, fetch } = {}) {
     circleMarker(point, options) { return { ...layer(), point, options, addTo(group) { group.dots.push(this); return this; } }; },
     latLngBounds: points => points,
   };
-  const context = { L, URL, localStorage: { getItem: key => JSON.stringify(key.includes('geocode') ? cache : {}), setItem() {} }, matchMedia: () => ({ matches: false }), window: { matchMedia: () => ({ matches: true }) }, document: { addEventListener() {} }, setTimeout: fn => fn(), fetch: fetch || (() => { throw new Error('Unexpected fetch'); }) };
+  const context = { L, URL, localStorage: { getItem: key => JSON.stringify(key.includes('geocode') ? cache : {}), setItem() {} }, matchMedia: () => ({ matches: false }), window: { matchMedia: () => ({ matches: true }) }, document: { addEventListener() {} }, setTimeout: fn => fn(), fetch: fetch || (() => { throw new Error('Unexpected fetch'); }), ...timers };
   vm.createContext(context);
   vm.runInContext(mapSource, context);
   const status = {};
@@ -105,3 +105,108 @@ test('Address formats with spaced or missing postcode still require exact house'
     assert.equal(api.exactHit({ address: { road: 'Falkvägen', house_number: '7', postcode: '14730' } }, parsed), false);
   }
 });
+
+test('Excel address variants normalize ranges, house letters, commas and attached numbers', () => {
+  const { api } = mapHarness();
+  for (const [address, house] of [
+    ['ALHAGSVÄGEN 58 -60 NORSBORG 14559', '58-60'],
+    ['ALHAGSVÄGEN 58 – 60, 145 59 NORSBORG', '58-60'],
+    ['BROÄNGSVÄGEN 34 A TUMBA 14732', '34A'],
+    ['BROÄNGSVÄGEN34A, TUMBA, 147 32', '34A'],
+    ['BROÄNGSVÄGEN 34A 14732', '34A'],
+  ]) {
+    const parsed = api.parseAddress({ address, area: 'TUMBA' });
+    assert.equal(parsed.house, house, address);
+    assert.ok(['ALHAGSVÄGEN', 'BROÄNGSVÄGEN'].includes(parsed.road));
+    assert.ok(!/^\d+$/.test(parsed.city), 'Postcode is not mistaken for town');
+  }
+  assert.equal(api.exactHit({ address: { road: 'Stora Broängsvägen', house_number: '34A' } }, api.parseAddress({ address: 'BROÄNGSVÄGEN 34A TUMBA' })), false);
+});
+
+test('Clicking an uncached range address flies to its building and preserves other pins', async () => {
+  const meters = [{ id: 'range', address: 'ALHAGSVÄGEN 58 -60 NORSBORG 14559' }, { id: 'other', address: 'FALKVÄGEN 1 TUMBA 14730' }];
+  const calls = [];
+  const { view, api, map, markers } = mapHarness({
+    cache: { 'falkvagen 1, 14730 tumba, sverige': { lat: 59.18, lng: 17.8 } },
+    fetch: async url => {
+      const q = new URL(url).searchParams.get('q'); calls.push(q);
+      return { ok: true, json: async () => q === 'ALHAGSVÄGEN 58, Botkyrka, Sverige'
+        ? [{ lat: '59.24', lon: '17.82', address: { road: 'Alhagsvägen', house_number: '58', postcode: '14559' } }] : [] };
+    },
+  });
+  await view.update({ meters, focusId: 'range', focusRequest: 1, mode: 'results' });
+  assert.equal(map.zoom, 17); assert.equal(map.center[0], 59.24);
+  assert.equal(markers.dots.length, 2);
+  assert.equal(api.cachedPosition(meters[0]).approximate, true);
+  assert.equal(api.coordinates(meters).has('range'), false, 'Range fallback is navigation only');
+  const requests = calls.length;
+  await view.update({ meters, focusId: 'range', focusRequest: 2, mode: 'results' });
+  assert.equal(calls.length, requests, 'Successful address fallback is cached');
+});
+
+test('Old failed lookup retries and missing house falls back to the correct street only', async () => {
+  const meter = { id: 'street', address: 'BROÄNGSVÄGEN 36 TUMBA 14732' };
+  const { view, api, map, status } = mapHarness({
+    cache: { 'broangsvagen 36, 14732 tumba, sverige': { missing: true, lookupVersion: 4, at: Date.now() } },
+    fetch: async url => ({ ok: true, json: async () => new URL(url).searchParams.get('q') === 'BROÄNGSVÄGEN, Botkyrka, Sverige'
+      ? [{ lat: '59.19', lon: '17.81', address: { road: 'Stora Broängsvägen' } }, { lat: '59.20', lon: '17.82', address: { road: 'Broängsvägen' } }] : [] }),
+  });
+  await view.update({ meters: [meter], focusId: 'street' });
+  assert.equal(map.zoom, 17); assert.equal(map.center[0], 59.20);
+  assert.equal(api.cachedPosition(meter).approximate, true);
+  assert.match(status.textContent, /ungefärlig adressposition/);
+  assert.equal(api.coordinates([meter]).size, 0);
+});
+
+test('No address match never substitutes a different numbered house or an unrelated street', async () => {
+  const meter = { id: 'missing', address: 'BROÄNGSVÄGEN 36 TUMBA 14732' };
+  const { view, api, markers, status } = mapHarness({ fetch: async () => ({ ok: true, json: async () => [
+    { lat: '59.2', lon: '17.8', address: { road: 'Broängsvägen', house_number: '35' } },
+    { lat: '59.2', lon: '17.8', address: { road: 'Stora Broängsvägen' } },
+  ] }) });
+  await view.update({ meters: [meter], focusId: 'missing' });
+  assert.equal(markers.dots.length, 0);
+  assert.equal(api.cachedPosition(meter), null);
+  assert.match(status.textContent, /adressen .* kunde inte hittas/);
+});
+
+test('Selected address overtakes queued background lookups without concurrent requests', async () => {
+  let release, started, active = 0, maximum = 0;
+  const began = new Promise(resolve => { started = resolve; });
+  const blocked = new Promise(resolve => { release = resolve; });
+  const houses = [];
+  const { api } = mapHarness({ fetch: async url => {
+    active++; maximum = Math.max(maximum, active);
+    const house = new URL(url).searchParams.get('street').split(' ').at(-1);
+    houses.push(house);
+    if (house === '1') { started(); await blocked; }
+    active--;
+    return { ok: true, json: async () => [{ lat: '59.18', lon: '17.8', address: { road: 'Falkvägen', house_number: house, postcode: '14730' } }] };
+  } });
+  const meters = [1, 2, 3, 4].map(n => ({ id: String(n), address: `FALKVÄGEN ${n} TUMBA 14730` }));
+  const work = meters.map(m => api.resolvePositions([m]));
+  await began;
+  // A second view of the same module shares the lookup queue.
+  const focus = api.create({ element: { ...element(), parentElement: element() } });
+  const chosen = focus.update({ meters: [meters[3]], focusId: '4' });
+  release();
+  await Promise.all([...work, chosen]);
+  assert.deepEqual(houses, ['1', '4', '2', '3']);
+  assert.equal(maximum, 1);
+});
+
+test('A hanging address request times out and the next meter still gets a pin', async () => {
+  const meters = [1, 2].map(n => ({ id: String(n), address: `FALKVÄGEN ${n} TUMBA 14730` }));
+  const { view, markers, status } = mapHarness({
+    timers: { AbortController, setTimeout: (fn, ms) => { if (ms === 10000) queueMicrotask(fn); else fn(); return 1; }, clearTimeout() {} },
+    fetch: async (url, { signal }) => {
+      const house = new URL(url).searchParams.get('street').split(' ').at(-1);
+      if (house === '1') return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
+      return { ok: true, json: async () => [{ lat: '59.18', lon: '17.8', address: { road: 'Falkvägen', house_number: house, postcode: '14730' } }] };
+    },
+  });
+  await view.update({ meters, focusId: '1' });
+  assert.equal(markers.dots.length, 1);
+  assert.match(status.textContent, /1 adressökningar misslyckades/);
+});
+

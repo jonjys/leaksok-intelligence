@@ -23,6 +23,34 @@ test('area: 9 → 23 across three addresses creates a repeated area signal',()=>
   assert.ok(a.notes.some(n=>n.includes('inte fastställda')));
   for(const m of r.meters)assert.equal(m.areaSignal.id,a.id);
 });
+
+test('area: screenshot-like simultaneous rise on Broängsvägen warns with daily Excel snapshots', () => {
+  // Approximate synthetic values reproduce the shape of the supplied screenshot,
+  // not its original measurements or a confirmed leak.
+  const cases = [
+    { address: 'BROÄNGSVÄGEN 33 TUMBA 14732', base: 15, high: 130 },
+    { address: 'BROÄNGSVÄGEN 35 TUMBA 14732', base: 5, high: 45 },
+    { address: 'BROÄNGSVÄGEN 36 TUMBA 14732', base: 5, high: 45 },
+    { address: 'BROÄNGSVÄGEN 37 TUMBA 14732', base: 25, high: 60 },
+    { address: 'BROÄNGSVÄGEN 34 A TUMBA 14732', base: 90, high: 150 },
+    { address: 'KÄRRVÄGEN 2 TUMBA 14732', base: 15, high: 290 },
+  ];
+  for (const days of [5, 31]) {
+    const rows = cases.map(c => ({ ...c, values: Array.from({ length: days }, (_, i) => i < days - 1 ? c.base : c.high) }));
+    const result = Engine.analyzeAll(filesFor(rows, days));
+    assert.ok(result.meters.every(m => m.category === 'suspect_auto'), 'Every sharp rise is flagged even with short own history');
+    assert.ok(result.meters.every(m => m.changePrev.delta > 0));
+    const group = result.areaSignals.find(a => a.members.some(m => m.address.startsWith('BROÄNGSVÄGEN')));
+    assert.ok(group, 'Simultaneous neighbouring rises produce an area warning without GPS');
+    assert.equal(group.basis, 'address');
+    assert.equal(group.stage, 'early', 'One elevated daily reading is preliminary');
+    assert.ok(group.count >= 4);
+    assert.ok(result.meters.every(m => m.category !== 'confirmed'), 'Pattern does not confirm a leak');
+  }
+  const repeated = cases.map(c => ({ ...c, values: [c.base, c.base, c.base, c.high, c.high] }));
+  const result = Engine.analyzeAll(filesFor(repeated, 5));
+  assert.ok(result.areaSignals.some(a => a.stage === 'repeated'));
+});
 test('area: small simultaneous rises can be visible before individual signal thresholds',()=>{
   const r=analyze(specs(3,{base:9,high:12,onset:11}));
   assert.equal(r.areaSignals.length,1);assert.equal(r.areaSignals[0].stage,'early');
@@ -88,3 +116,4 @@ test('area: broad simultaneous changes carry a drift/season caveat, export prese
   assert.match(wb.sheets[0].rows[0].action,/Läcksök området runt/);
   assert.match(wb.sheets[1].rows[0].explanations,/inte fastställda/);
 });
+

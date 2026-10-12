@@ -119,6 +119,42 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     assert.equal((await read()).count, 60, 'Focused marker keeps every list pin');
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, 'Phone has no horizontal overflow');
+    // Previously failing Excel addresses must work without a preloaded cache.
+    const fresh = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+    await kit.routeExternal(fresh);
+    await fresh.route('https://nominatim.openstreetmap.org/**', route => {
+      const params = new URL(route.request().url()).searchParams;
+      const query = params.get('q') || params.get('street');
+      const hit = (road, house, lat) => ({ lat: String(lat), lon: '17.8', address: { road, ...(house ? { house_number: house } : {}) } });
+      const replies = {
+        'Broängsvägen 34A': [hit('Broängsvägen', '34A', 59.19)],
+        'Alhagsvägen 58, Botkyrka, Sverige': [hit('Alhagsvägen', '58', 59.24)],
+        'Broängsvägen, Botkyrka, Sverige': [hit('Broängsvägen', '', 59.20)],
+      };
+      return route.fulfill({ json: replies[query] || [] });
+    });
+    await fresh.goto('http://127.0.0.1:4182/');
+    await fresh.evaluate(() => {
+      const original = L.Map.prototype.flyTo;
+      L.Map.prototype.flyTo = function (...args) { window.testMap = this; return original.apply(this, args); };
+    });
+    await kit.unlock(fresh);
+    const addressFiles = buildDailyExports({ meters: 3, days: 5, includeScenarios: false });
+    const addresses = ['Broängsvägen 34 A TUMBA 14732', 'Alhagsvägen 58 -60 NORSBORG 14559', 'Broängsvägen 36 TUMBA 14732'];
+    addressFiles.forEach(f => f.rows.slice(1).forEach((r, i) => { r[1] = addresses[i]; }));
+    await kit.importFiles(fresh, addressFiles.map(f => ({ name: f.name, text: toCsv(f.rows) })));
+    for (const [index, lat] of [[0, 59.19], [1, 59.24], [2, 59.20]]) {
+      await fresh.locator('#search').fill(addresses[index]);
+      await fresh.waitForFunction(() => state.visible.length === 1);
+      await fresh.locator('#rows tr.row .addr').click();
+      await fresh.waitForFunction(lat => testMap.getZoom() === 17 && testMap.getCenter().distanceTo([lat, 17.8]) < 2, lat);
+      assert.equal(await fresh.locator('.map-meter-tip b').count(), 1);
+      const approximate = await fresh.evaluate(() => LeakMap.cachedPosition(state.byId.get(state.focusId)).approximate === true);
+      assert.equal(approximate, index !== 0);
+      assert.equal(await fresh.evaluate(() => LeakMap.coordinates([state.byId.get(state.focusId)]).size), index === 0 ? 1 : 0);
+    }
+    await fresh.close();
     console.log('Map search PASS: 60 results, persistent markers, warning colors, fitted bounds and mobile width.');
   } finally { await browser.close(); server.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
+
