@@ -128,8 +128,8 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
       const hit = (road, house, lat) => ({ lat: String(lat), lon: '17.8', address: { road, ...(house ? { house_number: house } : {}) } });
       const replies = {
         'Broängsvägen 34A': [hit('Broängsvägen', '34A', 59.19)],
-        'Alhagsvägen 58, Botkyrka, Sverige': [hit('Alhagsvägen', '58', 59.24)],
-        'Broängsvägen, Botkyrka, Sverige': [hit('Broängsvägen', '', 59.20)],
+        'Alhagsvägen 58-60': [hit('Alhagsvägen', '58-60', 59.24)],
+        'Broängsvägen 36': [hit('Broängsvägen', '36', 59.20)],
       };
       return route.fulfill({ json: replies[query] || [] });
     });
@@ -150,8 +150,8 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
       await fresh.waitForFunction(lat => window.testMap && testMap.getZoom() === 17 && testMap.getCenter().distanceTo([lat, 17.8]) < 2, lat);
       assert.equal(await fresh.locator('.map-meter-tip b').count(), 1);
       const approximate = await fresh.evaluate(() => LeakMap.cachedPosition(state.byId.get(state.focusId)).approximate === true);
-      assert.equal(approximate, index !== 0);
-      assert.equal(await fresh.evaluate(() => LeakMap.coordinates([state.byId.get(state.focusId)]).size), index === 0 ? 1 : 0);
+      assert.equal(approximate, false);
+      assert.equal(await fresh.evaluate(() => LeakMap.coordinates([state.byId.get(state.focusId)]).size), 1);
     }
     // Mark a whole street, narrow the list, switch category, and focus one
     // address. Every retained marked pin must remain visible in the viewport.
