@@ -147,39 +147,34 @@ test('Excel address variants normalize ranges, house letters, commas and attache
   assert.equal(api.exactHit({ address: { road: 'Stora Broängsvägen', house_number: '34A' } }, api.parseAddress({ address: 'BROÄNGSVÄGEN 34A TUMBA' })), false);
 });
 
-test('Clicking an uncached range address flies to its building and preserves other pins', async () => {
-  const meters = [{ id: 'range', address: 'ALHAGSVÄGEN 58 -60 NORSBORG 14559' }, { id: 'other', address: 'FALKVÄGEN 1 TUMBA 14730' }];
-  const calls = [];
-  const { view, api, map, markers } = mapHarness({
-    cache: { 'falkvagen 1, 14730 tumba, sverige': { lat: 59.18, lng: 17.8 } },
-    fetch: async url => {
-      const q = new URL(url).searchParams.get('q'); calls.push(q);
-      return { ok: true, json: async () => q === 'ALHAGSVÄGEN 58, Botkyrka, Sverige'
-        ? [{ lat: '59.24', lon: '17.82', address: { road: 'Alhagsvägen', house_number: '58', postcode: '14559' } }] : [] };
-    },
+test('Letter suffix is required and old approximate cache cannot place 9C at 9 or on the street', async () => {
+  const meter = { id: 'letter', address: 'SOLTORPSVÄGEN 9C TUMBA 14732' };
+  const { view, api, markers, status } = mapHarness({
+    cache: { 'soltorpsvagen 9c, 14732 tumba, sverige': { lat: 59.2, lng: 17.8, approximate: true } },
+    fetch: async () => ({ ok: true, json: async () => [
+      { lat: '59.2', lon: '17.8', address: { road: 'Soltorpsvägen', house_number: '9' } },
+      { lat: '59.2', lon: '17.8', address: { road: 'Soltorpsvägen', house_number: '9B' } },
+      { lat: '59.2', lon: '17.8', address: { road: 'Soltorpsvägen' } },
+    ] }),
   });
-  await view.update({ meters, focusId: 'range', focusRequest: 1, mode: 'results' });
-  assert.equal(map.zoom, 17); assert.equal(map.center[0], 59.24);
-  assert.equal(markers.dots.length, 2);
-  assert.equal(api.cachedPosition(meters[0]).approximate, true);
-  assert.equal(api.coordinates(meters).has('range'), false, 'Range fallback is navigation only');
-  const requests = calls.length;
-  await view.update({ meters, focusId: 'range', focusRequest: 2, mode: 'results' });
-  assert.equal(calls.length, requests, 'Successful address fallback is cached');
+  assert.equal(api.cachedPosition(meter), null);
+  await view.update({ meters: [meter], focusId: meter.id });
+  assert.equal(markers.dots.length, 0);
+  assert.equal(api.cachedPosition(meter), null);
+  assert.match(status.textContent, /kunde inte hittas/);
 });
 
-test('Old failed lookup retries and missing house falls back to the correct street only', async () => {
-  const meter = { id: 'street', address: 'BROÄNGSVÄGEN 36 TUMBA 14732' };
-  const { view, api, map, status } = mapHarness({
-    cache: { 'broangsvagen 36, 14732 tumba, sverige': { missing: true, lookupVersion: 4, at: Date.now() } },
-    fetch: async url => ({ ok: true, json: async () => new URL(url).searchParams.get('q') === 'BROÄNGSVÄGEN, Botkyrka, Sverige'
-      ? [{ lat: '59.19', lon: '17.81', address: { road: 'Stora Broängsvägen' } }, { lat: '59.20', lon: '17.82', address: { road: 'Broängsvägen' } }] : [] }),
-  });
-  await view.update({ meters: [meter], focusId: 'street' });
-  assert.equal(map.zoom, 17); assert.equal(map.center[0], 59.20);
-  assert.equal(api.cachedPosition(meter).approximate, true);
-  assert.match(status.textContent, /ungefärlig adressposition/);
-  assert.equal(api.coordinates([meter]).size, 0);
+test('Multiple selected letter addresses retain their own matching house pins', async () => {
+  const meters = ['9A', '9C'].map(house => ({ id: house, address: `SOLTORPSVÄGEN ${house} TUMBA 14732` }));
+  const { view, api, markers, map } = mapHarness({ fetch: async url => {
+    const house = new URL(url).searchParams.get('street').split(' ').at(-1);
+    return { ok: true, json: async () => [{ lat: house === '9A' ? '59.20' : '59.21', lon: '17.8', address: { road: 'Soltorpsvägen', house_number: house } }] };
+  } });
+  await view.update({ meters, marked: new Set(['9A', '9C']), focusId: '9C' });
+  assert.equal(markers.dots.length, 2);
+  assert.equal(api.cachedPosition(meters[0]).lat, 59.20);
+  assert.equal(api.cachedPosition(meters[1]).lat, 59.21);
+  assert.equal(map.center[0], 59.21);
 });
 
 test('No address match never substitutes a different numbered house or an unrelated street', async () => {

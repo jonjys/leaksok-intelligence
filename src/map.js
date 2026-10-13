@@ -1,11 +1,11 @@
 /* Map view (Leaflet + OpenStreetMap). Pins represent addresses, not meter GPS.
-   Street/range fallbacks are labelled approximate and excluded from distance analysis. */
+   Only matching street names and complete house numbers are accepted. */
 (function (root) {
   const GEOCODE_CACHE_KEY = "leaksok_geocode_v2_exact";
   const MAP_MARKS_KEY = "leaksok_map_marks_v1";
   const BOUNDS = [[59.065, 17.54], [59.29, 18.035]];
   const CENTER = [59.18, 17.8];
-  const LOOKUP_VERSION = 5;
+  const LOOKUP_VERSION = 6;
   const COLORS = {
     dispatch: "#c62828", confirmed: "#8e1b1b", suspect_auto: "#e08a00", watch: "#2f6fd6", customer_side: "#0e8fa3",
     stable_high: "#7b4bc4", noise: "#6b7785", seasonal: "#6b7785", repaired: "#2e7d4f", learning: "#90a0b0",
@@ -59,7 +59,7 @@
   function cachedPosition(meter) {
     if (!meter?.address) return null;
     const hit = cache[keyOf(meter)];
-    return inside(hit) ? { lat: hit.lat, lng: hit.lng, ...(hit.approximate ? { approximate: true } : {}) } : null;
+    return inside(hit) && !hit.approximate ? { lat: hit.lat, lng: hit.lng } : null;
   }
 
   const jobs = [];
@@ -115,7 +115,6 @@
       const results = await search(url);
       const validHit = (c) => inside({ lat: Number(c.lat), lng: Number(c.lon) });
       let hit = results.find((c) => validHit(c) && exactHit(c, parsed));
-      let approximate = false;
       // Postal towns such as Tullinge/Norsborg are not always indexed as cities.
       // Retry within the same bounds and still require the exact road/house.
       if (!hit && parsed) {
@@ -123,24 +122,9 @@
         url.searchParams.set("q", `${parsed.street}, Botkyrka, Sverige`);
         const candidates = await search(url);
         hit = candidates.find((c) => validHit(c) && exactHit(c, parsed));
-        // "58-60" or "6A" can be mapped to the same building at 58 or 6.
-        const firstHouse = parsed.house.match(/^\d+/)?.[0];
-        if (!hit && firstHouse && parsed.house !== firstHouse) {
-          url.searchParams.set("q", `${parsed.road} ${firstHouse}, Botkyrka, Sverige`);
-          const buildings = await search(url);
-          hit = buildings.find((c) => validHit(c) && exactHit(c, { ...parsed, house: firstHouse, postcode: "" }));
-          approximate = Boolean(hit);
-        }
-        // Address navigation may use the correct street when OSM lacks a house.
-        // Never substitute a different numbered house or a different street.
-        if (!hit) {
-          url.searchParams.set("q", `${parsed.road}, Botkyrka, Sverige`);
-          const streets = await search(url);
-          hit = streets.find((c) => validHit(c) && sameRoad(c, parsed) && !c.address?.house_number);
-          approximate = Boolean(hit);
-        }
+
       }
-      const pos = hit ? { lat: Number(hit.lat), lng: Number(hit.lon), ...(approximate ? { approximate: true } : {}) } : null;
+      const pos = hit ? { lat: Number(hit.lat), lng: Number(hit.lon) } : null;
       if (!inside(pos)) { cache[key] = { missing: true, lookupVersion: LOOKUP_VERSION, at: Date.now() }; persistCache(); return null; }
       cache[key] = { ...pos, lookupVersion: LOOKUP_VERSION, at: Date.now() };
       persistCache();
@@ -353,7 +337,7 @@
       const focused = located.find(({ m }) => m.id === current.focusId);
       if (current.focusId) {
         // A selection always wins over the bounds of other marked meters.
-        // Address pins are sufficient, including labelled street fallbacks.
+        // Pins require the complete house address, including any letter suffix.
         if (focused) {
           const zoom = focusZoom(focused.pos);
           const flight = `${current.focusId}|${current.focusRequest}|${focused.pos.lat}|${focused.pos.lng}|${zoom}`;
