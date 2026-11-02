@@ -168,6 +168,26 @@
     return { latest, reference, delta, percent: reference && reference.value > 0 ? (delta / reference.value) * 100 : null, note };
   }
 
-  return { buildHistories, summarize, compare, dayKey, calendarDays, validDate };
+  /* Coverage means days represented in these imports. It does not establish
+     that the meter/Kamstrup had no readings on the other days. */
+  function coverage(series, from, to) {
+    const dates = (series || []).map(p => validDate(p.date)).filter(Boolean).sort((a, b) => a - b);
+    from = validDate(from) || dates[0];
+    to = validDate(to) || dates[dates.length - 1];
+    if (!from || !to || to < from) return { readingDays: 0, expectedDays: 0, missingDays: 0, coverage: 0, maxGap: 0, from: from || null, to: to || null };
+    const firstKey = dayKey(from), lastKey = dayKey(to), seen = new Set();
+    const included = dates.filter(date => {
+      const key = dayKey(date);
+      if (key < firstKey || key > lastKey || seen.has(key)) return false;
+      seen.add(key); return true;
+    });
+    const expectedDays = calendarDays(from, to) + 1;
+    let maxGap = 0;
+    for (let i = 1; i < included.length; i++) maxGap = Math.max(maxGap, calendarDays(included[i - 1], included[i]));
+    return { readingDays: included.length, expectedDays, missingDays: Math.max(0, expectedDays - included.length),
+      coverage: included.length / expectedDays, maxGap, from, to };
+  }
+
+  return { buildHistories, summarize, compare, coverage, dayKey, calendarDays, validDate };
 }));
 

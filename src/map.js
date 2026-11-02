@@ -275,7 +275,7 @@
 
     function draw(located, mode, final) {
       entries = located.map(({ m, pos }) => ({ id: m.id, ...pos }));
-      const rank = (m) => m.id === current.focusId ? 200 : current.marked.has(m.id) ? 100 : ({ dispatch: 90, confirmed: 85, suspect_auto: 70, watch: 69, customer_side: 60, stable_high: 40 })[m.category] || 0;
+      const rank = (m) => m.id === current.focusId ? 200 : current.marked.has(m.id) ? 100 : ({ dispatch: 90, confirmed: 85, suspect_auto: 70, watch: 69, customer_side: 60, sparse_history: 45, stable_high: 40 })[m.category] || 0;
       // Draw the selected meter last so its marker stays on top.
       located.sort((a, b) => rank(a.m) - rank(b.m));
       const keep = new Set(located.map(({ m }) => m.id));

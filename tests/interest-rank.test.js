@@ -27,9 +27,9 @@ test('Kamstrup ranks are positive integers, distinct from Follow and absent colu
   assert.equal(file('10-01', 60, 2).rows[0].follow, false);
 });
 
-test('ranked stable-high meter appears in Misstänk without fabricating rise, score or area evidence', () => {
+test('ranked high meter with sparse history appears in Misstänk without fabricating rise, score or area evidence', () => {
   const before = run(files(null));
-  assert.equal(before.category, 'stable_high');
+  assert.equal(before.category, 'sparse_history');
   for (const rank of [1, 2, 3]) {
     const m = run(files(rank));
     assert.equal(m.category, 'suspect_auto');
@@ -50,7 +50,7 @@ test('ranked stable-high meter appears in Misstänk without fabricating rise, sc
 });
 
 test('latest blank clears old rank; stale, missing, DRY and customer-side readings are not promoted by rank', () => {
-  assert.equal(run([...files(), file('10-01', 292, '', { time: '13-00' })]).category, 'stable_high');
+  assert.equal(run([...files(), file('10-01', 292, '', { time: '13-00' })]).category, 'sparse_history');
   const missingLatestExport = [...files().slice(0, -1), { name: 'Other.csv', exportDate: new Date('2026-10-01T07:00:00'), rows: [] }];
   assert.equal(run(missingLatestExport).kamstrupInterest, false);
   for (const opts of [{ code: 'DRY' }, { readAt: '2026-09-14 04:00' }, { readAt: '' }]) {

@@ -164,7 +164,7 @@ body.is-splitting { cursor: col-resize; user-select: none; }
 .map-mark.valve span { background: #0f5e6e; }
 
 /* Charts */
-.focus-chart, .chart-large { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 6px; min-width: 0; min-height: 0; position: relative; }
+.focus-chart, .chart-large { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; gap: 6px; min-width: 0; min-height: 0; position: relative; }
 .chart-large { min-height: 420px; }
 .ch-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .ch-latest b { font-size: 22px; font-variant-numeric: tabular-nums; }
@@ -731,6 +731,10 @@ body.has-focus .c-status .prio { display: none; }
 
 .sort-help { color: var(--muted); font-size: 12px; line-height: 1.4; margin: -3px 0 0; flex-shrink: 0; }
 .sort-help:empty { display: none; }
+.ch-coverage { margin: 0; padding: 7px 9px; font-size: 12px; line-height: 1.45; color: var(--muted); background: var(--surface-2); border-radius: 5px; }
+.ch-coverage[data-state="warning"] { color: #805300; background: #fff8e8; }
+.meter-panel .ch-coverage { display: none; }
+.cat-sparse_history { background: #8a5a00; }
 .map-source { margin-left: auto; font-size: 11px; color: var(--muted); }
 .map-missing { min-width: 0; font-size: 12px; border: 1px solid #dfbc7c; border-radius: 6px; padding: 6px 8px; background: #fffaf0; }
 .map-missing summary { cursor: pointer; color: #874c00; font-weight: 600; }

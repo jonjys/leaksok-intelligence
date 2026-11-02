@@ -28,6 +28,7 @@
     { key: "confirmed", label: "Aktiva läckor", test: (m) => m.category === "confirmed" },
     { key: "repaired", label: "Lagade", test: (m) => m.label?.type === "repaired" },
     { key: "stable_high", label: "Stabilt hög", test: (m) => m.category === "stable_high", more: true },
+    { key: "sparse_history", label: "Glest underlag", test: (m) => m.category === "sparse_history", more: true },
     { group: true, key: "noise", label: "Störning / tillfällig", test: (m) => m.category === "noise", more: true },
     { group: true, key: "seasonal", label: "Säsong", test: (m) => m.category === "seasonal", more: true },
     { key: "learning", label: "Kort historik", test: (m) => m.category === "learning", more: true },
@@ -496,7 +497,7 @@
 
   function changeHtml(m) {
     const baselineSort = state.sort === "baseline";
-    const c = baselineSort ? (m.finding?.ref && m.finding?.now ? {
+    const c = baselineSort ? (m.finding?.ref && m.finding?.now && m.finding.delta != null ? {
       from: m.finding.ref.level, delta: m.finding.delta, pct: m.finding.pct,
       fromDate: m.finding.ref.to,
     } : null) : m.changePrev;
@@ -541,14 +542,21 @@
     if (c) rows.push(["Sedan föregående avläsning", `${D(c.fromDate)} → ${D(c.toDate)}`, `${num(c.from)} → ${num(c.to)}`, Engine.fmtSigned(c.delta), c.pct != null ? Engine.fmtPct(c.pct) : "ingen procent"]);
     const f = m.finding;
     if (f?.ref && f.now) {
-      const label = { new_signal: "Mot nuvarande nivå", level_shift: "Mot nivån före förändringen", trend: "Trend senaste 60 dagarna", stable: "Nuvarande nivå", transient: "Mot normal nivå" }[f.type] || "Jämförelse";
-      rows.push([`${label}<span class="sub">${esc(m.baseline?.definition || "")}</span>`, `${Engine.fmtPeriod(f.ref.from, f.ref.to, year)} (${f.ref.n} avl.)`, `${num(f.ref.level)} → ${num(f.now.level)}`, Engine.fmtSigned(f.delta), f.pct != null ? Engine.fmtPct(f.pct) : "ingen procent"]);
+      const label = f.type === "stable" && m.sampling?.referenceReliable === false ? "Median av glesa observationer" : { new_signal: "Mot nuvarande nivå", level_shift: "Mot nivån före förändringen", trend: "Trend senaste 60 dagarna", stable: "Nuvarande nivå", transient: "Mot normal nivå" }[f.type] || "Jämförelse";
+      const observationOnly = f.type === "stable" && m.sampling?.referenceReliable === false;
+      rows.push([`${label}<span class="sub">${esc(m.baseline?.definition || "")}</span>`, `${Engine.fmtPeriod(f.ref.from, f.ref.to, year)} (${f.ref.n} avl.)`, observationOnly ? num(f.ref.level) : `${num(f.ref.level)} → ${num(f.now.level)}`, observationOnly ? "–" : Engine.fmtSigned(f.delta), observationOnly ? "–" : f.pct != null ? Engine.fmtPct(f.pct) : "ingen procent"]);
     }
     if (f?.older) rows.push(["Äldre nivå", `${Engine.fmtPeriod(f.older.from, f.older.to, year)} (${f.older.n} avl.)`, num(f.older.level), "", ""]);
     if (m.excel.E != null) rows.push(["P = E/F − 1 (senaste exportraden)", m.excel.exportDate ? D(m.excel.exportDate) : "", `F ${num(m.excel.F)} · E ${num(m.excel.E)} · G ${num(m.excel.G)}`, "", m.excel.P != null ? Engine.fmtPct(m.excel.P) : "beräknas inte"]);
     rows.push(["Minimiflöde (inte brus)", m.excel.minimumFlowAt ? D(m.excel.minimumFlowAt) : "Datum saknas", m.excel.minimumFlow == null ? "Saknas i exporten" : `${num(m.excel.minimumFlow)} l/h`, "", ""]);
     if (m.season?.sameTimeLastYear) rows.push(["Samma tid i fjol", Engine.fmtPeriod(m.season.sameTimeLastYear.from, m.season.sameTimeLastYear.to, 0), num(m.season.sameTimeLastYear.level), "", ""]);
     return rows.map((r) => `<tr><th scope="row">${r[0]}</th><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td>${esc(r[3])}</td><td>${esc(r[4])}</td></tr>`).join("");
+  }
+
+  function importTraceHtml(m) {
+    const h = m.history;
+    const rows = m.series.slice(-30).map(p => `<tr><td>${esc(Engine.fmtDate(p.date, true))}</td><td>${num(p.value)}</td><td>${num(p.exports)}</td><td>${esc(Engine.fmtDate(p.firstExport, true))}–${esc(Engine.fmtDate(p.lastExport, true))}</td></tr>`).join("");
+    return `<details class="import-trace"><summary>${num(h.assessedReadings)} avläsningsdagar från ${num(h.exportRows)} exportrader · visa importspårning</summary><p>Appen använder avläsningsdatum i Excel. Samma avläsning i flera dagsexporter blir en punkt, även om exportdatum är nytt. Dagsexporten innehåller senaste värdet, inte hela Kamstrup-kurvan. ${num(h.reexports)} återexporterade rader, ${num(h.missingValues)} utan värde och ${num(h.undated)} utan giltigt avläsningsdatum. ${num(h.conflicts)} värdekonflikter för samma tidsstämpel.</p><p>Jämför dessa datum med Excel-raderna för mätaren. Tabellen visar högst 30 senaste avläsningsdagar i den analyserade historiken.</p><table class="cmp"><thead><tr><th>Avläsningsdag</th><th>Brusvärde</th><th>Exporter</th><th>Första–senaste export</th></tr></thead><tbody>${rows}</tbody></table></details>`;
   }
 
   function list(items) { return items.length ? `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : `<p class="muted">–</p>`; }
@@ -577,7 +585,7 @@
       <section>
         <h4>Jämförelser</h4>
         <table class="cmp"><thead><tr><th>Mått</th><th>Period</th><th>Värden</th><th>Skillnad</th><th>%</th></tr></thead><tbody>${comparisonRows(m)}</tbody></table>
-        <h4>Datakvalitet</h4>${list(m.dataQuality)}
+        <h4>Datakvalitet</h4>${list(m.dataQuality)}${importTraceHtml(m)}
         ${m.missing.length ? `<h4>Vad saknas för säkrare slutsats</h4>${list(m.missing)}` : ""}
         <h4>Prioritet ${m.priority} (rangordning, inte sannolikhet)</h4><p class="parts">${m.priorityParts.map((p) => `${esc(p.name)} ${p.points > 0 ? "+" : ""}${p.points}`).join(" · ")}</p>
       </section>
@@ -1067,7 +1075,8 @@
       <div class="dialog-head"><div><h2 id="rulesTitle">Om analysen</h2><p class="small">Lokal, regelbaserad motor. Inga mätardata skickas till någon språkmodell eller ny extern tjänst.</p></div><button type="button" class="secondary" data-close>Stäng</button></div>
       <div class="rules">
         <h3>Värden</h3><p>Kamstrup Leak Detectors exporterade brusvärde (dagens lägsta filtrerade värde). Kamstrup anger ingen enhet; procent är procent av exportvärdet, inte förändring av ljudintensitet.</p>
-        <h3>Avläsningar</h3><p>Kurvan byggs på avläsningsdatum, inte exportdatum. Samma avläsning i flera exporter räknas en gång. Luckor över ${R.gapDays} dagar ritas som saknat underlag och räknas inte som observerad tid.</p>
+        <h3>Avläsningar</h3><p>Kurvan byggs på avläsningsdatum, inte exportdatum. Samma avläsning i flera exporter räknas en gång. Grafen bryts när en mellanliggande dag saknas. Grått betyder att avläsningar saknas i appens importerade filer; Kamstrup kan ha fler värden. Medianen är ett räknat jämförelsemått, inte avläsningar mellan punkterna.</p>
+        <p>Glest underlag får inte beskrivas som stabilitet: jämförelseperioden behöver minst ${Math.round(R.stableMinCoverage * 100)} % importerade avläsningsdagar och högst ${R.gapDays} dagar mellan punkterna. Detta är appens egna regler för underlag, inte Kamstrups läckalgoritm. Manuella beslut och verkliga uppåtgående signaler behålls.</p>
         <h3>Jämförelser</h3><ul>
           <li><b>Sedan föregående avläsning</b>: senaste värde mot föregående avläsningsdag, (nytt / tidigare) − 1.</li>
           <li><b>Mot jämförelsenivå</b>: median av mätarens egna avläsningar före förändringen, med angiven period.</li>

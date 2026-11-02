@@ -11,6 +11,7 @@
     watch: { label: "Bevaka", color: "#2f6fd6" },
     customer_side: { label: "Efter mätare", color: "#0b7d8f" },
     stable_high: { label: "Stabilt hög", color: "#6d3fb8" },
+    sparse_history: { label: "Glest underlag", color: "#8a5a00" },
     repaired: { label: "Lagad", color: "#2e7d4f" },
     normal: { label: "Normal", color: "#5e6b78" },
     learning: { label: "Kort historik", color: "#64748b" },

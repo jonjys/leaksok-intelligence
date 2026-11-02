@@ -256,7 +256,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
         [interestId, 'INTRESSETESTVÄGEN 1 TUMBA 14730', `${date} 04:00`, [226, 218, 234, 292][i], 244]])
     }));
     await kit.importFiles(page, interestFiles);
-    assert.equal((await meter(interestId)).category, 'stable_high');
+    assert.equal((await meter(interestId)).category, 'sparse_history');
     const countBeforeRank = await page.evaluate(() => state.files.length);
     const rankedFile = (rank) => ({ name: interestFiles[3].name, text: toCsv([
       ['Mätare av intresse', 'Serienummer', 'Adress', 'Senaste avläsning', 'Senaste värde', 'Genomsnittsvärde'],
@@ -277,7 +277,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal(await page.evaluate((id) => state.byId.get(id).history.readings, interestId), 4);
     assert.equal(await page.evaluate(() => state.files.length), countBeforeRank);
     await kit.importFiles(page, [rankedFile('')]);
-    assert.equal((await meter(interestId)).category, 'stable_high', 'Explicit blank removes rank without adding a reading');
+    assert.equal((await meter(interestId)).category, 'sparse_history', 'Explicit blank removes rank without adding a reading');
     assert.equal(await page.evaluate(() => state.files.length), countBeforeRank);
     assert.equal((await meter('90000002')).category, 'confirmed');
     assert.equal((await meter('90000016')).category, 'repaired');

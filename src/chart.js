@@ -59,7 +59,7 @@
     const latestExport = meter.excel?.exportDate || all[all.length - 1]?.date;
     const endBase = all.length ? all[all.length - 1].date : latestExport;
     const end = latestExport && latestExport > endBase ? latestExport : endBase;
-    if (!all.length || !end) return { svg: `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Inga avläsningar"><text x="${width / 2}" y="${height / 2}" text-anchor="middle" class="ch-empty">Inga avläsningar att visa</text></svg>`, points: [] };
+    if (!all.length || !end) return { svg: `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Inga avläsningar"><text x="${width / 2}" y="${height / 2}" text-anchor="middle" class="ch-empty">Inga avläsningar att visa</text></svg>`, points: [], comparison: History.compare(all, compare), coverage: History.coverage([]) };
     const start = dayStart(periodStart(all, period, end));
     const visible = all.filter((p) => p.date >= start);
     const cmp = History.compare(all, compare);
@@ -88,37 +88,52 @@
       prevTick = t;
     }
     // Missing data: gaps between readings and time since the last reading.
-    const gapLimit = Engine.RULES.gapDays;
+    const gapLimit = 1;
+    const missingBand = (from, to, label, title) => {
+      const x0 = Math.max(left, xOf(from)), x1 = Math.min(right, xOf(to));
+      if (x1 <= x0) return;
+      parts.push(`<rect x="${x0.toFixed(1)}" y="${top}" width="${Math.max(1, x1 - x0).toFixed(1)}" height="${bottom - top}" class="ch-gap"><title>${esc(title)}</title></rect>`);
+      if (x1 - x0 > 100) parts.push(`<text x="${((x0 + x1) / 2).toFixed(1)}" y="${top + 12}" text-anchor="middle" class="ch-gap-label">${esc(label)}</text>`);
+    };
+    if (visible.length && History.calendarDays(start, visible[0].date) > 0) missingBand(start, visible[0].date, "saknas i importen", "Avläsningar saknas i appens importunderlag före första punkten i perioden; Kamstrup kan ha fler värden.");
     for (let i = 1; i < visible.length; i++) {
       const gap = History.calendarDays(visible[i - 1].date, visible[i].date);
       if (gap > gapLimit) {
-        const x0 = xOf(visible[i - 1].date), x1 = xOf(visible[i].date);
-        parts.push(`<rect x="${x0.toFixed(1)}" y="${top}" width="${Math.max(1, x1 - x0).toFixed(1)}" height="${bottom - top}" class="ch-gap"><title>Inga avläsningar ${esc(Engine.fmtDate(visible[i - 1].date))}–${esc(Engine.fmtDate(visible[i].date))} (${gap} dagar)</title></rect>`);
-        if (x1 - x0 > 70) parts.push(`<text x="${((x0 + x1) / 2).toFixed(1)}" y="${top + 12}" text-anchor="middle" class="ch-gap-label">ingen avläsning</text>`);
+        missingBand(visible[i - 1].date, visible[i].date, "saknas i importen", `Lucka i importunderlaget mellan ${Engine.fmtDate(visible[i - 1].date)} och ${Engine.fmtDate(visible[i].date)}: ${gap - 1} mellanliggande dagar saknas. Kamstrup kan ha fler historiska värden.`);
       }
     }
     const lastPoint = visible[visible.length - 1] || all[all.length - 1];
     const staleDays = History.calendarDays(lastPoint.date, end);
     if (staleDays >= 1) {
-      const x0 = xOf(lastPoint.date);
-      parts.push(`<rect x="${x0.toFixed(1)}" y="${top}" width="${Math.max(1, right - x0).toFixed(1)}" height="${bottom - top}" class="ch-stale"><title>Ingen ny avläsning ${esc(Engine.fmtDate(lastPoint.date))}–${esc(Engine.fmtDate(end))} (${staleDays} dagar)</title></rect>`);
-      if (right - x0 > 90) parts.push(`<text x="${(right - 4).toFixed(1)}" y="${top + 12}" text-anchor="end" class="ch-gap-label">ingen ny avläsning · ${staleDays} d</text>`);
+      const x0 = Math.max(left, xOf(lastPoint.date));
+      parts.push(`<rect x="${x0.toFixed(1)}" y="${top}" width="${Math.max(1, right - x0).toFixed(1)}" height="${bottom - top}" class="ch-stale"><title>Ingen ny avläsning i importen ${esc(Engine.fmtDate(lastPoint.date))}–${esc(Engine.fmtDate(end))} (${staleDays} dagar)</title></rect>`);
+      if (right - x0 > 90) parts.push(`<text x="${(right - 4).toFixed(1)}" y="${top + 12}" text-anchor="end" class="ch-gap-label">ingen ny importerad punkt · ${staleDays} d</text>`);
     }
     // Reference levels with their periods.
     const line = (from, to, level, cls, label) => {
       if (!Number.isFinite(level) || !from) return;
-      const a = Math.max(left, xOf(from < start ? start : from)), b = Math.min(right, xOf(to || from));
-      if (b < left) return;
       const y = yOf(level).toFixed(1);
-      parts.push(`<line x1="${a.toFixed(1)}" x2="${Math.max(a + 4, b).toFixed(1)}" y1="${y}" y2="${y}" class="${cls}"><title>${esc(label)}</title></line>`);
-      if (!compact || cls.includes("ref")) parts.push(`<text x="${(Math.max(a + 4, b) - 2).toFixed(1)}" y="${(+y - 4).toFixed(1)}" text-anchor="end" class="ch-ref-label">${esc(label.split(" (")[0])}</text>`);
+      const inPeriod = visible.filter(p => p.date >= from && p.date <= (to || from));
+      const runs = [];
+      for (const p of inPeriod) {
+        const last = runs.at(-1);
+        if (!last || History.calendarDays(last.at(-1).date, p.date) > gapLimit) runs.push([p]); else last.push(p);
+      }
+      for (const run of runs) {
+        const a = xOf(run[0].date), b = Math.min(right, Math.max(a + 4, xOf(run.at(-1).date)));
+        parts.push(`<line x1="${a.toFixed(1)}" x2="${b.toFixed(1)}" y1="${y}" y2="${y}" class="${cls}"><title>${esc(label)}</title></line>`);
+      }
+      if (runs.length && (!compact || cls.includes("ref"))) {
+        const b = Math.min(right, xOf(runs.at(-1).at(-1).date));
+        parts.push(`<text x="${(b - 2).toFixed(1)}" y="${(+y - 4).toFixed(1)}" text-anchor="end" class="ch-ref-label">${esc(label.split(" (")[0])}</text>`);
+      }
     };
     if (f.type === "trend") {
       const a = { x: xOf(f.ref.from < start ? start : f.ref.from), y: yOf(f.ref.level + (f.ref.from < start ? f.slopePerDay * ((start - f.ref.from) / DAY) : 0)) };
       const b = { x: xOf(f.now.to), y: yOf(f.now.level) };
       parts.push(`<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" class="ch-trend"><title>Trendlinje (Theil–Sen) ${esc(Engine.fmtPeriod(f.ref.from, f.now.to))}</title></line>`);
     } else if (f.ref) {
-      const refLabel = f.type === "level_shift" ? `före ${num(f.ref.level)}` : `nivå ${num(f.ref.level)}`;
+      const refLabel = f.type === "level_shift" ? `före ${num(f.ref.level)}` : `median ${num(f.ref.level)}`;
       line(f.ref.from, f.ref.to, f.ref.level, "ch-ref", `${refLabel} (${Engine.fmtPeriod(f.ref.from, f.ref.to)})`);
       if (f.type === "level_shift") line(f.now.from, f.now.to, f.now.level, "ch-now", `nu ${num(f.now.level)} (${Engine.fmtPeriod(f.now.from, f.now.to)})`);
     }
@@ -139,7 +154,7 @@
     }
     const aria = `Brusvärde för ${meter.address || meter.id}, ${visible.length} avläsningar ${Engine.fmtPeriod(visible[0]?.date, lastPoint.date)}. Senaste ${num(lastPoint.value)}.`;
     const svg = `<svg viewBox="0 0 ${width} ${height}" width="100%" height="100%" preserveAspectRatio="none" role="img" aria-label="${esc(aria)}">${parts.join("")}<line class="ch-cursor" y1="${top}" y2="${bottom}" x1="0" x2="0" visibility="hidden"/></svg>`;
-    return { svg, points: visible.map((p) => ({ ...p, x: xOf(p.date), y: yOf(p.value) })), comparison: cmp, start, end };
+    return { svg, points: visible.map((p) => ({ ...p, x: xOf(p.date), y: yOf(p.value) })), comparison: cmp, coverage: History.coverage(visible, start, end), start, end };
   }
 
   function compareText(cmp) {
@@ -162,15 +177,21 @@
       const built = buildSvg(meter, { width, height, period: state.period, compare: state.compare, compact });
       stage.innerHTML = built.svg;
       container.querySelector(".ch-cmp").textContent = compareText(built.comparison);
+      const covered = built.coverage;
+      const ref = meter.finding?.ref;
+      const referenceNote = meter.finding?.type === "trend" ? " Trendlinjen är en beräkning från importerade punkter, inte uppmätta värden under luckorna."
+        : Number.isFinite(ref?.level) ? ` Median ${num(ref.level)} (${ref.n} avläsningsdagar, ${Engine.fmtDate(ref.from, true)}–${Engine.fmtDate(ref.to, true)}) är ett räknat jämförelsemått, inte mellanliggande avläsningar.` : "";
+      container.querySelector(".ch-coverage").textContent = `${covered.readingDays} avläsningsdagar i appen under ${covered.expectedDays} kalenderdagar i vald period.${covered.missingDays ? ` ${covered.missingDays} dagar saknar importerade värden; Kamstrup kan ha fler.` : ""}${referenceNote}`;
+      container.querySelector(".ch-coverage").dataset.state = covered.missingDays ? "warning" : "ready";
       state.points = built.points;
       state.size = `${width}x${height}`;
     };
     const latest = meter.latest;
     const f = meter.finding || {};
     const legend = [
-      '<span><i class="k-dot"></i>daglig avläsning</span>',
+      '<span><i class="k-dot"></i>importerad avläsning</span>',
       f.type === "trend" ? '<span><i class="k-trend"></i>trendlinje</span>' : f.ref ? `<span><i class="k-ref"></i>${f.type === "level_shift" ? "nivå före / efter förändringen" : "jämförelsenivå"} (median)</span>` : "",
-      '<span><i class="k-gap"></i>saknar avläsningar</span>',
+      '<span><i class="k-gap"></i>saknas i appens import</span>',
       '<span><i class="k-cmp"></i>jämförelsepunkt</span>',
     ].join("");
     container.innerHTML = `
@@ -183,6 +204,7 @@
         <label class="ch-compare-pick">Jämför med <select>${[["previous", "föregående avläsning"], ["7", "7 dagar bakåt"], ["30", "30 dagar bakåt"], ["90", "90 dagar bakåt"], ["365", "1 år bakåt"]].map(([v, l]) => `<option value="${v}"${state.compare === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
       </div>
       <div class="ch-stage${compact ? " compact" : ""}"${compact ? ' role="button" tabindex="0" aria-label="Förstora grafen"' : ""}></div>
+      <p class="ch-coverage" role="status"></p>
       <div class="ch-tip" hidden></div>
       <div class="ch-legend">${legend}</div>`;
     container.querySelectorAll("[data-period]").forEach((b) => b.addEventListener("click", (e) => {
@@ -240,14 +262,23 @@
     const y = (v) => height - 3 - (v / max) * (height - 6);
     let d = "", shade = "";
     pts.forEach((p, i) => {
-      const joined = i > 0 && History.calendarDays(pts[i - 1].date, p.date) <= Engine.RULES.gapDays;
+      const joined = i > 0 && History.calendarDays(pts[i - 1].date, p.date) <= 1;
       if (i > 0 && !joined) shade += `<rect x="${x(pts[i - 1].date).toFixed(1)}" y="2" width="${Math.max(1, x(p.date) - x(pts[i - 1].date)).toFixed(1)}" height="${height - 4}" class="sp-gap"/>`;
       d += `${joined ? "L" : "M"}${x(p.date).toFixed(1)},${y(p.value).toFixed(1)}`;
     });
     const last = pts[pts.length - 1];
     if (History.calendarDays(last.date, end) >= 2) shade += `<rect x="${x(last.date).toFixed(1)}" y="2" width="${Math.max(1, width - 2 - x(last.date)).toFixed(1)}" height="${height - 4}" class="sp-stale"/>`;
     const ref = meter.finding?.ref;
-    const refLine = ref && Number.isFinite(ref.level) ? `<line x1="2" x2="${width - 2}" y1="${y(ref.level).toFixed(1)}" y2="${y(ref.level).toFixed(1)}" class="sp-ref"/>` : "";
+    let refLine = "";
+    if (ref && Number.isFinite(ref.level)) {
+      let first = null, last = null;
+      const add = () => { if (first) refLine += `<line x1="${x(first.date).toFixed(1)}" x2="${Math.min(width - 2, Math.max(x(first.date) + 2, x(last.date))).toFixed(1)}" y1="${y(ref.level).toFixed(1)}" y2="${y(ref.level).toFixed(1)}" class="sp-ref"/>`; };
+      for (const p of pts.filter(p => p.date >= ref.from && p.date <= ref.to)) {
+        if (last && History.calendarDays(last.date, p.date) > 1) { add(); first = null; }
+        first ||= p; last = p;
+      }
+      add();
+    }
     return `<svg class="spark" viewBox="0 0 ${width} ${height}" aria-hidden="true">${shade}${refLine}<path d="${d}" class="sp-line"/><circle cx="${x(last.date).toFixed(1)}" cy="${y(last.value).toFixed(1)}" r="2.6" class="sp-last"/></svg>`;
   }
 
