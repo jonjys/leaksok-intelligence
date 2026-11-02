@@ -12,7 +12,7 @@
   };
   const STATUS_COLOR = {
     dispatch: "red", confirmed: "red", suspect_auto: "amber", watch: "blue", customer_side: "cyan",
-    stable_high: "purple", repaired: "green", stale_contact: "gray", learning: "gray", noise: "gray", seasonal: "gray", normal: "gray", ignored: "gray",
+    stable_high: "purple", sparse_history: "amber", repaired: "green", stale_contact: "gray", learning: "gray", noise: "gray", seasonal: "gray", normal: "gray", ignored: "gray",
   };
 
   function statusText(m) {
@@ -31,7 +31,7 @@
 
   function findingText(m) {
     const f = m.finding;
-    let text = FINDING[f.type] || f.type;
+    let text = f.type === "stable" && m.sampling?.referenceReliable === false ? "Glest underlag – utvecklingen mellan punkterna är okänd" : FINDING[f.type] || f.type;
     if (f.direction === "down" && f.type !== "trend") text = f.type === "new_signal" ? "Lägre värde (en avläsning)" : "Lägre nivå";
     if (f.withinPattern) text += " – i nivå med mätarens återkommande toppar";
     return text;

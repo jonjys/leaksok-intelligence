@@ -33,6 +33,7 @@
     trendMinReadings: 8,
     trendMinSpanDays: 14,
     highLevel: 50,
+    stableMinCoverage: 0.6, // own evidence rule, not a manufacturer threshold
     newRiseDays: 1,
   });
 
@@ -43,6 +44,7 @@
     watch: { label: "Bevaka", status: "BEVAKA", rank: 69 },
     customer_side: { label: "Efter mätare", status: "EFTER MÄTARE", rank: 60 },
     stable_high: { label: "Stabilt hög", status: "STABILT HÖG", rank: 40 },
+    sparse_history: { label: "Glest underlag", status: "GLEST UNDERLAG", rank: 45 },
     learning: { label: "Kort historik", status: "KORT HISTORIK", rank: 30 },
     stale_contact: { label: "Utan färsk avläsning", status: "EJ FÄRSK", rank: 25 },
     normal: { label: "Normal", status: "NORMAL", rank: 20 },
@@ -297,6 +299,9 @@
     for (let i = 1; i < points.length; i++) maxGap = Math.max(maxGap, days(points[i - 1].date, points[i].date));
     const span = days(first, last);
     return { n: points.length, days: span, maxGap, coverage: points.length / (span + 1), from: first, to: last };
+  }
+  function coveredEnough(coverage) {
+    return Boolean(coverage && coverage.coverage >= RULES.stableMinCoverage && coverage.maxGap <= RULES.gapDays);
   }
 
   // ---- trend (Theil–Sen slope, Kendall-style consistency) -------------------
@@ -621,6 +626,12 @@
       result.level = { current: cur.level, from: cur.from, to: cur.to, n: cur.n };
     }
 
+    const referenceCoverage = result.finding.ref ? History.coverage(series, result.finding.ref.from, result.finding.ref.to) : null;
+    const levelCoverage = result.level ? History.coverage(series, result.level.from, result.level.to) : null;
+    result.sampling = { all: History.coverage(series), reference: referenceCoverage, level: levelCoverage, referenceReliable: coveredEnough(referenceCoverage) };
+    const sparseStable = result.finding.type === "stable" && !coveredEnough(referenceCoverage);
+    if (sparseStable) { result.finding.delta = null; result.finding.pct = null; }
+
     // ---------- text: observation / explanation / action ----------
     const f = result.finding;
     const lv = (v) => fmtNum(v);
@@ -664,10 +675,15 @@
       if (f.count > 1) obs.push(`${f.count} kortvariga toppar senaste ${RULES.transientDays} dagarna.`);
     } else {
       const high = f.ref.level >= RULES.highLevel;
-      summary = high
-        ? `Stabilt hög nivå ca ${lv(f.ref.level)} sedan ${D(result.history.firstDate)} – ingen ny förändring`
-        : `Oförändrad nivå ca ${lv(f.ref.level)}`;
-      obs.push(`Nivå ${lv(f.ref.level)} (${refSpan(f.ref)}). Ingen förändring utanför mätarens normala variation.`);
+      if (sparseStable) {
+        summary = `${high ? "Hög nivå" : "Glest underlag"}: median ${lv(f.ref.level)} från ${f.ref.n} avläsningsdagar – utvecklingen mellan punkterna är okänd`;
+        obs.push(`De importerade avläsningarna har median ${lv(f.ref.level)} (${P(f.ref.from, f.ref.to)}, ${f.ref.n} avläsningsdagar). Underlaget räcker inte för att bedöma om nivån varit stabil eller ändrats mellan punkterna.`);
+      } else {
+        summary = high
+          ? `Hög och jämn i avläsningarna ${P(f.ref.from, f.ref.to)}: ca ${lv(f.ref.level)}`
+          : `Ingen tydlig förändring i avläsningarna: ca ${lv(f.ref.level)}`;
+        obs.push(`Nivå ${lv(f.ref.level)} (${refSpan(f.ref)}). Ingen tydlig förändring i de importerade avläsningarna.`);
+      }
     }
     if (f.minorChange) obs.push(`Senaste avläsningen ${lv(latest.value)} (${fmtSigned(f.minorChange)}) ligger inom normal variation för en enstaka avläsning.`);
     if (f.belowLongTerm) {
@@ -716,7 +732,11 @@
     else {
       obs.push(`Minimiflöde ${fmtNum(excel.minimumFlow)} l/h${excel.minimumFlowAt ? ` (${D(excel.minimumFlowAt)})` : " – datum saknas"}. ${codes.minimumFlowContinuous ? "Färskt positivt minimiflöde tyder på kontinuerligt flöde efter mätaren; kontrollera fastigheten." : excel.minimumFlow === 0 ? "Nollflöde utesluter inte en läcka före mätaren." : "Datum och aktualitet behöver verifieras innan flödet styr bedömningen."}`);
     }
-    for (const gap of result.history.gaps.slice(-2)) quality.push(`Inga avläsningar ${D(gap.from)}–${D(gap.to)} (${gap.days} dagar).`);
+    for (const gap of result.history.gaps.slice(-2)) quality.push(`Lucka i importunderlaget mellan ${D(gap.from)} och ${D(gap.to)} (${gap.days} dagar mellan avläsningarna). Kamstrup kan ha fler historiska värden.`);
+    if (referenceCoverage && !coveredEnough(referenceCoverage)) {
+      quality.push(`Glest jämförelseunderlag: ${referenceCoverage.readingDays} av ${referenceCoverage.expectedDays} kalenderdagar har importerade avläsningar. Liknande punkter bevisar inte stabilitet under luckorna.`);
+      missing.push("Fler daterade avläsningar från Kamstrup för luckorna; kontrollera även råkurvan där. En ny dagsöversikt återskapar inte saknad historik.");
+    }
     if (history.undated) quality.push(`${history.undated} exportrader saknar avläsningsdatum och används inte.`);
     if (result.history.readings && result.history.spanDays < 14 && (n < 3 || upFinding)) quality.push(`Historiken i appen omfattar ${result.history.spanDays + 1} ${result.history.spanDays ? "dagar" : "dag"} sedan första import – inte samma sak som mätarens ålder.`);
     if (excel.E != null && !(excel.F > 0)) quality.push(excel.F === 0 ? "Genomsnittsvärde F är 0 – P beräknas inte." : "Genomsnittsvärde F saknas – P beräknas inte.");
@@ -811,13 +831,14 @@
       const persistent = per && (upFinding.type === "trend" ? per.n >= 10 : per.n >= 5 && per.days >= 5 && per.coverage >= 0.6);
       const interferenceOk = !interference.any || (upFinding.pct ?? 0) >= 2;
       const provisional = total(parts);
-      category = fresh && persistent && strongEnough && interferenceOk && provisional >= 70 ? "dispatch" : "suspect_auto";
+      category = fresh && persistent && strongEnough && interferenceOk && coveredEnough(referenceCoverage) && coveredEnough(levelCoverage) && provisional >= 70 ? "dispatch" : "suspect_auto";
     } else if (codes.acousticLeak && levelNow >= 25) category = "suspect_auto";
     else if (excelSignal) category = "suspect_auto";
     else if (f.type === "single" && latest.value >= 100 && ageDays <= 1) category = "suspect_auto";
     else if (f.type === "transient" || f.withinPattern) category = "noise";
     else if (season?.status === "verified") category = "seasonal";
     else if (n < 3 || result.history.spanDays < 2) category = "learning";
+    else if (sparseStable) category = "sparse_history";
     else if ((result.level?.current ?? 0) >= RULES.highLevel) category = "stable_high";
 
     if (result.kamstrupInterest && !["dispatch", "customer_side", "stale_contact"].includes(category)) category = "suspect_auto";
@@ -867,6 +888,7 @@
     if (f.type === "transient") explain.push("Kortvarig topp med observerad återgång – oftast en tillfällig ljudkälla.");
     if (f.type === "level_shift" && f.direction === "down") explain.push("Lägre nivå kan bero på lagning, ändrad förbrukning eller mätförhållanden – bekräfta manuellt.");
     if (category === "stable_high") explain.push("Hög men oförändrad nivå kan vara en äldre läcka, pump eller ljudmiljö. Kamstrup anger att kurvans beteende väger tyngre än absolutnivån.");
+    if (sparseStable) explain.push("Datagap i appen säger inte att mätaren saknat avläsningar i Kamstrup. En hög nivå kan bero på läcka eller annan ljudkälla; appen saknar kurvans mellanliggande utveckling.");
     if (codes.leak || codes.burst || codes.minimumFlowContinuous) explain.push("Kamstrup rekommenderar att påverkan efter mätaren utesluts innan läcksökning på ledningsnätet. Kontinuerligt flöde kan också bero på legitim förbrukning.");
     if (upFinding && upFinding.type === "new_signal") missing.push("Fler avläsningar på den nya nivån.");
     if (upFinding && upFinding.persistence && upFinding.persistence.n < 5) missing.push("Minst 5 avläsningar under minst 5 dagar för att räknas som bestående.");
@@ -904,6 +926,8 @@
   function confidenceOf(result, up) {
     const n = result.history.assessedReadings;
     if (!result.latest || n < 3 || result.latest.ageDays >= RULES.staleDays) return "tunt";
+    if (result.sampling.reference && !coveredEnough(result.sampling.reference)) return "tunt";
+    if (up && result.sampling.level && !coveredEnough(result.sampling.level)) return "tunt";
     if (up) {
       const before = result.baseline?.n || 0;
       const after = up.persistence?.n || 1;
@@ -925,7 +949,8 @@
         return "Jämför med grannmätare och följ nästa avläsningar; kontrollera på plats om nivån består.";
       case "watch": return "Manuellt bevakad: följ nästa avläsningar.";
       case "customer_side": return "Kontakta fastighetsägaren: kontrollera förbrukning och installation efter mätaren.";
-      case "stable_high": return "Engångskontroll: jämför med grannar. Ingen ny förändring.";
+      case "stable_high": return "Jämför med grannmätare och följ nästa avläsningar. En hög nivå behöver förklaras även om de importerade värdena är jämna.";
+      case "sparse_history": return "Granska hela kurvan i Kamstrup och kontrollera glappet mot Excel-filerna. Bedömningen är osäker; liknande punktvärden utesluter inte en läcka.";
       case "learning": return "Avvakta fler avläsningar.";
       case "stale_contact": return "Ta reda på varför nya avläsningar saknas innan bedömning.";
       case "noise": return "Ingen åtgärd nu; bevaka om toppar återkommer.";

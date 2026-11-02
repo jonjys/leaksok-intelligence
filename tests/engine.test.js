@@ -111,7 +111,7 @@ test("8. lång datalucka räknas inte som beständighet", () => {
   assert.equal(m.finding.persistence.n, 4);
   assert.equal(m.finding.persistence.days, 3);
   assert.ok(m.observations.some((o) => /någon gång mellan 8 sep och 27 sep/.test(o)));
-  assert.ok(m.dataQuality.some((q) => /Inga avläsningar 8 sep–27 sep \(19 dagar\)/.test(q)));
+  assert.ok(m.dataQuality.some((q) => /Lucka i importunderlaget mellan 8 sep och 27 sep \(19 dagar/.test(q)));
 });
 
 test("9. gammal avläsning i ny export presenteras inte som färsk ökning", () => {

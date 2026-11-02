@@ -24,14 +24,14 @@ test("ingen kurva dras genom dataluckor", () => {
   const m = analyzed([5, 5, 5, 5, ...Array(10).fill(null), 10, 10, 10]);
   const { svg } = Chart.buildSvg(m, { width: 600, height: 240 });
   assert.equal(segments(svg), 2, "Two separate segments around the gap");
-  assert.match(svg, /class="ch-gap"><title>Inga avläsningar 4 sep–15 sep \(11 dagar\)/);
+  assert.match(svg, /class="ch-gap"><title>Lucka i importunderlaget mellan 4 sep och 15 sep: 10 mellanliggande dagar/);
   assert.doesNotMatch(svg, /NaN|Infinity|undefined/);
 });
 
 test("tid efter senaste avläsning visas som saknat underlag", () => {
   const m = analyzed([5, 6, 5, 6, 5, { value: 5, readDay: 4 }, { value: 5, readDay: 4 }, { value: 5, readDay: 4 }]);
   const { svg } = Chart.buildSvg(m, { width: 600, height: 240 });
-  assert.match(svg, /class="ch-stale"><title>Ingen ny avläsning 5 sep–8 sep \(3 dagar\)/);
+  assert.match(svg, /class="ch-stale"><title>Ingen ny avläsning i importen 5 sep–8 sep \(3 dagar\)/);
   const dots = svg.match(/class="ch-dot/g).length;
   assert.equal(dots, 5, "Re-exported readings are not drawn as new points");
 });
