@@ -59,7 +59,14 @@
         <input id="search" type="search" placeholder="Sök adress eller serienummer" aria-label="Sök">
         <label class="field"><span>Sortera efter</span>
           <select id="sort">
-            <option value="priority">Prioritet</option>
+            <option value="suspicion">Mest misstänkt · analys</option>
+            <option value="priority">Status / arbetsordning</option>
+            <option value="kamstrup">Kamstrups rang · 1 först</option>
+            <option value="persistence">Längst pågående signal</option>
+            <option value="neighbors">Flest grannar i områdessignal</option>
+            <option value="confidence">Starkast analysunderlag</option>
+            <option value="signalDate">Nyaste uppåtgående signal</option>
+            <option value="maxValue">Högsta historiska värde</option>
             <option value="change">Förändring sedan föregående (%)</option>
             <option value="changeAbs">Förändring sedan föregående (nivå)</option>
             <option value="baseline">Förändring mot jämförelsenivå (%)</option>
@@ -83,6 +90,8 @@
         </details>
       </section>
 
+      <p id="sortHelp" class="sort-help" role="status"></p>
+
       <div class="workspace">
       <section class="selection-bar" id="selectionBar" aria-label="Markering"></section>
 
@@ -92,6 +101,7 @@
           <div class="focus-actions">
             <button type="button" class="secondary" id="showFocusChart" data-chart-action="show" hidden>Visa graf</button>
             <button type="button" class="secondary" id="focusNavigate">Kör hit</button>
+            <button type="button" class="secondary" id="correctMapAddress">Rätta kartadress</button>
             <button type="button" class="secondary" id="focusMenu">Flytta till…</button>
             <button type="button" class="secondary" id="focusClose" aria-label="Stäng vald mätare">Stäng</button>
           </div>
@@ -116,6 +126,7 @@
             <div id="mapLegend" class="map-legend" aria-label="Kartans statusfärger"></div>
             <div id="map" class="map" aria-label="Karta"></div>
             <p id="mapStatus" class="map-status" role="status" aria-live="polite"></p>
+            <div id="mapMissing" class="map-missing" hidden></div>
 
           </div>
         </div>
@@ -198,6 +209,18 @@
     <button type="button" id="restoreApply" class="primary">Lägg till i arbetsytan</button>
   </dialog>
 
+  <dialog id="addressDialog" class="form-dialog" aria-labelledby="addressTitle">
+    <form id="addressForm">
+      <div class="dialog-head"><h2 id="addressTitle">Rätta kartadress</h2><button type="button" class="secondary" data-close>Avbryt</button></div>
+      <p id="addressOriginal"></p>
+      <label class="stack">Gata, husnummer och ort<input id="addressInput" list="addressSuggestions" autocomplete="off" required></label>
+      <datalist id="addressSuggestions"></datalist>
+      <p class="small">Välj adressen där mätaren hör hemma. Kartadressen sparas för kommande importer på denna enhet.</p>
+      <p id="addressError" class="form-error" role="alert"></p>
+      <div class="button-row"><button type="submit" class="primary">Spara kartadress</button><button type="button" class="secondary" id="addressReset">Använd Excel-adressen</button></div>
+    </form>
+  </dialog>
+
   <dialog id="profileDialog" class="form-dialog profile-dialog">
     <form id="profileForm">
       <p class="eyebrow">Din lokala arbetsyta</p>
@@ -222,6 +245,7 @@
   <script src="./src/field-export.js"></script>
   <script src="./src/chart.js"></script>
   <script src="./src/meter-view.js"></script>
+  <script src="./src/address-index.js"></script>
   <script src="./src/map.js"></script>
   <script src="./src/worklist.js"></script>
   <script src="./src/app.js"></script>

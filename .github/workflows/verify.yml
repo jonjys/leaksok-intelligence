@@ -22,7 +22,7 @@ jobs:
           node-version: '22'
       - name: Syntax and regression suite
         run: |
-          for f in src/*.js; do node --check "$f" || exit 1; done
+          for f in src/*.js api/*.js; do node --check "$f" || exit 1; done
           node --test tests/*.test.js
   browser:
     runs-on: ubuntu-latest

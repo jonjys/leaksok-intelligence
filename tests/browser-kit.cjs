@@ -3,6 +3,16 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const { buildDailyExports } = require('./fixtures/synthetic-exports');
+const { parseAddress } = require('../src/address-index');
+const fixtureAddresses = buildDailyExports({ meters: 3000, days: 1 }).at(-1).rows.slice(1).map(row => {
+  const p = parseAddress({ address: row[1] });
+  if (!p) return null;
+  let hash = 0;
+  for (const char of p.street) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return [p.road, p.house, p.postcode, p.city, 6561000 + hash % 10000, 136000 + (hash >> 10) % 10000];
+}).filter(Boolean);
+fixtureAddresses.push(...[1, 3, 5].map(n => ['OMRÅDESTESTVÄGEN', String(n), '14730', 'Tumba', 6565000 + n * 11, 138572]));
 
 const root = path.resolve(__dirname, '..');
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
@@ -20,6 +30,7 @@ function startServer(port = 4173) {
 
 // LEAKSOK_VENDOR may point at local copies of the CDN files (offline runs).
 async function routeExternal(page) {
+  await page.route('**/api/addresses', route => route.fulfill({ json: { version: 1, crs: 'EPSG:3011', rows: fixtureAddresses } }));
   const vendor = process.env.LEAKSOK_VENDOR;
   const local = {
     'xlsx.full.min.js': 'text/javascript', 'chart.umd.min.js': 'text/javascript',
@@ -33,18 +44,7 @@ async function routeExternal(page) {
     });
   }
   await page.route(/tile\.openstreetmap\.org|arcgisonline\.com/, (route) => route.fulfill({ status: 204, body: '' }));
-  await page.route('https://nominatim.openstreetmap.org/**', (route) => {
-    const url = new URL(route.request().url());
-    const street = url.searchParams.get('street') || url.searchParams.get('q') || '';
-    const match = street.match(/^(.*?)\s+(\d+\S*)$/);
-    if (!match) return route.fulfill({ json: [] });
-    let hash = 0;
-    for (const char of street) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-    return route.fulfill({ json: [{
-      lat: String(59.15 + (hash % 1000) / 10000), lon: String(17.75 + ((hash >> 10) % 1000) / 10000),
-      display_name: street, address: { house_number: match[2], road: match[1], postcode: url.searchParams.get('postalcode') || '' },
-    }] });
-  });
+  await page.route('https://nominatim.openstreetmap.org/**', route => { throw Error('Unexpected external address lookup'); });
 }
 
 async function unlock(page, name = 'Test', code = '1234') {

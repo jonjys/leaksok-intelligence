@@ -9,11 +9,10 @@ const {buildDailyExports,toCsv} = require('./fixtures/synthetic-exports.js');
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await kit.routeExternal(page);
   // Nearby exact house-number hits; no existing cached positions are seeded.
-  await page.route('https://nominatim.openstreetmap.org/**',route=>{
-    const street=new URL(route.request().url()).searchParams.get('street');
-    const number=street?.match(/(\d+)$/)?.[1];
-    return route.fulfill({json:[{lat:String(59.2+(Number(number)-18)*0.0002),lon:'17.8',address:{road:'TESTVÄGEN',house_number:number,postcode:'14730'}}]});
-  });
+  await page.route('**/api/addresses', route => route.fulfill({ json: { version: 1, crs: 'EPSG:3011', rows: [
+    ['Testvägen', '18', '14730', 'Tumba', 6564965.589387756, 138571.6825256435],
+    ['Testvägen', '20', '14730', 'Tumba', 6565010.148694058, 138571.81613022237],
+  ] } }));
   try{
     await page.goto('http://127.0.0.1:4179/',{waitUntil:'load'});await kit.unlock(page,'Läckfall','1234');
     const files=buildDailyExports({meters:2,days:28,end:'2026-09-28'}).map((f,i)=>{

@@ -55,7 +55,7 @@
   const state = {
     files: [], labels: loadLabelBackup(), tripList: [], profileId: null, profileName: null,
     areaSignals: [], coordinatesKey: "", prepared: null, cache: new Map(), meters: [], byId: new Map(), latestExport: null,
-    list: "all", search: "", sort: "priority", sortReverse: false, area: "all", excluded: new Set(DEFAULT_HIDDEN),
+    list: "all", search: "", sort: "suspicion", sortReverse: false, area: "all", excluded: new Set(DEFAULT_HIDDEN),
     page: 1, pageSize: 50, marked: new Set(), focusId: "", chartHidden: false, expanded: new Set(),
     view: readView(), importing: false, historyDirty: false, storageError: "", visible: [],
   };
@@ -638,12 +638,13 @@
           </div>
         </details>
       </div>
-      <div class="list-sort" role="group" aria-label="Sortera efter"><button type="button" data-sort="address">Adress</button><button type="button" data-sort="value">Nivå</button><button type="button" data-sort="change">Förändring %</button><button type="button" data-sort="priority">Prioritet</button></div>`;
+      <div class="list-sort" role="group" aria-label="Sortera efter"><button type="button" data-sort="address">Adress</button><button type="button" data-sort="value">Nivå</button><button type="button" data-sort="change">Förändring %</button><button type="button" data-sort="suspicion">Mest misstänkt</button><button type="button" data-sort="priority">Status</button></div>`;
     renderSortControls();
   }
 
   function renderSortControls() {
-    const ascending = ["address", "area"].includes(state.sort) !== state.sortReverse;
+    const ascending = MeterView.ascendingSorts.has(state.sort) !== state.sortReverse;
+    $("sortHelp").textContent = MeterView.sortHelp[state.sort] || "";
     const directionButton = $("sortDirection");
     directionButton.textContent = ascending ? "↑" : "↓";
     directionButton.setAttribute("aria-label", `Byt sorteringsriktning · ${ascending ? "stigande" : "fallande"}`);
@@ -651,7 +652,7 @@
     directionButton.setAttribute("aria-pressed", String(state.sortReverse));
     document.querySelectorAll("[data-sort]").forEach((b) => {
       const active = b.dataset.sort === state.sort;
-      const ascending = ["address", "area"].includes(state.sort) !== state.sortReverse;
+      const ascending = MeterView.ascendingSorts.has(state.sort) !== state.sortReverse;
       b.dataset.sortLabel ||= b.textContent;
       b.textContent = `${b.dataset.sortLabel}${active ? ascending ? " ↑" : " ↓" : ""}`;
       b.setAttribute("aria-pressed", String(active));
@@ -676,7 +677,7 @@
   function ensureMap() {
     if (mapView || !window.LeakMap) return mapView;
     mapView = LeakMap.create({
-      element: els.map, statusElement: els.mapStatus, legendElement: $("mapLegend"),
+      element: els.map, statusElement: els.mapStatus, legendElement: $("mapLegend"), missingElement: $("mapMissing"),
       onFocus: (id) => setFocus(id, { scroll: false }),
       onMarkMany: (ids) => { ids.forEach((id) => state.marked.add(id)); if (ids.length) setFocus(ids.includes(state.focusId) ? state.focusId : ids[0], { scroll: false }); render(); },
       label: (m) => shortAddress(m),
@@ -691,6 +692,7 @@
     els.focus.classList.toggle("chart-hidden", state.chartHidden);
     els.focusChart.hidden = state.chartHidden || !m;
     $("showFocusChart").hidden = !m || !state.chartHidden;
+    $("correctMapAddress").disabled = !m;
     document.body.classList.toggle("has-focus", !els.focus.hidden);
     if (els.focus.hidden) { mapRenderVersion++; lastMapKey = ""; return; }
     if (m) {
@@ -747,6 +749,39 @@
       }).catch(() => { /* Map status already reports address lookup failures. */ });
     });
   }
+
+  let addressMeter = null;
+  function openAddressDialog(meter) {
+    if (!meter) return;
+    addressMeter = meter;
+    $("addressOriginal").textContent = `Från Excel: ${meter.address}`;
+    $("addressInput").value = LeakMap.correctionFor(meter) || meter.address;
+    $("addressSuggestions").replaceChildren();
+    $("addressError").textContent = "";
+    $("addressDialog").showModal();
+    $("addressInput").focus();
+  }
+  $("correctMapAddress").addEventListener("click", () => openAddressDialog(state.byId.get(state.focusId)));
+  $("mapMissing").addEventListener("click", event => {
+    const button = event.target.closest("[data-correct-address]");
+    if (button) openAddressDialog(state.byId.get(button.dataset.correctAddress));
+  });
+  $("addressInput").addEventListener("input", () => {
+    $("addressError").textContent = "";
+    $("addressSuggestions").innerHTML = LeakAddressIndex.suggestions($("addressInput").value).map(s => `<option value="${esc(s)}"></option>`).join("");
+  });
+  async function saveAddress(address) {
+    if (!addressMeter) return;
+    try {
+      await LeakMap.correctAddress(addressMeter, address);
+      $("addressDialog").close();
+      lastMapKey = "";
+      setFocus(addressMeter.id, { scroll: false });
+      reanalyze();
+    } catch (error) { $("addressError").textContent = error.message; }
+  }
+  $("addressForm").addEventListener("submit", event => { event.preventDefault(); saveAddress($("addressInput").value); });
+  $("addressReset").addEventListener("click", () => saveAddress(""));
 
   // Selecting a meter only updates the focus panel; the table is not rebuilt.
   function setFocus(id, { scroll = true, keepRow = null } = {}) {

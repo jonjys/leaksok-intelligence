@@ -210,24 +210,19 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     // Phone: cards, list picker, no horizontal page overflow.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator("#listSelect").selectOption("suspect");
+    const phoneFocus = await page.locator('#rows tr.row').first().getAttribute('data-id');
     await page.locator("#rows tr.row").first().locator(".addr").click();
-    await page.waitForSelector("#focusChart .ch-stage svg");
+    await page.waitForFunction(id => state.focusId === id && document.querySelector('#focusChart').__chart?.id === id, phoneFocus);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, "No horizontal overflow on phone");
-    const chart = await page.locator("#focusChart").boundingBox();
-    const map = await page.locator("#map").boundingBox();
-    assert.ok(chart.y > map.y + map.height - 5, "Compact chart below the map on phone");
+    await page.waitForFunction(() => {
+      const chart = document.querySelector('#focusChart').getBoundingClientRect(), map = document.querySelector('#map').getBoundingClientRect();
+      return chart.top > map.bottom - 5;
+    });
     await page.screenshot({ path: "test-results/mobile-390.png", fullPage: true });
 
     // Supplemental area evidence: three nearby addresses, same rise, no replacement
     // of existing decisions. Click once to mark the group and show its evidence.
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.route('https://nominatim.openstreetmap.org/**', async (route) => {
-      const street = new URL(route.request().url()).searchParams.get('street') || '';
-      if (!street.startsWith('OMRÅDESTESTVÄGEN ')) return route.fallback();
-      const house = street.match(/(\d+)$/)[1];
-      return route.fulfill({ json: [{ lat: String(59.2 + Number(house) / 10000), lon: '17.8',
-        display_name: street, address: { house_number: house, road: 'OMRÅDESTESTVÄGEN', postcode: '14730' } }] });
-    });
     const areaIds = ['98000001', '98000002', '98000003'];
     const areaFiles = Array.from({ length: 12 }, (_, i) => {
       const date = `2026-09-${String(i + 19).padStart(2, '0')}`;
