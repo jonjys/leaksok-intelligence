@@ -3,10 +3,12 @@
 (function (root) {
   const GEOCODE_CACHE_KEY = "leaksok_geocode_v2_exact";
   const MAP_MARKS_KEY = "leaksok_map_marks_v1";
-  const BOUNDS = [[59.065, 17.54], [59.29, 18.035]];
+  const BOUNDS = [[59.03, 17.54], [59.30, 18.035]];
   const CENTER = [59.18, 17.8];
-  const LOOKUP_VERSION = 6;
   const View = root.LeakMeterView;
+  const Index = root.LeakAddressIndex;
+  const corrections = readJson("leaksok_address_corrections_v1");
+  const parseAddress = Index.parseAddress;
 
 
   function readJson(key) {
@@ -19,24 +21,14 @@
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   function addressForMap(meter = {}) {
+    const corrected = corrections[norm(meter.address)];
+    if (corrected) return `${corrected}, Sverige`;
     const raw = String(meter.address || "").replace(/\s+/g, " ").trim();
     if (!raw) return "";
     const postal = raw.match(/^(.*?\d+(?:[-/]\d+)?[A-Za-z]?)\s+(.+?)\s+(\d{5})$/i);
     if (postal) return `${postal[1]}, ${postal[3]} ${postal[2]}, Sverige`;
     const area = String(meter.area || "").trim();
     return `${raw}${area && !norm(raw).includes(norm(area)) ? `, ${area}` : ""}, Sverige`;
-  }
-  function parseAddress(meter = {}) {
-    const raw = String(meter.address || "").replace(/[–—]/g, "-").replace(/(\d)\s*([-\/])\s*(?=\d)/g, "$1$2").replace(/(\d)\s+([A-Za-z])(?=\s|$)/g, "$1$2").replace(/([A-Za-zÅÄÖåäö])(?=\d)/g, "$1 ").replace(/(\d{3})\s+(\d{2})(?=\s|$)/g, "$1$2").replace(/,+/g, " ").replace(/\s+/g, " ").trim();
-    const atEnd = raw.match(/^(.+?)\s+(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(.+?)\s+(\d{5})$/i);
-    const before = raw.match(/^(.+?)\s+(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(\d{5})\s+(.+)$/i);
-    if (atEnd) return { street: `${atEnd[1]} ${atEnd[2]}`, road: atEnd[1], house: atEnd[2], city: atEnd[3], postcode: atEnd[4] };
-    if (before) return { street: `${before[1]} ${before[2]}`, road: before[1], house: before[2], city: before[4], postcode: before[3] };
-    const onlyPostcode = raw.match(/^(.+?)\s+(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(\d{5})$/i);
-    if (onlyPostcode) return { street: `${onlyPostcode[1]} ${onlyPostcode[2]}`, road: onlyPostcode[1], house: onlyPostcode[2], city: meter.area || "Botkyrka", postcode: onlyPostcode[3] };
-    const noPostcode = raw.match(/^(.+?)\s+(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)(?:\s+(.+?))?$/i);
-    if (noPostcode) return { street: `${noPostcode[1]} ${noPostcode[2]}`, road: noPostcode[1], house: noPostcode[2], city: noPostcode[3] || meter.area || "Botkyrka", postcode: "" };
-    return null;
   }
   const roadKey = (v) => norm(v).replace(/['’´`]/g, "").replace(/\s*[-]\s*/g, "-");
   function sameRoad(hit, parsed) {
@@ -55,82 +47,18 @@
 
   function cachedPosition(meter) {
     if (!meter?.address) return null;
+    const correction = corrections[norm(meter.address)];
+    const exact = Index.position(correction ? { address: correction } : meter);
+    if (inside(exact)) return { ...exact, corrected: !!correction };
     const hit = cache[keyOf(meter)];
-    return inside(hit) && !hit.approximate ? { lat: hit.lat, lng: hit.lng } : null;
+    if (Index.ready() && hit?.source === "municipal") return null;
+    if (!inside(hit) || hit.approximate) return null;
+    const { at, lookupVersion, ...position } = hit;
+    return { ...position, corrected: !!correction };
   }
 
-  const jobs = [];
-  let searching = false;
-  let lastRequest = 0;
-  const inflight = new Map();
-  async function search(url) {
-    const wait = Math.max(0, 1100 - (Date.now() - lastRequest));
-    if (wait) await new Promise((r) => setTimeout(r, wait));
-    lastRequest = Date.now();
-    const controller = typeof AbortController === "function" ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), 10000) : null;
-    try {
-      const response = await fetch(url, { headers: { Accept: "application/json" }, ...(controller ? { signal: controller.signal } : {}) });
-      if (!response.ok) throw new Error(`Adressökning misslyckades (${response.status})`);
-      const hits = await response.json();
-      return Array.isArray(hits) ? hits : [];
-    } catch (error) {
-      if (error.name === "AbortError") throw new Error("Adressökningen tog för lång tid. Klicka på adressen igen för att försöka på nytt.");
-      throw error;
-    } finally { if (timer != null) clearTimeout(timer); }
-  }
-  async function runSearches() {
-    if (searching) return;
-    searching = true;
-    try {
-      while (jobs.length) {
-        jobs.sort((a, b) => Number(b.priority) - Number(a.priority));
-        const job = jobs.shift();
-        try { job.resolve(await job.run()); } catch (error) { job.reject(error); }
-        finally { inflight.delete(job.key); }
-      }
-    } finally { searching = false; }
-  }
-  function geocode(meter, retryMissing = false) {
-    const key = keyOf(meter);
-    if (!key) return Promise.resolve(null);
-    const known = cachedPosition(meter);
-    if (known) return Promise.resolve(known);
-    if (!retryMissing && cache[key]?.missing && cache[key].lookupVersion === LOOKUP_VERSION && Date.now() - Number(cache[key].at || 0) < 7 * 86400000) return Promise.resolve(null);
-    if (inflight.has(key)) {
-      const queued = jobs.find((job) => job.key === key);
-      if (queued && retryMissing) queued.priority = true;
-      return inflight.get(key);
-    }
-    const lookup = async () => {
-      const url = new URL("https://nominatim.openstreetmap.org/search");
-      const parsed = parseAddress(meter);
-      if (!parsed) return null;
-      Object.entries({ format: "jsonv2", limit: "5", addressdetails: "1", countrycodes: "se", "accept-language": "sv", bounded: "1", viewbox: `${BOUNDS[0][1]},${BOUNDS[1][0]},${BOUNDS[1][1]},${BOUNDS[0][0]}` }).forEach(([k, v]) => url.searchParams.set(k, v));
-      if (parsed) { url.searchParams.set("street", parsed.street); url.searchParams.set("city", parsed.city); if (parsed.postcode) url.searchParams.set("postalcode", parsed.postcode); url.searchParams.set("country", "Sverige"); }
-      else url.searchParams.set("q", addressForMap(meter));
-      const results = await search(url);
-      const validHit = (c) => inside({ lat: Number(c.lat), lng: Number(c.lon) });
-      let hit = results.find((c) => validHit(c) && exactHit(c, parsed));
-      // Postal towns such as Tullinge/Norsborg are not always indexed as cities.
-      // Retry within the same bounds and still require the exact road/house.
-      if (!hit && parsed) {
-        ["street", "city", "postalcode", "country"].forEach((key) => url.searchParams.delete(key));
-        url.searchParams.set("q", `${parsed.street}, Botkyrka, Sverige`);
-        const candidates = await search(url);
-        hit = candidates.find((c) => validHit(c) && exactHit(c, parsed));
-
-      }
-      const pos = hit ? { lat: Number(hit.lat), lng: Number(hit.lon) } : null;
-      if (!inside(pos)) { cache[key] = { missing: true, lookupVersion: LOOKUP_VERSION, at: Date.now() }; persistCache(); return null; }
-      cache[key] = { ...pos, lookupVersion: LOOKUP_VERSION, at: Date.now() };
-      persistCache();
-      return pos;
-    };
-    const task = new Promise((resolve, reject) => jobs.push({ key, priority: retryMissing, run: lookup, resolve, reject }));
-    inflight.set(key, task);
-    runSearches();
-    return task;
+  function remember(meter, position) {
+    if (position && inside(position)) cache[keyOf(meter)] = { ...position, at: Date.now() };
   }
   function persistCache() {
     const entries = Object.entries(cache);
@@ -291,47 +219,48 @@
       const rank = (m) => m.id === focusId ? 2 : marked.has(m.id) ? 1 : 0;
       const wanted = [...meters].sort((a, b) => rank(b) - rank(a));
       const located = [];
-      const queue = [];
       for (const m of wanted) {
         const pos = cachedPosition(m);
-        if (pos) located.push({ m, pos }); else queue.push(m);
+        if (pos) located.push({ m, pos });
       }
-      const failures = new Set();
-      let completed = 0;
-      let focusResolved = !focusId || located.some(({ m }) => m.id === focusId);
+      let loading = !Index.ready(), failed = false, index;
       const report = () => {
         const selected = wanted.find((m) => m.id === focusId);
         const selectedFound = located.some(({ m }) => m.id === focusId);
         const focusMessage = selected && !selectedFound
-          ? !focusResolved ? `Söker adress för ${selected.address}… `
-            : failures.has(focusId) ? `Vald mätare: adressökningen misslyckades för ${selected.address}. Klicka igen för att försöka på nytt. `
-            : `Vald mätare: adressen ${selected.address} kunde inte hittas. Ingen plupp placeras på en annan adress. ` : "";
-        const pending = queue.length - completed;
-        const missing = wanted.length - located.length - pending - failures.size;
+          ? loading ? `Hämtar adressunderlag för ${selected.address}… `
+            : failed ? `Adressregistret kunde inte hämtas för ${selected.address}. Klicka igen för att försöka på nytt. `
+            : `Vald mätare: adressen ${selected.address} kunde inte hittas. Rätta kartadressen nedan. ` : "";
+        const missing = wanted.length - located.length;
         const markedFound = located.filter(({ m }) => current.marked.has(m.id)).length;
-        status(`${focusMessage}${located.length} av ${wanted.length} på kartan${current.marked.size ? ` · ${markedFound} av ${current.marked.size} markerade på kartan` : ""}${pending ? ` · söker ${pending} återstående adresser…` : ""}${missing > 0 ? ` · ${missing} adresser kunde inte hittas` : ""}${failures.size ? ` · ${failures.size} adressökningar misslyckades, klicka på adressen för att försöka på nytt` : ""}`);
-        if (options.statusElement) options.statusElement.dataset.state = selected && focusResolved && !selectedFound ? "warning" : pending ? "loading" : "ready";
+        const intervalCount = located.filter(({ pos }) => pos.interval).length;
+        status(`${focusMessage}${located.length} av ${wanted.length} på kartan${current.marked.size ? ` · ${markedFound} av ${current.marked.size} markerade på kartan` : ""}${loading ? " · hämtar kommunens adressregister…" : failed ? " · adressregistret kunde inte hämtas, klicka på en adress för att försöka igen" : `${missing ? ` · ${missing} adresser kunde inte hittas` : ""}${intervalCount ? ` · ${intervalCount} adressintervall visas vid ett angivet husnummer` : ""}`}${index?.stale ? " · sparat adressunderlag" : ""}`);
+        if (options.statusElement) options.statusElement.dataset.state = failed || (!loading && missing) ? "warning" : loading ? "loading" : "ready";
       };
       draw(located, mode);
       report();
-      for (const m of queue) {
-        if (run !== version) return;
-        try {
-          const pos = await geocode(m, m.id === focusId);
-          if (run !== version) return;
-          if (pos) located.push({ m, pos });
-        } catch (error) {
-          if (run !== version) return;
-          failures.add(m.id);
-        }
-        completed++;
-        if (m.id === focusId) focusResolved = true;
-        draw(located, mode);
-        report();
-      }
+      try { index = await Index.load(); } catch { failed = true; }
       if (run !== version) return;
+      loading = false;
+      located.length = 0;
+      for (const m of wanted) {
+        const pos = cachedPosition(m);
+        if (pos) { located.push({ m, pos }); remember(m, pos); }
+      }
+      if (!failed) persistCache();
       draw(located, mode, true);
       report();
+      const foundIds = new Set(located.map(e => e.m.id));
+      renderMissing(wanted.filter(m => !foundIds.has(m.id)), failed);
+    }
+
+    function renderMissing(meters, failed) {
+      if (!options.missingElement) return;
+      const container = options.missingElement;
+      container.hidden = !meters.length || failed;
+      if (container.hidden) return;
+      const open = container.querySelector("details")?.open;
+      container.innerHTML = `<details${open ? " open" : ""}><summary>${meters.length} mätare saknar säker adresspunkt · visa och rätta</summary><p>Kontrollera gatunamn, husnummer och bokstav. Namn som ”i container” behöver en kartadress. Ändringen sparas på denna enhet.</p><ul>${meters.slice(0, 100).map(m => `<li><span>${esc(m.address)} <small>${esc(m.serial || m.id)}</small></span><button type="button" class="secondary" data-correct-address="${esc(m.id)}">Rätta kartadress</button></li>`).join("")}</ul>${meters.length > 100 ? `<p>Visar de första 100. Använd adressfiltret för att begränsa listan.</p>` : ""}</details>`;
     }
 
     function renderLegend(located) {
@@ -340,7 +269,7 @@
       for (const { m } of located) counts.set(m.category || "normal", (counts.get(m.category || "normal") || 0) + 1);
       const chips = Object.entries(View.statuses).filter(([key]) => counts.has(key)).map(([key, entry]) =>
         `<span class="map-legend-chip" data-category="${key}" style="--meter-color:${entry.color}"><i aria-hidden="true"></i>${esc(entry.label)} <b>${counts.get(key)}</b></span>`).join("");
-      const content = `${chips}<span class="map-legend-selection"><i aria-hidden="true"></i>Svart ring = markerad · stor ring + adress = vald</span>`;
+      const content = `${chips}<span class="map-legend-selection"><i aria-hidden="true"></i>Svart ring = markerad · stor ring + adress = vald</span><a class="map-source" href="https://karta.botkyrka.se/" target="_blank" rel="noopener">Adresspunkter: Botkyrka kommun</a>`;
       if (options.legendElement.innerHTML !== content) options.legendElement.innerHTML = content;
     }
 
@@ -379,7 +308,8 @@
         const address = esc(options.label ? options.label(m) : m.address);
         const max = m.series?.length ? Math.max(...m.series.map((p) => p.value)) : null;
         const date = m.latest?.date instanceof Date ? m.latest.date.toLocaleDateString("sv-SE") : "Datum saknas";
-        const tip = `<div class="map-meter-tip" style="--meter-color:${style.fillColor}"><b>${address}</b><span class="map-tip-status">${esc(m.status || View.statuses[m.category]?.label || "")}${isMarked ? " · Markerad" : ""}</span><span>Adressposition · ${esc(date)}</span><dl><dt>Senaste nivå</dt><dd>${esc(m.latest?.value ?? "–")}</dd><dt>Max i historiken</dt><dd>${esc(max ?? "–")}</dd></dl></div>`;
+        const addressNote = pos.corrected ? `Rättad kartadress: ${pos.address || corrections[norm(m.address)]}` : pos.interval ? `Adressintervall · punkt vid ${pos.address}` : "Adressposition";
+        const tip = `<div class="map-meter-tip" style="--meter-color:${style.fillColor}"><b>${address}</b><span class="map-tip-status">${esc(m.status || View.statuses[m.category]?.label || "")}${isMarked ? " · Markerad" : ""}</span><span>${esc(addressNote)} · ${esc(date)}</span><dl><dt>Senaste nivå</dt><dd>${esc(m.latest?.value ?? "–")}</dd><dt>Max i historiken</dt><dd>${esc(max ?? "–")}</dd></dl></div>`;
         if (entry.tip !== tip || entry.focus !== isFocus) {
           if (entry.tip != null) marker.unbindTooltip();
           marker.bindTooltip(tip, { permanent: isFocus, direction: "top", offset: [0, -8], className: "map-label" });
@@ -468,15 +398,36 @@
 
   function coordinates(meters) {
     const out = new Map();
-    for (const m of meters) { const pos = cachedPosition(m); if (pos && !pos.approximate) out.set(m.id, pos); }
+    for (const m of meters) { const pos = cachedPosition(m); if (pos && !pos.approximate) out.set(m.id, { lat: pos.lat, lng: pos.lng }); }
     return out;
   }
 
   async function resolvePositions(meters) {
-    for (const m of meters.slice(0, 12)) await geocode(m);
+    await Index.load();
+    for (const m of meters) remember(m, cachedPosition(m));
+    persistCache();
     return coordinates(meters);
   }
 
-  root.LeakMap = { resolvePositions, create, navigationUrl, coordinates, markFor: (id) => marks[id] || null, addressForMap, parseAddress, exactHit, cachedPosition };
+  async function correctAddress(meter, address) {
+    await Index.load();
+    const entered = String(address || "").replace(/\s+/g, " ").trim();
+    const position = entered ? Index.position({ address: entered }) : null;
+    if (entered && !position) throw Error("Ingen säker träff. Välj en fullständig adress med rätt husnummer och eventuell bokstav.");
+    const key = norm(meter.address), previous = corrections[key];
+    if (position) corrections[key] = `${position.address}, ${position.postcode} ${position.city}`;
+    else delete corrections[key];
+    try { localStorage.setItem("leaksok_address_corrections_v1", JSON.stringify(corrections)); }
+    catch {
+      if (previous) corrections[key] = previous; else delete corrections[key];
+      throw Error("Kartadressen kunde inte sparas på enheten. Kontrollera webbläsarens lagringsutrymme.");
+    }
+    remember(meter, cachedPosition(meter));
+    persistCache();
+    return position;
+  }
+
+  root.LeakMap = { resolvePositions, create, navigationUrl, coordinates, markFor: (id) => marks[id] || null, addressForMap, parseAddress, exactHit, cachedPosition, correctAddress,
+    correctionFor: meter => corrections[norm(meter?.address)] || "" };
 }(typeof globalThis !== "undefined" ? globalThis : this));
 

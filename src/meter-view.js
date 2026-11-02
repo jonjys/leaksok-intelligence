@@ -21,22 +21,50 @@
   });
   const addressOrder = (a, b) => String(a.address || "").localeCompare(String(b.address || ""), "sv", { numeric: true }) || String(a.id).localeCompare(String(b.id), "sv", { numeric: true });
   const numeric = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const ascendingSorts = new Set(["address", "area", "kamstrup"]);
+  const sortHelp = {
+    suspicion: "Mest misstänkt: analyspoäng 0–100 från förändring, varaktighet, aktualitet och grannsignaler. Poängen är en rangordning, inte sannolikhet för läcka. Visa underlag med i-knappen.",
+    priority: "Status och arbetsordning först, därefter analyspoäng. Manuella beslut påverkar statusen.",
+    kamstrup: "Kamstrups rang i senaste exporten: 1 först. Appens egen analyspoäng är en separat bedömning.",
+    persistence: "Längst pågående uppåtgående signal först, räknat från importerade avläsningar.",
+    neighbors: "Flest mätare i samma upptäckta områdessignal först. Visar gemensam påverkan, inte läckans plats.",
+    confidence: "Starkast analysunderlag först: starkt, medel, tunt. Ett starkt underlag betyder inte att en läcka är konstaterad.",
+    signalDate: "Senast upptäckta uppåtgående signal först. En gammal avläsning i en ny export räknas inte som en ny signal.",
+    maxValue: "Högsta avlästa värde i den importerade historiken först. Gamla toppar är inte automatiskt aktiva varningar.",
+    change: "Största procentuella ökning sedan föregående avläsning först. Referensvärde 0 ger ingen beräknad procent.",
+    changeAbs: "Största ökning i exportens nivåvärden sedan föregående avläsning först.",
+    baseline: "Största procentuella ökning mot mätarens jämförelsenivå först. Listan visar samma jämförelse.",
+  };
   function comparator(sort = "priority", reverse = false, districtOf = (m) => m.area || "") {
-    const value = (m) => ({
-      priority: numeric(m.sortRank), change: numeric(m.changePrev?.pct),
-      changeAbs: numeric(m.changePrev?.delta), baseline: numeric(m.finding?.pct),
-      lastRead: numeric(m.latest?.date?.getTime()), value: numeric(m.latest?.value),
-    })[sort];
+    const maxValues = new WeakMap();
+    const selectors = {
+      suspicion: (m) => m.latest ? m.priority : null,
+      priority: (m) => m.sortRank,
+      change: (m) => m.changePrev?.pct,
+      changeAbs: (m) => m.changePrev?.delta,
+      baseline: (m) => m.finding?.pct,
+      lastRead: (m) => m.latest?.date?.getTime(),
+      value: (m) => m.latest?.value,
+      kamstrup: (m) => m.excel?.interestRank > 0 ? m.excel.interestRank : null,
+      persistence: (m) => m.upFinding?.persistence?.days,
+      neighbors: (m) => m.areaSignal?.count,
+      confidence: (m) => ({ starkt: 2, medel: 1, tunt: 0 })[m.confidence],
+      signalDate: (m) => m.upFinding?.onset?.at?.getTime(),
+      maxValue: (m) => {
+        if (!maxValues.has(m)) maxValues.set(m, m.series?.length ? Math.max(...m.series.map(p => p.value)) : null);
+        return maxValues.get(m);
+      },
+    };
+    const selector = selectors[sort] || selectors.priority;
+    const value = (m) => numeric(selector(m));
     const direction = reverse ? -1 : 1;
     return (a, b) => {
       if (sort === "address") return direction * addressOrder(a, b);
       if (sort === "area") return direction * (String(districtOf(a)).localeCompare(String(districtOf(b)), "sv") || addressOrder(a, b));
       const av = value(a), bv = value(b);
-      // Missing percentages (including a zero reference) must stay at the end,
-      // in both directions. Never calculate Infinity - Infinity or invent 0%.
       const missing = Number(av == null) - Number(bv == null);
       if (missing) return missing;
-      const difference = av != null && bv != null ? bv - av : 0;
+      const difference = av != null && bv != null ? (ascendingSorts.has(sort) ? av - bv : bv - av) : 0;
       const tie = sort === "change" && av != null && bv != null
         ? (numeric(b.changePrev?.delta) ?? 0) - (numeric(a.changePrev?.delta) ?? 0) : 0;
       return direction * (difference || tie) || (numeric(b.sortRank) ?? 0) - (numeric(a.sortRank) ?? 0) || addressOrder(a, b);
@@ -47,5 +75,5 @@
       meter.latest?.value, meter.latest?.date?.getTime(), meter.series?.length,
       meter.series?.length ? Math.max(...meter.series.map((p) => p.value)) : null];
   }
-  return { statuses, comparator, mapRevision };
+  return { statuses, comparator, mapRevision, ascendingSorts, sortHelp };
 }));

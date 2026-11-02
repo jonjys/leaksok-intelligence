@@ -96,7 +96,11 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     await page.locator('button[data-view="list"]').click();
     await page.evaluate(() => LeakApp.setFocus(''));
     await page.locator('#rail [data-list="suspect"]').click();
-    await page.waitForFunction(() => state.view === 'map' && !state.focusId && document.querySelector('#mapStatus').textContent.startsWith('60 av 60'));
+    await page.waitForFunction(() => state.view === 'map' && !state.focusId && document.querySelector('#mapStatus').textContent.startsWith('60 av 60')).catch(async error => {
+      console.log('List diagnostics', await page.evaluate(() => ({ view: state.view, focus: state.focusId, n: state.visible.length, status: document.querySelector('#mapStatus').textContent, categories: state.meters.reduce((a,m) => {a[m.category] = (a[m.category] || 0) + 1; return a;}, {}) })));
+      await page.screenshot({ path: 'test-results/map-failure.png' });
+      throw error;
+    });
     // The previous map also had 60 markers: wait for the new list's bounds,
     // rather than mistaking its old status text for a completed map update.
     await page.waitForFunction(() => {
@@ -124,16 +128,15 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     // Previously failing Excel addresses must work without a preloaded cache.
     const fresh = await browser.newPage({ viewport: { width: 1366, height: 768 } });
     await kit.routeExternal(fresh);
-    await fresh.route('https://nominatim.openstreetmap.org/**', route => {
-      const params = new URL(route.request().url()).searchParams;
-      const query = params.get('q') || params.get('street');
-      const hit = (road, house, lat) => ({ lat: String(lat), lon: '17.8', address: { road, ...(house ? { house_number: house } : {}) } });
-      const replies = {
-        'Broängsvägen 34A': [hit('Broängsvägen', '34A', 59.19)],
-        'Alhagsvägen 58-60': [hit('Alhagsvägen', '58-60', 59.24)],
-        'Broängsvägen 36': [hit('Broängsvägen', '36', 59.20)],
-      };
-      return route.fulfill({ json: replies[query] || [] });
+    let addressRequests = 0;
+    await fresh.route('**/api/addresses', route => {
+      addressRequests++;
+      assert.equal(new URL(route.request().url()).search, '');
+      return route.fulfill({ json: { version: 1, crs: 'EPSG:3011', rows: [
+        ['Broängsvägen', '34A', '14732', 'Tumba', 6563851.607626579, 138568.34259458297],
+        ['Alhagsvägen', '58', '14559', 'Norsborg', 6569421.533667425, 138585.04577568645],
+        ['Broängsvägen', '36', '14732', 'Tumba', 6564965.589387756, 138571.6825256435],
+      ] } });
     });
     await fresh.goto('http://127.0.0.1:4182/');
     await fresh.evaluate(() => {
@@ -182,7 +185,7 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     await fresh.locator('#rows tr.row .addr').click();
     await fresh.waitForFunction(() => {
       const pos = LeakMap.cachedPosition(state.byId.get(state.focusId));
-      return pos?.lat === 59.24 && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2 && [...state.marked].every(id => {
+      return Math.abs(pos?.lat - 59.24) < 1e-8 && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2 && [...state.marked].every(id => {
         const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
       });
     });
@@ -238,6 +241,16 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
       const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
     }));
     assert.equal(await fresh.locator('#map .map-pin.is-marked').count(), 2);
+    await fresh.locator('#sort').selectOption('suspicion');
+    assert.match(await fresh.locator('#sortHelp').textContent(), /inte sannolikhet/);
+    const scores = await fresh.evaluate(() => state.visible.map(m => m.priority));
+    assert.deepEqual(scores, [...scores].sort((a, b) => b - a), 'Most suspicious sorts by analysis score');
+    for (const sort of ['kamstrup', 'persistence', 'neighbors', 'confidence', 'signalDate', 'maxValue']) {
+      await fresh.locator('#sort').selectOption(sort);
+      assert.equal(await countPins(), 3, `Sort ${sort} retains every pin`);
+      assert.equal(await fresh.locator('#map .map-pin.is-marked').count(), 2);
+    }
+    assert.equal(addressRequests, 1, 'Selection, sorting and daily imports use one shared public table');
     const legendColour = await fresh.locator('#mapLegend [data-category="watch"] i').evaluate(el => getComputedStyle(el).backgroundColor);
     const badgeColour = await fresh.locator('#rows tr.is-focus .pill').evaluate(el => getComputedStyle(el).backgroundColor);
     assert.equal(badgeColour, legendColour, 'Map key and list use the same status colour');
@@ -249,7 +262,41 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     await fresh.setViewportSize({ width: 390, height: 844 });
     await fresh.waitForTimeout(250);
     assert.equal(await fresh.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0);
+    const mobileMap = await fresh.locator('#map').boundingBox();
+    const mobileTip = await fresh.locator('.map-label').boundingBox();
+    assert.ok(mobileTip.y >= mobileMap.y && mobileTip.y + mobileTip.height <= mobileMap.y + mobileMap.height, 'Mobile keeps the complete address label inside the map');
     await fresh.screenshot({ path: 'test-results/map-selection-mobile.png', fullPage: true });
+    await fresh.setViewportSize({ width: 1366, height: 768 });
+    const missingFile = buildDailyExports({ meters: 1, days: 1, end: '2026-09-30', includeScenarios: false })[0];
+    missingFile.rows[1][0] = '99000000';
+    missingFile.rows[1][1] = 'I CONTAINER';
+    await kit.importFiles(fresh, [{ name: 'Saknad kartadress 2026-09-30 07-00.csv', text: toCsv(missingFile.rows) }]);
+    await fresh.locator('#search').fill('');
+    await fresh.locator('#rail [data-list="all"]').click();
+    await fresh.waitForFunction(() => document.querySelector('#mapMissing').hidden === false);
+    await fresh.locator('#mapMissing summary').click();
+    await fresh.locator('#mapMissing [data-correct-address="99000000"]').click();
+    await fresh.locator('#addressInput').fill('Broängsvägen 34B Tumba');
+    await fresh.locator('#addressForm button[type="submit"]').click();
+    await fresh.waitForFunction(() => document.querySelector('#addressError').textContent.includes('Ingen säker träff'));
+    assert.equal(await fresh.locator('#addressDialog').isVisible(), true, 'A missing letter cannot save the wrong house');
+    await fresh.locator('#addressInput').fill('Broängsvägen 36 Tumba');
+    await fresh.locator('#addressForm button[type="submit"]').click();
+    await fresh.waitForFunction(() => !document.querySelector('#addressDialog').open && document.querySelector('#mapStatus').textContent.startsWith('4 av 4'));
+    assert.equal(await countPins(), 4, 'Correction adds the missing pin while keeping every other meter');
+    assert.match(await fresh.locator('.map-meter-tip').filter({ hasText: 'I CONTAINER' }).textContent(), /Rättad kartadress: Broängsvägen 36/);
+    assert.equal(await fresh.evaluate(() => state.byId.get('99000000').address), 'I CONTAINER');
+    await fresh.reload();
+    await kit.unlock(fresh);
+    await fresh.waitForFunction(() => state.byId.has('99000000'));
+    await fresh.locator('button[data-view="map"]').click();
+    await fresh.evaluate(() => LeakApp.setFocus('99000000', { scroll: false }));
+    await fresh.waitForFunction(() => LeakMap.cachedPosition(state.byId.get('99000000'))?.corrected === true);
+    assert.match(await fresh.evaluate(() => LeakMap.navigationUrl(state.byId.get('99000000'))), /Bro%C3%A4ngsv%C3%A4gen%2036/);
+    await fresh.locator('#correctMapAddress').click();
+    await fresh.locator('#addressReset').click();
+    await fresh.waitForFunction(() => !document.querySelector('#addressDialog').open && LeakMap.cachedPosition(state.byId.get('99000000')) === null);
+    assert.equal(await fresh.locator('#mapMissing').isVisible(), true, 'Reset restores the original unmatched address');
     await fresh.close();
     console.log('Map search PASS: 60 results, persistent markers, warning colors, fitted bounds and mobile width.');
   } finally { await browser.close(); server.close(); }

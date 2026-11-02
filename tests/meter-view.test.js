@@ -49,3 +49,32 @@ test('Normal and stale pins have neutral colours; warnings, follow-up and repair
   assert.notEqual(statuses.normal.color, statuses.stale_contact.color);
   assert.equal(new Set(['dispatch', 'confirmed', 'suspect_auto', 'watch', 'customer_side', 'stable_high', 'repaired'].map(k => statuses[k].color)).size, 7);
 });
+
+test('Most suspicious sorts by analysis score independently of manual work order; no reading stays last', () => {
+  const rows = [
+    { id: 'dispatch', latest: {}, priority: 30, sortRank: 9030 },
+    { id: 'signal', latest: {}, priority: 80, sortRank: 5080 },
+    { id: 'unread', priority: 99 },
+  ];
+  assert.deepEqual(order(rows, 'suspicion'), ['signal', 'dispatch', 'unread']);
+  assert.deepEqual(order(rows, 'suspicion', true), ['dispatch', 'signal', 'unread']);
+  assert.deepEqual(order(rows, 'priority'), ['dispatch', 'signal', 'unread']);
+});
+
+test('Kamstrup rank 1 sorts first and missing export ranks stay last in either direction', () => {
+  const rows = [1, 3, 0, null].map((rank, i) => ({ id: String(i), excel: { interestRank: rank } }));
+  assert.deepEqual(order(rows, 'kamstrup'), ['0', '1', '2', '3']);
+  assert.deepEqual(order(rows, 'kamstrup', true), ['1', '0', '2', '3']);
+});
+
+test('Signal duration, neighbourhood, evidence strength, onset and historical max have useful ordering', () => {
+  const rows = [
+    { id: 'high', upFinding: { persistence: { days: 20 }, onset: { at: new Date('2026-11-02') } }, areaSignal: { count: 5 }, confidence: 'starkt', series: [{ value: 8 }, { value: 90 }] },
+    { id: 'low', upFinding: { persistence: { days: 1 }, onset: { at: new Date('2026-10-01') } }, areaSignal: { count: 2 }, confidence: 'tunt', series: [{ value: 10 }] },
+    { id: 'missing' },
+  ];
+  for (const sort of ['persistence', 'neighbors', 'confidence', 'signalDate', 'maxValue']) {
+    assert.deepEqual(order(rows, sort), ['high', 'low', 'missing'], sort);
+    assert.deepEqual(order(rows, sort, true), ['low', 'high', 'missing'], sort);
+  }
+});

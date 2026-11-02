@@ -5,10 +5,12 @@ const vm = require('node:vm');
 const path = require('node:path');
 const appSource = fs.readFileSync(path.join(__dirname, '../src/app.js'), 'utf8');
 const MeterView = require('../src/meter-view.js');
+const AddressIndex = require('../src/address-index.js');
+const addressSource = fs.readFileSync(path.join(__dirname, '../src/address-index.js'), 'utf8');
 const mapSource = fs.readFileSync(path.join(__dirname, '../src/map.js'), 'utf8');
 
 function element() {
-  return { hidden: false, dataset: {}, classList: { toggle() {} }, querySelectorAll: () => [], appendChild() {}, scrollIntoView() {} };
+  return { hidden: false, dataset: {}, classList: { toggle() {} }, querySelectorAll: () => [], addEventListener() {}, appendChild() {}, scrollIntoView() {} };
 }
 function appHarness() {
   const meters = Array.from({ length: 61 }, (_, i) => ({ id: String(i), address: `FALKVÄGEN ${i + 1} TUMBA 14730`, category: 'suspect_auto', series: [], latest: { value: 50 }, status: 'Misstänk' }));
@@ -81,13 +83,16 @@ function mapHarness({ cache = {}, fetch, timers = {} } = {}) {
     circleMarker(point, options) { return { ...layer(), point, options, setLatLng(point) { this.point = point; return this; }, setStyle(style) { Object.assign(this.options, style); return this; }, bringToFront() { const group = this.group; group.dots = group.dots.filter(d => d !== this); group.dots.push(this); return this; }, getElement() { return null; }, addTo(group) { this.group = group; group.dots.push(this); return this; } }; },
     latLngBounds: points => points,
   };
-  const context = { L, URL, LeakMeterView: MeterView, localStorage: { getItem: key => JSON.stringify(key.includes('geocode') ? cache : {}), setItem() {} }, matchMedia: () => ({ matches: false }), window: { matchMedia: () => ({ matches: true }) }, document: { addEventListener() {} }, setTimeout: fn => fn(), fetch: fetch || (() => { throw new Error('Unexpected fetch'); }), ...timers };
+  const context = { L, URL, AbortSignal, LeakMeterView: MeterView, localStorage: { getItem: key => JSON.stringify(key.includes('geocode') ? cache : {}), setItem() {} }, matchMedia: () => ({ matches: false }), window: { matchMedia: () => ({ matches: true }) }, document: { addEventListener() {} }, setTimeout: fn => fn(), fetch: fetch || (async () => reply([])), ...timers };
   vm.createContext(context);
+  vm.runInContext(addressSource, context);
   vm.runInContext(mapSource, context);
   const status = { dataset: {} };
   const view = context.LeakMap.create({ element: { ...element(), parentElement: element() }, statusElement: status });
   return { api: context.LeakMap, view, map: maps[0], markers: groups[1], status };
 }
+const addressRow = (road, house, north = 6564000, east = 139000) => [road, house, '14730', 'Tumba', north, east];
+const reply = rows => ({ ok: true, json: async () => ({ version: 1, crs: 'EPSG:3011', rows }) });
 
 test('Map fits all 61 suspect markers, zooms to selected address, keeps remaining markers', async () => {
   const meters = Array.from({ length: 61 }, (_, i) => ({ id: String(i), address: `FALKVÄGEN ${i + 1} TUMBA 14730`, category: 'suspect_auto' }));
@@ -105,19 +110,18 @@ test('Map fits all 61 suspect markers, zooms to selected address, keeps remainin
   assert.equal(map.points.length, 61);
 });
 
-test('Uncached list loads beyond old limit and continues after address service failure', async () => {
+test('All 3151 uncached meters load from one public table request with no meter data', async () => {
   let calls = 0;
-  const meters = Array.from({ length: 17 }, (_, i) => ({ id: String(i), address: `FALKVÄGEN ${i + 1} TUMBA 14730` }));
+  const meters = Array.from({ length: 3151 }, (_, i) => ({ id: String(i), address: `TESTVÄGEN ${i + 1} TUMBA 14730`, lat: 0, lng: 0 }));
   const { view, markers, status } = mapHarness({ fetch: async url => {
     calls++;
-    const house = new URL(url).searchParams.get('street').split(' ').at(-1);
-    if (house === '1') throw Error('Service unavailable');
-    return { ok: true, json: async () => [{ lat: '59.18', lon: '17.8', address: { road: 'Falkvägen', house_number: house, postcode: '14730' } }] };
+    assert.equal(url, '/api/addresses', 'No address or serial is submitted');
+    return reply(meters.map((m, i) => addressRow('Testvägen', String(i + 1), 6564000 + i)));
   } });
   await view.update({ meters });
-  assert.equal(calls, 17);
-  assert.equal(markers.dots.length, 16);
-  assert.match(status.textContent, /1 adressökningar misslyckades/);
+  assert.equal(calls, 1);
+  assert.equal(markers.dots.length, 3151);
+  assert.match(status.textContent, /^3151 av 3151/);
 });
 
 test('Address formats with spaced or missing postcode still require exact house', () => {
@@ -152,11 +156,7 @@ test('Letter suffix is required and old approximate cache cannot place 9C at 9 o
   const meter = { id: 'letter', address: 'SOLTORPSVÄGEN 9C TUMBA 14732' };
   const { view, api, markers, status } = mapHarness({
     cache: { 'soltorpsvagen 9c, 14732 tumba, sverige': { lat: 59.2, lng: 17.8, approximate: true } },
-    fetch: async () => ({ ok: true, json: async () => [
-      { lat: '59.2', lon: '17.8', address: { road: 'Soltorpsvägen', house_number: '9' } },
-      { lat: '59.2', lon: '17.8', address: { road: 'Soltorpsvägen', house_number: '9B' } },
-      { lat: '59.2', lon: '17.8', address: { road: 'Soltorpsvägen' } },
-    ] }),
+    fetch: async () => reply([addressRow('Soltorpsvägen', '9'), addressRow('Soltorpsvägen', '9B')]),
   });
   assert.equal(api.cachedPosition(meter), null);
   await view.update({ meters: [meter], focusId: meter.id });
@@ -167,67 +167,62 @@ test('Letter suffix is required and old approximate cache cannot place 9C at 9 o
 
 test('Multiple selected letter addresses retain their own matching house pins', async () => {
   const meters = ['9A', '9C'].map(house => ({ id: house, address: `SOLTORPSVÄGEN ${house} TUMBA 14732` }));
-  const { view, api, markers, map } = mapHarness({ fetch: async url => {
-    const house = new URL(url).searchParams.get('street').split(' ').at(-1);
-    return { ok: true, json: async () => [{ lat: house === '9A' ? '59.20' : '59.21', lon: '17.8', address: { road: 'Soltorpsvägen', house_number: house } }] };
-  } });
+  const { view, api, markers, map } = mapHarness({ fetch: async () => reply([
+    addressRow('Soltorpsvägen', '9A', 6564000), addressRow('Soltorpsvägen', '9C', 6565000),
+  ]) });
   await view.update({ meters, marked: new Set(['9A', '9C']), focusId: '9C' });
   assert.equal(markers.dots.length, 2);
-  assert.equal(api.cachedPosition(meters[0]).lat, 59.20);
-  assert.equal(api.cachedPosition(meters[1]).lat, 59.21);
-  assert.equal(map.center[0], 59.21);
+  assert.ok(api.cachedPosition(meters[1]).lat > api.cachedPosition(meters[0]).lat);
+  assert.equal(map.center[0], api.cachedPosition(meters[1]).lat);
 });
 
 test('No address match never substitutes a different numbered house or an unrelated street', async () => {
   const meter = { id: 'missing', address: 'BROÄNGSVÄGEN 36 TUMBA 14732' };
-  const { view, api, markers, status } = mapHarness({ fetch: async () => ({ ok: true, json: async () => [
-    { lat: '59.2', lon: '17.8', address: { road: 'Broängsvägen', house_number: '35' } },
-    { lat: '59.2', lon: '17.8', address: { road: 'Stora Broängsvägen' } },
-  ] }) });
+  const { view, api, markers, status } = mapHarness({ fetch: async () => reply([
+    addressRow('Broängsvägen', '35'), addressRow('Stora Broängsvägen', '36'),
+  ]) });
   await view.update({ meters: [meter], focusId: 'missing' });
   assert.equal(markers.dots.length, 0);
   assert.equal(api.cachedPosition(meter), null);
   assert.match(status.textContent, /adressen .* kunde inte hittas/);
 });
 
-test('Selected address overtakes queued background lookups without concurrent requests', async () => {
-  let release, started, active = 0, maximum = 0;
+test('Concurrent position and focus requests share one table download', async () => {
+  let release, started, calls = 0;
   const began = new Promise(resolve => { started = resolve; });
   const blocked = new Promise(resolve => { release = resolve; });
-  const houses = [];
-  const { api } = mapHarness({ fetch: async url => {
-    active++; maximum = Math.max(maximum, active);
-    const house = new URL(url).searchParams.get('street').split(' ').at(-1);
-    houses.push(house);
-    if (house === '1') { started(); await blocked; }
-    active--;
-    return { ok: true, json: async () => [{ lat: '59.18', lon: '17.8', address: { road: 'Falkvägen', house_number: house, postcode: '14730' } }] };
+  const { api } = mapHarness({ fetch: async () => {
+    calls++; started(); await blocked;
+    return reply([1, 2, 3, 4].map(n => addressRow('Falkvägen', String(n))));
   } });
   const meters = [1, 2, 3, 4].map(n => ({ id: String(n), address: `FALKVÄGEN ${n} TUMBA 14730` }));
   const work = meters.map(m => api.resolvePositions([m]));
   await began;
-  // A second view of the same module shares the lookup queue.
+  // A second view also waits for the same table.
   const focus = api.create({ element: { ...element(), parentElement: element() } });
   const chosen = focus.update({ meters: [meters[3]], focusId: '4' });
   release();
   await Promise.all([...work, chosen]);
-  assert.deepEqual(houses, ['1', '4', '2', '3']);
-  assert.equal(maximum, 1);
+  assert.equal(calls, 1);
+  assert.equal(api.coordinates(meters).size, 4);
 });
 
-test('A hanging address request times out and the next meter still gets a pin', async () => {
+test('A failed registry download preserves already cached pins and can be retried', async () => {
   const meters = [1, 2].map(n => ({ id: String(n), address: `FALKVÄGEN ${n} TUMBA 14730` }));
+  let calls = 0;
   const { view, markers, status } = mapHarness({
-    timers: { AbortController, setTimeout: (fn, ms) => { if (ms === 10000) queueMicrotask(fn); else fn(); return 1; }, clearTimeout() {} },
-    fetch: async (url, { signal }) => {
-      const house = new URL(url).searchParams.get('street').split(' ').at(-1);
-      if (house === '1') return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
-      return { ok: true, json: async () => [{ lat: '59.18', lon: '17.8', address: { road: 'Falkvägen', house_number: house, postcode: '14730' } }] };
+    cache: { 'falkvagen 2, 14730 tumba, sverige': { lat: 59.2, lng: 17.8 } },
+    fetch: async () => {
+      if (++calls === 1) throw Error('timeout');
+      return reply([1, 2].map(n => addressRow('Falkvägen', String(n))));
     },
   });
   await view.update({ meters, focusId: '1' });
   assert.equal(markers.dots.length, 1);
-  assert.match(status.textContent, /1 adressökningar misslyckades/);
+  assert.match(status.textContent, /registret kunde inte hämtas/);
+  await view.update({ meters, focusId: '1' });
+  assert.equal(markers.dots.length, 2);
+  assert.equal(calls, 2);
 });
 
 
@@ -301,34 +296,59 @@ test('An older address lookup cannot restore pins or focus after a newer selecti
   const began = new Promise(resolve => { started = resolve; });
   const { view, markers, status } = mapHarness({
     cache: { 'falkvagen 2, 14730 tumba, sverige': { lat: 59.2, lng: 17.8 } },
-    fetch: async () => { started(); await pending; return { ok: true, json: async () => [{ lat: '59.18', lon: '17.8', address: { road: 'Falkvägen', house_number: '1' } }] }; },
+    fetch: async () => { started(); await pending; return reply([addressRow('Falkvägen', '1')]); },
   });
   const old = view.update({ meters, focusId: '1' });
   await began;
-  await view.update({ meters: [meters[1]], focusId: '2', marked: new Set(['2']) });
+  const latest = view.update({ meters: [meters[1]], focusId: '2', marked: new Set(['2']) });
   release();
-  await old;
+  await Promise.all([old, latest]);
   assert.equal(markers.dots.length, 1);
   assert.equal(markers.dots[0].point[0], 59.2);
   assert.equal(markers.dots[0].options.radius, 11);
   assert.match(status.textContent, /1 av 1 markerade/);
 });
 
-test('Missing selected house is reported before background lookups finish', async () => {
+test('Missing selected house is reported after the shared table download completes', async () => {
   const meters = [1, 2].map(n => ({ id: String(n), address: `FALKVÄGEN ${n} TUMBA 14730` }));
   let release, started;
   const pending = new Promise(resolve => { release = resolve; });
   const began = new Promise(resolve => { started = resolve; });
-  const { view, status } = mapHarness({ fetch: async url => {
-    if (new URL(url).searchParams.get('street')?.endsWith(' 2')) {
-      started(); await pending;
-      return { ok: true, json: async () => [{ lat: '59.18', lon: '17.8', address: { road: 'Falkvägen', house_number: '2' } }] };
-    }
-    return { ok: true, json: async () => [] };
+  const { view, status } = mapHarness({ fetch: async () => {
+    started(); await pending;
+    return reply([addressRow('Falkvägen', '2')]);
   } });
   const update = view.update({ meters, focusId: '1' });
   await began;
+  assert.equal(status.dataset.state, 'loading');
+  release(); await update;
   assert.match(status.textContent, /Vald mätare: adressen .* kunde inte hittas/);
   assert.equal(status.dataset.state, 'warning');
-  release(); await update;
+});
+
+test('Corrected map address uses its exact house, preserves the imported name and rejects missing letters', async () => {
+  const meter = { id: 'container', address: 'I CONTAINER', gps: { lat: 0, lng: 0 } };
+  const { api, view, markers } = mapHarness({ fetch: async () => reply([addressRow('Provvägen', '9C')]) });
+  await view.update({ meters: [meter], focusId: meter.id });
+  assert.equal(markers.dots.length, 0);
+  await assert.rejects(api.correctAddress(meter, 'Provvägen 9A'), /Ingen säker träff/);
+  await api.correctAddress(meter, 'Provvägen 9C Tumba');
+  await view.update({ meters: [meter], focusId: meter.id });
+  assert.equal(markers.dots.length, 1);
+  assert.equal(meter.address, 'I CONTAINER');
+  assert.equal(api.cachedPosition(meter).corrected, true);
+  assert.match(new URL(api.navigationUrl(meter)).searchParams.get('destination'), /Provvägen 9C/);
+  await api.correctAddress(meter, '');
+  await view.update({ meters: [meter], focusId: meter.id });
+  assert.equal(markers.dots.length, 0);
+});
+
+test('Repeated map updates keep a stable coordinate revision even when the cache timestamp changes', async () => {
+  const meter = { id: '1', address: 'FALKVÄGEN 1 TUMBA 14730' };
+  const { api, view } = mapHarness({ cache: { 'falkvagen 1, 14730 tumba, sverige': { lat: 59.2, lng: 17.8, at: 123 } } });
+  const before = JSON.stringify([...api.coordinates([meter])]);
+  await view.update({ meters: [meter] });
+  assert.equal(JSON.stringify([...api.coordinates([meter])]), before);
+  await view.update({ meters: [meter], focusId: meter.id });
+  assert.equal(JSON.stringify([...api.coordinates([meter])]), before, 'No needless reanalysis loop on cached addresses');
 });
