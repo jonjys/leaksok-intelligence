@@ -293,3 +293,42 @@ test('A single marked address remains in view when focusing another address; fit
   assert.equal(map.center[0], 59.18);
   assert.equal(map.zoom, 17);
 });
+
+test('An older address lookup cannot restore pins or focus after a newer selection', async () => {
+  const meters = [1, 2].map(n => ({ id: String(n), address: `FALKVÄGEN ${n} TUMBA 14730` }));
+  let release, started;
+  const pending = new Promise(resolve => { release = resolve; });
+  const began = new Promise(resolve => { started = resolve; });
+  const { view, markers, status } = mapHarness({
+    cache: { 'falkvagen 2, 14730 tumba, sverige': { lat: 59.2, lng: 17.8 } },
+    fetch: async () => { started(); await pending; return { ok: true, json: async () => [{ lat: '59.18', lon: '17.8', address: { road: 'Falkvägen', house_number: '1' } }] }; },
+  });
+  const old = view.update({ meters, focusId: '1' });
+  await began;
+  await view.update({ meters: [meters[1]], focusId: '2', marked: new Set(['2']) });
+  release();
+  await old;
+  assert.equal(markers.dots.length, 1);
+  assert.equal(markers.dots[0].point[0], 59.2);
+  assert.equal(markers.dots[0].options.radius, 11);
+  assert.match(status.textContent, /1 av 1 markerade/);
+});
+
+test('Missing selected house is reported before background lookups finish', async () => {
+  const meters = [1, 2].map(n => ({ id: String(n), address: `FALKVÄGEN ${n} TUMBA 14730` }));
+  let release, started;
+  const pending = new Promise(resolve => { release = resolve; });
+  const began = new Promise(resolve => { started = resolve; });
+  const { view, status } = mapHarness({ fetch: async url => {
+    if (new URL(url).searchParams.get('street')?.endsWith(' 2')) {
+      started(); await pending;
+      return { ok: true, json: async () => [{ lat: '59.18', lon: '17.8', address: { road: 'Falkvägen', house_number: '2' } }] };
+    }
+    return { ok: true, json: async () => [] };
+  } });
+  const update = view.update({ meters, focusId: '1' });
+  await began;
+  assert.match(status.textContent, /Vald mätare: adressen .* kunde inte hittas/);
+  assert.equal(status.dataset.state, 'warning');
+  release(); await update;
+});

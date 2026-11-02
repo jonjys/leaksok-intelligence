@@ -179,6 +179,21 @@
       return Math.max(8, Math.min(17, map.getBoundsZoom(bounds, false, [72, 72])));
     }
 
+    function placeFocusLabel() {
+      const marker = markerById.get(current.focusId)?.marker;
+      const tip = marker?.getTooltip?.();
+      if (!tip || !map.latLngToContainerPoint) return;
+      const point = map.latLngToContainerPoint(marker.getLatLng());
+      const height = tip.getElement()?.offsetHeight || 140;
+      const direction = point.y < height + 16 ? "bottom" : "top";
+      if (tip.options.direction !== direction) {
+        tip.options.direction = direction;
+        tip.options.offset = [0, direction === "bottom" ? 8 : -8];
+        tip.update();
+      }
+    }
+    map.on("moveend zoomend resize", placeFocusLabel);
+
     // Touch: the page scrolls past the map until the user taps it.
     if (touch) {
       const gate = document.createElement("button");
@@ -352,6 +367,7 @@
         if (!entry) {
           const marker = L.circleMarker([pos.lat, pos.lng], { ...style, className: "map-pin" });
           marker.on("click", () => options.onFocus?.(m.id));
+          marker.on("tooltipopen", placeFocusLabel);
           marker.addTo(markerLayer);
           entry = { marker };
           markerById.set(m.id, entry);
