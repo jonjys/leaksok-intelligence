@@ -4,6 +4,11 @@ Morgonverktyg för Kamstrup Leak Detector-exporter: importera senaste 24-timmars
 
 Allt körs lokalt i webbläsaren. Historik, beslut och kommentarer sparas i webbläsarens IndexedDB på den här enheten. Namn + kod öppnar arbetsytan; det är inte kryptering eller ett serverkonto. Inga mätardata skickas till någon språkmodell. Kartan skickar adresser till OpenStreetMap Nominatim och cachar träffarna lokalt. Pluppen visar adressen, inte vattenmätarens exakta position. Ett klick på mätaren öppnar kartan och zoomar till adressen. Gatunamn och hela husnumret måste stämma, inklusive bokstav som 9C eller nummerintervall. Enbart en gatuträff, nummer 9 eller 9B får inte ersätta 9C. Gamla ungefärliga reservträffar ignoreras och adressen söks på nytt. Om adressen saknas i kartunderlaget visas att den inte kunde hittas; ingen plupp placeras på fel hus. Den valda adressen prioriteras före köade bakgrundssökningar; varje nätanrop avbryts efter 10 sekunder så att en otillgänglig tjänst inte låser hela kön.
 
+Kartan använder bara adressen för placering. Gatunamn, hela husnumret och eventuell bokstav måste matcha; Excel-GPS och exportens visningsinställningar behövs inte. Markerade mätare ligger kvar över kategoriflikar, sökningar, områdesfilter och sidbyten. Svart ring betyder markerad; större ring med adressetikett betyder vald. Statusfärgen är samma i listan och kartans färgförklaring; normal är neutralgrå. **Visa markerade** anpassar kartan till markeringen, medan **Visa alla träffar** även tar med listans träffar. En saknad adress visas som saknad, aldrig på en annan husadress.
+
+Vid nya importer uppdateras kartplupparnas nivå, datum, max och status även när kategorin är oförändrad. Plupparna uppdateras på plats när du sorterar. Sortering kan vändas med pilknappen; procentuell förändring och förändring i nivå har egna val. Saknade värden ligger sist i båda riktningarna. När jämförelsenivå väljs visar även listans förändringsvärde den jämförelsen.
+
+
 Adressökningen är begränsad till Botkyrka. Den publika tjänstens [användningspolicy](https://operations.osmfoundation.org/policies/nominatim/) gäller: högst en förfrågan per sekund för hela appen, cache och begränsad användning; regelbunden massgeokodning är starkt avrådd. Appens lokala kö begränsar bara en webbläsare. Vid återkommande stora importer eller flera användare behövs en annan tjänst eller befintliga adresskoordinater.
 
 ## Automatisk mappimport
@@ -106,7 +111,7 @@ node tests/import-source-browser.cjs # Chromium: mappimport, ändrade infokoder,
 
 Webbläsartesterna kräver Playwright. `LEAKSOK_VENDOR=<mapp>` kan peka på lokala kopior av CDN-filerna vid körning utan nät.
 
-Moduler: `parse.js` (import) → `history.js` (avläsningar) → `engine.js` (analys) → `app.js` (lista, urval, beslut), `chart.js`, `map.js`, `worklist.js`, `field-export.js` + `xlsx-writer.js` (Excel), `storage.js` (IndexedDB), `styles.css`.
+Moduler: `parse.js` (import) → `history.js` (avläsningar) → `engine.js` (analys) → `app.js` (lista, urval, beslut), `chart.js`, `meter-view.js` (gemensamma statusfärger och sortering), `map.js`, `worklist.js`, `field-export.js` + `xlsx-writer.js` (Excel), `storage.js` (IndexedDB), `styles.css`.
 
 
 ## Dolda grupper och registrerade läckfall

@@ -2,6 +2,7 @@
    Analysis lives in engine.js; this file only presents and records decisions. */
 (function () {
   const Engine = window.LeakEngine;
+  const MeterView = window.LeakMeterView;
   const History = window.LeakHistory;
   const Parse = window.LeakParse;
   const Chart = window.LeakChart;
@@ -395,23 +396,7 @@
       if (terms.length && !terms.some((t) => norm(`${m.address} ${m.serial} ${m.id} ${m.area}`).includes(t))) return false;
       return true;
     });
-    const by = {
-      priority: (a, b) => b.sortRank - a.sortRank,
-      change: (a, b) => (b.changePrev?.pct ?? -Infinity) - (a.changePrev?.pct ?? -Infinity) || (b.changePrev?.delta ?? -Infinity) - (a.changePrev?.delta ?? -Infinity),
-      baseline: (a, b) => (b.finding?.pct ?? -Infinity) - (a.finding?.pct ?? -Infinity),
-      lastRead: (a, b) => (b.latest?.date?.getTime() ?? 0) - (a.latest?.date?.getTime() ?? 0),
-      value: (a, b) => (b.latest?.value ?? -1) - (a.latest?.value ?? -1),
-      address: (a, b) => a.address.localeCompare(b.address, "sv", { numeric: true }),
-      area: (a, b) => districtOf(a).localeCompare(districtOf(b), "sv") || a.address.localeCompare(b.address, "sv", { numeric: true }),
-    }[state.sort] || ((a, b) => b.sortRank - a.sortRank);
-    const sortValue = (m) => ({ change: m.changePrev?.pct, baseline: m.finding?.pct, lastRead: m.latest?.date?.getTime(), value: m.latest?.value })[state.sort];
-    return rows.sort((a, b) => {
-      if (["change", "baseline", "lastRead", "value"].includes(state.sort)) {
-        const missing = Number(sortValue(a) == null) - Number(sortValue(b) == null);
-        if (missing) return missing;
-      }
-      return (state.sortReverse ? -1 : 1) * by(a, b) || b.sortRank - a.sortRank || a.address.localeCompare(b.address, "sv");
-    });
+    return rows.sort(MeterView.comparator(state.sort, state.sortReverse, districtOf));
   }
 
   // ---------------- render ----------------
@@ -510,14 +495,18 @@
   function shortAddress(m) { return String(m.address || m.id).replace(/\s+\d{3}\s?\d{2}$/, ""); }
 
   function changeHtml(m) {
-    const c = m.changePrev;
+    const baselineSort = state.sort === "baseline";
+    const c = baselineSort ? (m.finding?.ref && m.finding?.now ? {
+      from: m.finding.ref.level, delta: m.finding.delta, pct: m.finding.pct,
+      fromDate: m.finding.ref.to,
+    } : null) : m.changePrev;
     if (!m.latest) return `<span class="muted">Inga avläsningar</span>`;
     const old = m.latest.ageDays >= Engine.RULES.oldDays;
     const value = `<span class="val">${num(m.latest.value)}</span><span class="date${old ? " old" : ""}" title="Avläsningsdatum">${esc(Engine.fmtDate(m.latest.date))}${old ? ` · ${m.latest.ageDays} d` : ""}</span>`;
-    if (!c) return `${value}<span class="chg muted">ingen tidigare</span>`;
+    if (!c) return `${value}<span class="chg muted">${baselineSort ? "jämförelse saknas" : "ingen tidigare"}</span>`;
     const dir = c.delta > 0 ? "up" : c.delta < 0 ? "down" : "flat";
     const pct = c.pct != null ? Engine.fmtPct(c.pct) : c.from === 0 ? "ingen %, från 0" : "–";
-    return `${value}<span class="chg ${dir}" title="Sedan föregående avläsning ${esc(Engine.fmtDate(c.fromDate))}: ${num(c.from)}">${Engine.fmtSigned(c.delta)} (${pct})</span><span class="sub">från ${num(c.from)} · ${esc(Engine.fmtDate(c.fromDate))}</span>`;
+    return `${value}<span class="chg ${dir}" title="${baselineSort ? "Mot jämförelsenivå" : "Sedan föregående avläsning"} ${esc(Engine.fmtDate(c.fromDate))}: ${num(c.from)}">${Engine.fmtSigned(c.delta)} (${pct})</span><span class="sub">från ${num(c.from)} · ${esc(Engine.fmtDate(c.fromDate))}</span>`;
   }
 
   function rowHtml(m) {
@@ -533,7 +522,7 @@
     if (m.codes.follow) tags.push(`<span class="tag">Följs i Kamstrup</span>`);
     if (hidden(m)) tags.push(`<span class="tag">Gömd</span>`);
     if (state.tripList.some((e) => e.id === m.id)) tags.push(`<span class="tag">I arbetslista</span>`);
-    return `<tr data-id="${esc(m.id)}" class="row${marked ? " is-marked" : ""}${state.focusId === m.id ? " is-focus" : ""}">
+    return `<tr data-id="${esc(m.id)}" data-category="${esc(m.category)}" style="--meter-color:${MeterView.statuses[m.category]?.color || MeterView.statuses.normal.color}" class="row${marked ? " is-marked" : ""}${state.focusId === m.id ? " is-focus" : ""}">
       <td class="c-check"><input type="checkbox" data-mark ${marked ? "checked" : ""} aria-label="Markera ${esc(m.address)}"></td>
       <td class="c-status"><span class="pill cat-${esc(m.category)}">${esc(m.status)}</span><span class="prio" title="Prioritet: rangordning 0–100, inte sannolikhet för läcka">${m.priority}</span><span class="conf">underlag ${esc(m.confidence)}</span></td>
       <td class="c-addr"><span class="addr-line"><button type="button" class="addr" data-act="focus">${esc(shortAddress(m))}</button>${copyButton(m)}</span><span class="sub">${esc(m.serial || m.id)} · ${esc(districtOf(m))}</span>${tags.length ? `<span class="tags">${tags.join("")}</span>` : ""}</td>
@@ -635,7 +624,7 @@
     const allMarked = total > 0 && state.visible.every((m) => state.marked.has(m.id));
     els.selection.classList.toggle("has-marked", marked > 0);
     els.selection.innerHTML = !state.files.length ? "" : `
-      <p><b>${marked ? `${marked.toLocaleString("sv-SE")} markerade` : "Inga markerade"}</b>${outside ? ` <span class="muted">(${outside} syns inte i nuvarande lista/filter)</span>` : ""}</p>
+      <p><b>${marked ? `${marked.toLocaleString("sv-SE")} markerade` : "Inga markerade"}</b>${outside ? ` <span class="muted">(${outside} utanför listan · kvar på kartan)</span>` : ""}</p>
       <div class="sel-actions">
         ${marked ? `<button type="button" class="secondary" data-sel="move">Flytta till…</button>
         <button type="button" class="primary" data-sel="excel">Excel</button>` : ""}
@@ -649,11 +638,17 @@
           </div>
         </details>
       </div>
-      <div class="list-sort" role="group" aria-label="Sortera efter"><button type="button" data-sort="address">Adress</button><button type="button" data-sort="value">Nivå</button><button type="button" data-sort="change">Förändring</button><button type="button" data-sort="priority">Prioritet</button></div>`;
+      <div class="list-sort" role="group" aria-label="Sortera efter"><button type="button" data-sort="address">Adress</button><button type="button" data-sort="value">Nivå</button><button type="button" data-sort="change">Förändring %</button><button type="button" data-sort="priority">Prioritet</button></div>`;
     renderSortControls();
   }
 
   function renderSortControls() {
+    const ascending = ["address", "area"].includes(state.sort) !== state.sortReverse;
+    const directionButton = $("sortDirection");
+    directionButton.textContent = ascending ? "↑" : "↓";
+    directionButton.setAttribute("aria-label", `Byt sorteringsriktning · ${ascending ? "stigande" : "fallande"}`);
+    directionButton.title = `${ascending ? "Stigande" : "Fallande"} · klicka för att vända`;
+    directionButton.setAttribute("aria-pressed", String(state.sortReverse));
     document.querySelectorAll("[data-sort]").forEach((b) => {
       const active = b.dataset.sort === state.sort;
       const ascending = ["address", "area"].includes(state.sort) !== state.sortReverse;
@@ -677,12 +672,13 @@
   let mapView = null;
   let lastMapKey = "";
   let focusRequest = 0;
+  let mapRenderVersion = 0;
   function ensureMap() {
     if (mapView || !window.LeakMap) return mapView;
     mapView = LeakMap.create({
-      element: els.map, statusElement: els.mapStatus,
+      element: els.map, statusElement: els.mapStatus, legendElement: $("mapLegend"),
       onFocus: (id) => setFocus(id, { scroll: false }),
-      onMarkMany: (ids) => { ids.forEach((id) => state.marked.add(id)); render(); },
+      onMarkMany: (ids) => { ids.forEach((id) => state.marked.add(id)); if (ids.length) setFocus(ids.includes(state.focusId) ? state.focusId : ids[0], { scroll: false }); render(); },
       label: (m) => shortAddress(m),
     });
     return mapView;
@@ -696,10 +692,10 @@
     els.focusChart.hidden = state.chartHidden || !m;
     $("showFocusChart").hidden = !m || !state.chartHidden;
     document.body.classList.toggle("has-focus", !els.focus.hidden);
-    if (els.focus.hidden) return;
+    if (els.focus.hidden) { mapRenderVersion++; lastMapKey = ""; return; }
     if (m) {
       const maxLevel = m.series?.length ? Math.max(...m.series.map((p) => p.value)) : null;
-      $("meterSummary").innerHTML = `<b>${esc(shortAddress(m))}</b><span class="sub">${esc(m.serial || m.id)} · ${m.latest ? esc(Engine.fmtDate(m.latest.date)) : "Ingen avläsning"}</span><span class="pill cat-${esc(m.category)}">${esc(m.status)}</span><dl><div><dt>Senaste nivå</dt><dd>${num(m.latest?.value)}</dd></div><div><dt>Max i historiken</dt><dd>${num(maxLevel)}</dd></div><div><dt>Jämförelsenivå</dt><dd>${num(m.finding?.ref?.level)}</dd></div><div><dt>Förändring</dt><dd>${m.changePrev?.pct != null ? esc(Engine.fmtPct(m.changePrev.pct)) : "–"}</dd></div></dl><p>${esc(m.summary)}</p><button type="button" class="secondary" data-focus-enlarge="${esc(m.id)}">Öppna större graf</button>`;
+      $("meterSummary").innerHTML = `<b>${esc(shortAddress(m))}</b><span class="sub">${esc(m.serial || m.id)} · ${m.latest ? esc(Engine.fmtDate(m.latest.date)) : "Ingen avläsning"}</span><span class="pill cat-${esc(m.category)}" style="background:${MeterView.statuses[m.category]?.color || MeterView.statuses.normal.color}">${esc(m.status)}</span><dl><div><dt>Senaste nivå</dt><dd>${num(m.latest?.value)}</dd></div><div><dt>Max i historiken</dt><dd>${num(maxLevel)}</dd></div><div><dt>Jämförelsenivå</dt><dd>${num(m.finding?.ref?.level)}</dd></div><div><dt>Förändring</dt><dd>${m.changePrev?.pct != null ? esc(Engine.fmtPct(m.changePrev.pct)) : "–"}</dd></div></dl><p>${esc(m.summary)}</p><button type="button" class="secondary" data-focus-enlarge="${esc(m.id)}">Öppna större graf</button>`;
       els.focusTitle.textContent = m.address;
       $("focusCopy").dataset.copy = m.id;
       $("focusCopy").hidden = false;
@@ -726,24 +722,35 @@
     const view = ensureMap();
     if (!view) return;
     const mode = "results";
+    const markedButton = $("showMarkedOnMap");
+    markedButton.disabled = !state.marked.size;
+    markedButton.textContent = `Visa markerade (${state.marked.size})`;
     // The list may change, but marked addresses remain on the map across tabs,
     // search, hidden groups and pagination. Focus only moves the camera.
     const markedMeters = [...state.marked].map((id) => state.byId.get(id)).filter(Boolean);
     const meters = [...new Map([...state.visible, ...markedMeters, ...(m ? [m] : [])].map((meter) => [meter.id, meter])).values()];
     const resultIds = [...new Set([...state.visible.map((meter) => meter.id), ...markedMeters.map((meter) => meter.id)])];
-    const key = `${mode}|${focusRequest}|${state.focusId}|${[...state.marked].join(",")}|${state.list}|${state.search}|${state.area}|${meters.map((meter) => `${meter.id}:${meter.address}:${meter.area}:${meter.category}`).join(",")}`;
+    const key = `${mode}|${focusRequest}|${state.focusId}|${[...state.marked].join(",")}|${state.list}|${state.search}|${state.area}|${JSON.stringify(meters.map(MeterView.mapRevision))}`;
     if (key === lastMapKey) return;
     lastMapKey = key;
-    requestAnimationFrame(() => { view.invalidate(); Promise.resolve(view.update({ meters, focusId: state.focusId, focusRequest, marked: state.marked, mode, resultIds })).then(() => {
-      if (!state.prepared) return;
-      const coords = LeakMap.coordinates([...state.prepared.histories.values()]);
-      const key = JSON.stringify([...coords].sort(([a], [b]) => a.localeCompare(b)));
-      if (key !== state.coordinatesKey) reanalyze();
-    }).catch(() => { /* Map status already reports address lookup failures. */ }); });
+    const run = ++mapRenderVersion;
+    const snapshot = { meters, focusId: state.focusId, focusRequest, marked: new Set(state.marked), mode, resultIds };
+    requestAnimationFrame(() => {
+      if (run !== mapRenderVersion) return;
+      const updating = view.update(snapshot);
+      view.invalidate();
+      Promise.resolve(updating).then(() => {
+        if (run !== mapRenderVersion || !state.prepared) return;
+        const coords = LeakMap.coordinates([...state.prepared.histories.values()]);
+        const key = JSON.stringify([...coords].sort(([a], [b]) => a.localeCompare(b)));
+        if (key !== state.coordinatesKey) reanalyze();
+      }).catch(() => { /* Map status already reports address lookup failures. */ });
+    });
   }
 
   // Selecting a meter only updates the focus panel; the table is not rebuilt.
   function setFocus(id, { scroll = true, keepRow = null } = {}) {
+    clearTimeout(focusTimer);
     if (id) state.chartHidden = false;
     const switchToMap = Boolean(id) && state.view !== "map";
     if (switchToMap) {
@@ -1174,7 +1181,7 @@
     state.view = "map";
     try { localStorage.setItem(VIEW_KEY, state.view); } catch { /* optional */ }
     state.page = 1;
-    state.focusId = "";
+    if (!state.marked.has(state.focusId) || !state.byId.has(state.focusId)) state.focusId = "";
     focusRequest++;
     lastMapKey = "";
     render();
@@ -1276,7 +1283,7 @@
     page.forEach((m) => (els.checkPage.checked ? state.marked.add(m.id) : state.marked.delete(m.id)));
     if (els.checkPage.checked && page.length) {
       setFocus(state.marked.has(state.focusId) ? state.focusId : page[0].id);
-      renderSelection();
+      render();
       return;
     }
     render();
@@ -1294,11 +1301,12 @@
     if (act === "hide") { setHidden([...state.marked], state.list !== "hidden"); return; }
     if ((act === "page" || act === "all") && state.marked.size) {
       const first = state.visible.find((m) => state.marked.has(m.id));
-      if (first) { setFocus(state.marked.has(state.focusId) ? state.focusId : first.id); renderSelection(); return; }
+      if (first) { setFocus(state.marked.has(state.focusId) ? state.focusId : first.id); render(); return; }
     }
     render();
   });
   els.search.addEventListener("input", () => { state.search = els.search.value; state.page = 1; render(); });
+  $("sortDirection").addEventListener("click", () => { state.sortReverse = !state.sortReverse; state.page = 1; render(); });
   els.sort.addEventListener("change", () => { state.sort = els.sort.value; state.sortReverse = false; state.page = 1; render(); });
   els.area.addEventListener("change", () => { state.area = els.area.value; state.page = 1; render(); });
   els.groupFilter.addEventListener("change", () => {
@@ -1334,6 +1342,7 @@
     if (tool) view.setTool(event.target.closest("button").getAttribute("aria-pressed") === "true" ? "" : tool);
     if (event.target.closest("[data-map-action='locate']")) view.locate();
     if (event.target.closest("[data-map-action='results']")) view.fitResults();
+    if (event.target.closest("[data-map-action='marked']")) view.fitMarked();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !els.menu.hidden) closeMenu();

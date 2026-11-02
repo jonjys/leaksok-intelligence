@@ -60,14 +60,16 @@
         <label class="field"><span>Sortera efter</span>
           <select id="sort">
             <option value="priority">Prioritet</option>
-            <option value="change">Förändring sedan föregående</option>
-            <option value="baseline">Förändring mot jämförelsenivå</option>
+            <option value="change">Förändring sedan föregående (%)</option>
+            <option value="changeAbs">Förändring sedan föregående (nivå)</option>
+            <option value="baseline">Förändring mot jämförelsenivå (%)</option>
             <option value="lastRead">Senast avläst</option>
             <option value="value">Senaste värde</option>
             <option value="address">Adress A–Ö</option>
             <option value="area">Område och adress</option>
           </select>
         </label>
+        <button type="button" class="secondary sort-direction" id="sortDirection" aria-label="Byt sorteringsriktning · fallande" aria-pressed="false">↓</button>
         <label class="field"><span>Område</span><select id="areaFilter"><option value="all">Alla</option></select></label>
         <details class="menu" id="groupFilter">
           <summary>Visa dolda grupper <span id="groupFilterCount"></span></summary>
@@ -108,11 +110,13 @@
               <button type="button" data-map-tool="valve" aria-pressed="false">Ventil</button>
               <button type="button" data-map-tool="leak" aria-pressed="false">Läckpunkt</button>
               <button type="button" data-map-action="locate">Min position</button>
+              <button type="button" id="showMarkedOnMap" data-map-action="marked" disabled>Visa markerade (0)</button>
               <button type="button" data-map-action="results">Visa alla träffar</button>
             </div>
+            <div id="mapLegend" class="map-legend" aria-label="Kartans statusfärger"></div>
             <div id="map" class="map" aria-label="Karta"></div>
             <p id="mapStatus" class="map-status" role="status" aria-live="polite"></p>
-            <div class="map-legend" aria-label="Varningsnivåer"><span><i style="background:#c62828"></i>Åk ut / läcka</span><span><i style="background:#e08a00"></i>Misstänk</span><span><i style="background:#2f6fd6"></i>Bevaka</span><span><i style="background:#7b4bc4"></i>Stabilt hög</span><span><i style="background:#2e7d4f"></i>Lagad</span><span><i style="background:#4f8fb8"></i>Normal</span><span><i style="background:#90a0b0"></i>Kort historik / kontakt</span><span><i style="background:#6b7785"></i>Dolda grupper</span></div>
+
           </div>
         </div>
       </section>
@@ -217,6 +221,7 @@
   <script src="./src/xlsx-writer.js"></script>
   <script src="./src/field-export.js"></script>
   <script src="./src/chart.js"></script>
+  <script src="./src/meter-view.js"></script>
   <script src="./src/map.js"></script>
   <script src="./src/worklist.js"></script>
   <script src="./src/app.js"></script>

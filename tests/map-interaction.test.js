@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const appSource = fs.readFileSync(path.join(__dirname, '../src/app.js'), 'utf8');
+const MeterView = require('../src/meter-view.js');
 const mapSource = fs.readFileSync(path.join(__dirname, '../src/map.js'), 'utf8');
 
 function element() {
@@ -15,7 +16,7 @@ function appHarness() {
   const nodes = new Map();
   const els = Object.fromEntries(['focus', 'focusChart', 'focusTitle', 'focusMeta', 'rows'].map(k => [k, element()]));
   const updates = [], charts = [];
-  const context = { state, els, LIST: { suspect: { label: 'Misstänk' } }, $: id => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); }, document: { body: element(), createElement: () => ({ dataset: {}, setAttribute() {} }) }, window: { matchMedia: () => ({ matches: false }) }, localStorage: { setItem() {} }, VIEW_KEY: 'view', clearTimeout() {}, focusTimer: 1, focusRequest: 0, lastMapKey: '', Engine: { fmtDate: () => '', fmtPct: () => '' }, num: String, esc: String, shortAddress: m => m.address, openChart() {}, Chart: { render: (el, m) => charts.push(m.id) }, ensureMap: () => ({ invalidate() {}, update: options => { updates.push(options); } }), requestAnimationFrame: fn => fn() };
+  const context = { state, els, LIST: { suspect: { label: 'Misstänk' } }, $: id => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); }, document: { body: element(), createElement: () => ({ dataset: {}, setAttribute() {} }) }, window: { matchMedia: () => ({ matches: false }) }, localStorage: { setItem() {} }, VIEW_KEY: 'view', clearTimeout() {}, focusTimer: 1, focusRequest: 0, mapRenderVersion: 0, MeterView, lastMapKey: '', Engine: { fmtDate: () => '', fmtPct: () => '' }, num: String, esc: String, shortAddress: m => m.address, openChart() {}, Chart: { render: (el, m) => charts.push(m.id) }, ensureMap: () => ({ invalidate() {}, update: options => { updates.push(options); } }), requestAnimationFrame: fn => fn() };
   context.render = () => context.renderFocus();
   vm.createContext(context);
   vm.runInContext(appSource.slice(appSource.indexOf('  function renderFocus()'), appSource.indexOf('  function openChart(id)')) + appSource.slice(appSource.indexOf('  function setList(key)'), appSource.indexOf('  // Window resize')), context);
@@ -72,18 +73,18 @@ test('Address navigation ignores meter GPS fields and cached coordinates', () =>
 
 function mapHarness({ cache = {}, fetch, timers = {} } = {}) {
   const maps = [], groups = [];
-  const layer = () => ({ addTo() { return this; }, on() { return this; }, bindTooltip() { return this; } });
+  const layer = () => ({ addTo() { return this; }, on() { return this; }, bindTooltip(tip, options) { this.tip = tip; this.tipOptions = options; return this; }, unbindTooltip() { return this; }, openTooltip() { return this; } });
   const L = {
-    map() { const m = { setView(point, zoom) { this.center = point; this.zoom = zoom; return this; }, flyTo(point, zoom) { this.center = point; this.zoom = zoom; return this; }, fitBounds(points) { this.points = points; return this; }, stop() {}, on() {}, invalidateSize() {} }; maps.push(m); return m; },
+    map() { const m = { setView(point, zoom) { this.center = point; this.zoom = zoom; return this; }, flyTo(point, zoom) { this.center = point; this.zoom = zoom; return this; }, fitBounds(points) { this.points = points; return this; }, getBoundsZoom(points) { this.focusBounds = points; return points[0][0] === points[1][0] && points[0][1] === points[1][1] ? 17 : 12; }, stop() {}, on() {}, invalidateSize() {} }; maps.push(m); return m; },
     tileLayer: layer,
-    layerGroup() { const group = { ...layer(), dots: [], clearLayers() { this.dots = []; } }; groups.push(group); return group; },
-    circleMarker(point, options) { return { ...layer(), point, options, addTo(group) { group.dots.push(this); return this; } }; },
+    layerGroup() { const group = { ...layer(), dots: [], clearLayers() { this.dots = []; }, removeLayer(dot) { this.dots = this.dots.filter(d => d !== dot); } }; groups.push(group); return group; },
+    circleMarker(point, options) { return { ...layer(), point, options, setLatLng(point) { this.point = point; return this; }, setStyle(style) { Object.assign(this.options, style); return this; }, bringToFront() { const group = this.group; group.dots = group.dots.filter(d => d !== this); group.dots.push(this); return this; }, getElement() { return null; }, addTo(group) { this.group = group; group.dots.push(this); return this; } }; },
     latLngBounds: points => points,
   };
-  const context = { L, URL, localStorage: { getItem: key => JSON.stringify(key.includes('geocode') ? cache : {}), setItem() {} }, matchMedia: () => ({ matches: false }), window: { matchMedia: () => ({ matches: true }) }, document: { addEventListener() {} }, setTimeout: fn => fn(), fetch: fetch || (() => { throw new Error('Unexpected fetch'); }), ...timers };
+  const context = { L, URL, LeakMeterView: MeterView, localStorage: { getItem: key => JSON.stringify(key.includes('geocode') ? cache : {}), setItem() {} }, matchMedia: () => ({ matches: false }), window: { matchMedia: () => ({ matches: true }) }, document: { addEventListener() {} }, setTimeout: fn => fn(), fetch: fetch || (() => { throw new Error('Unexpected fetch'); }), ...timers };
   vm.createContext(context);
   vm.runInContext(mapSource, context);
-  const status = {};
+  const status = { dataset: {} };
   const view = context.LeakMap.create({ element: { ...element(), parentElement: element() }, statusElement: status });
   return { api: context.LeakMap, view, map: maps[0], markers: groups[1], status };
 }
@@ -229,3 +230,105 @@ test('A hanging address request times out and the next meter still gets a pin', 
   assert.match(status.textContent, /1 adressökningar misslyckades/);
 });
 
+
+
+test('New reading with the same category refreshes the map and pending frames only use the latest selection', () => {
+  const { context, state, updates, meters } = appHarness();
+  state.view = 'map'; state.focusId = '0';
+  context.renderFocus();
+  const count = updates.length;
+  meters[0].latest = { value: 87, date: new Date('2026-11-02') };
+  context.renderFocus();
+  assert.equal(updates.length, count + 1);
+  assert.equal(updates.at(-1).meters[0].latest.value, 87);
+  const frames = [];
+  context.requestAnimationFrame = fn => frames.push(fn);
+  context.setFocus('1');
+  context.setFocus('2');
+  state.marked.add('2');
+  context.renderFocus();
+  for (const frame of frames) frame();
+  assert.equal(updates.length, count + 2, 'Superseded animation frames must not draw old results');
+  assert.equal(updates.at(-1).focusId, '2');
+  state.marked.clear();
+  assert.equal(updates.at(-1).marked.has('2'), true, 'An update owns its selection snapshot');
+});
+
+test('Changing category tabs retains the marked focused meter even outside the new result list', () => {
+  const { context, state, updates } = appHarness();
+  state.view = 'map'; state.focusId = '5'; state.marked = new Set(['5']); state.visible = [];
+  context.setList('suspect');
+  assert.equal(state.focusId, '5');
+  assert.equal(updates.at(-1).meters.length, 1);
+  assert.equal(updates.at(-1).meters[0].id, '5');
+});
+
+test('Sorting and updated analysis reuse pins and refresh tooltips, colour and selection', async () => {
+  const meters = [1, 2].map(n => ({ id: String(n), address: `FALKVÄGEN ${n} TUMBA 14730`, category: 'suspect_auto', latest: { value: n } }));
+  const cache = Object.fromEntries(meters.map((m, i) => [`falkvagen ${i + 1}, 14730 tumba, sverige`, { lat: 59.18 + i * .01, lng: 17.8 }]));
+  const { view, markers } = mapHarness({ cache });
+  await view.update({ meters, marked: new Set(['1']), focusId: '1' });
+  const first = markers.dots.find(m => m.point[0] === 59.18);
+  const second = markers.dots.find(m => m !== first);
+  meters[0].latest.value = 87;
+  meters[0].status = 'ÅK UT'; meters[0].category = 'dispatch';
+  await view.update({ meters: [...meters].reverse(), marked: new Set(['1']), focusId: '2' });
+  assert.equal(markers.dots.length, 2);
+  assert.ok(markers.dots.includes(first) && markers.dots.includes(second));
+  assert.match(first.tip, /<dd>87<\/dd>/);
+  assert.equal(first.options.fillColor, MeterView.statuses.dispatch.color);
+  assert.equal(first.options.color, '#111827');
+  assert.equal(first.options.fillOpacity, 1);
+  assert.equal(second.options.radius, 11);
+});
+
+test('A single marked address remains in view when focusing another address; fit marked excludes other results', async () => {
+  const meters = [1, 2, 3].map(n => ({ id: String(n), address: `FALKVÄGEN ${n} TUMBA 14730` }));
+  const cache = Object.fromEntries(meters.map((m, i) => [`falkvagen ${i + 1}, 14730 tumba, sverige`, { lat: 59.18 + i * .02, lng: 17.8 }]));
+  const { view, map } = mapHarness({ cache });
+  await view.update({ meters, marked: new Set(['1']), focusId: '2' });
+  assert.ok(map.zoom < 17);
+  assert.equal(map.center[0], 59.2);
+  view.fitMarked();
+  assert.equal(map.center[0], 59.18);
+  assert.equal(map.zoom, 17);
+});
+
+test('An older address lookup cannot restore pins or focus after a newer selection', async () => {
+  const meters = [1, 2].map(n => ({ id: String(n), address: `FALKVÄGEN ${n} TUMBA 14730` }));
+  let release, started;
+  const pending = new Promise(resolve => { release = resolve; });
+  const began = new Promise(resolve => { started = resolve; });
+  const { view, markers, status } = mapHarness({
+    cache: { 'falkvagen 2, 14730 tumba, sverige': { lat: 59.2, lng: 17.8 } },
+    fetch: async () => { started(); await pending; return { ok: true, json: async () => [{ lat: '59.18', lon: '17.8', address: { road: 'Falkvägen', house_number: '1' } }] }; },
+  });
+  const old = view.update({ meters, focusId: '1' });
+  await began;
+  await view.update({ meters: [meters[1]], focusId: '2', marked: new Set(['2']) });
+  release();
+  await old;
+  assert.equal(markers.dots.length, 1);
+  assert.equal(markers.dots[0].point[0], 59.2);
+  assert.equal(markers.dots[0].options.radius, 11);
+  assert.match(status.textContent, /1 av 1 markerade/);
+});
+
+test('Missing selected house is reported before background lookups finish', async () => {
+  const meters = [1, 2].map(n => ({ id: String(n), address: `FALKVÄGEN ${n} TUMBA 14730` }));
+  let release, started;
+  const pending = new Promise(resolve => { release = resolve; });
+  const began = new Promise(resolve => { started = resolve; });
+  const { view, status } = mapHarness({ fetch: async url => {
+    if (new URL(url).searchParams.get('street')?.endsWith(' 2')) {
+      started(); await pending;
+      return { ok: true, json: async () => [{ lat: '59.18', lon: '17.8', address: { road: 'Falkvägen', house_number: '2' } }] };
+    }
+    return { ok: true, json: async () => [] };
+  } });
+  const update = view.update({ meters, focusId: '1' });
+  await began;
+  assert.match(status.textContent, /Vald mätare: adressen .* kunde inte hittas/);
+  assert.equal(status.dataset.state, 'warning');
+  release(); await update;
+});
