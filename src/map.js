@@ -6,11 +6,8 @@
   const BOUNDS = [[59.065, 17.54], [59.29, 18.035]];
   const CENTER = [59.18, 17.8];
   const LOOKUP_VERSION = 6;
-  const COLORS = {
-    dispatch: "#c62828", confirmed: "#8e1b1b", suspect_auto: "#e08a00", watch: "#2f6fd6", customer_side: "#0e8fa3",
-    stable_high: "#7b4bc4", noise: "#6b7785", seasonal: "#6b7785", repaired: "#2e7d4f", learning: "#90a0b0",
-    stale_contact: "#90a0b0", normal: "#4f8fb8", ignored: "#9aa5b1",
-  };
+  const View = root.LeakMeterView;
+
 
   function readJson(key) {
     try { const v = JSON.parse(localStorage.getItem(key) || "{}"); return v && typeof v === "object" ? v : {}; } catch { return {}; }
@@ -154,7 +151,7 @@
     if (!root.L) { status("Kartan kunde inte laddas. Kör hit fungerar ändå."); return null; }
     const L = root.L;
     const touch = root.matchMedia?.("(pointer: coarse)").matches;
-    const map = L.map(el, { zoomControl: true, scrollWheelZoom: false, dragging: !touch, tap: false, minZoom: 8, preferCanvas: true }).setView(CENTER, 12);
+    const map = L.map(el, { zoomControl: true, scrollWheelZoom: false, dragging: !touch, tap: false, minZoom: 8, preferCanvas: false }).setView(CENTER, 12);
     const layers = {
       street: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }),
       satellite: L.layerGroup([
@@ -164,6 +161,7 @@
     };
     let base = layers.street.addTo(map);
     const markerLayer = L.layerGroup().addTo(map);
+    const markerById = new Map();
     const markLayer = L.layerGroup().addTo(map);
     let version = 0, tool = "", rectStart = null, rect = null, entries = [], current = { meters: [], focusId: "", marked: new Set() };
     let userMarker = null;
@@ -172,7 +170,7 @@
 
     function focusZoom(focused) {
       const selected = entries.filter((entry) => current.marked.has(entry.id));
-      if (selected.length < 2 || typeof map.getBoundsZoom !== "function") return 17;
+      if (!selected.length || typeof map.getBoundsZoom !== "function") return 17;
       // Keep the camera centred on the clicked address, but zoom out enough
       // for the other marked addresses to remain visible around it.
       const lat = Math.max(...selected.map((p) => Math.abs(p.lat - focused.lat))) * 1.12;
@@ -191,9 +189,10 @@
       gate.addEventListener("click", () => { map.dragging.enable(); gate.hidden = true; });
       document.addEventListener("pointerdown", (e) => { if (!el.contains(e.target)) { map.dragging.disable(); gate.hidden = false; } });
     }
-    function resizeMap() {
+    function resizeMap(reframe = true) {
       if (!el.clientWidth || !el.clientHeight) return;
       map.invalidateSize({ pan: false });
+      if (!reframe) return;
       // Changing between list and selected-meter layouts changes the map size.
       // Leaflet's old pixel origin can otherwise leave edge markers off-screen.
       if (current.focusId) {
@@ -271,7 +270,9 @@
 
     async function update({ meters, focusId = "", marked = new Set(), mode = "overview", focusRequest = 0, resultIds = meters.map((m) => m.id) }) {
       const run = ++version;
-      current = { meters, focusId, marked, focusRequest, resultIds: new Set(resultIds) };
+      // The selection belongs to this update, even if the app changes it while
+      // a lookup is waiting. Newer updates supersede this run via version.
+      current = { meters, focusId, marked: new Set(marked), focusRequest, resultIds: new Set(resultIds) };
       const rank = (m) => m.id === focusId ? 2 : marked.has(m.id) ? 1 : 0;
       const wanted = [...meters].sort((a, b) => rank(b) - rank(a));
       const located = [];
@@ -280,59 +281,111 @@
         const pos = cachedPosition(m);
         if (pos) located.push({ m, pos }); else queue.push(m);
       }
-      const limit = queue.length;
-      const failures = [];
+      const failures = new Set();
+      let completed = 0;
+      let focusResolved = !focusId || located.some(({ m }) => m.id === focusId);
+      const report = () => {
+        const selected = wanted.find((m) => m.id === focusId);
+        const selectedFound = located.some(({ m }) => m.id === focusId);
+        const focusMessage = selected && !selectedFound
+          ? !focusResolved ? `Söker adress för ${selected.address}… `
+            : failures.has(focusId) ? `Vald mätare: adressökningen misslyckades för ${selected.address}. Klicka igen för att försöka på nytt. `
+            : `Vald mätare: adressen ${selected.address} kunde inte hittas. Ingen plupp placeras på en annan adress. ` : "";
+        const pending = queue.length - completed;
+        const missing = wanted.length - located.length - pending - failures.size;
+        const markedFound = located.filter(({ m }) => current.marked.has(m.id)).length;
+        status(`${focusMessage}${located.length} av ${wanted.length} på kartan${current.marked.size ? ` · ${markedFound} av ${current.marked.size} markerade på kartan` : ""}${pending ? ` · söker ${pending} återstående adresser…` : ""}${missing > 0 ? ` · ${missing} adresser kunde inte hittas` : ""}${failures.size ? ` · ${failures.size} adressökningar misslyckades, klicka på adressen för att försöka på nytt` : ""}`);
+        if (options.statusElement) options.statusElement.dataset.state = selected && focusResolved && !selectedFound ? "warning" : pending ? "loading" : "ready";
+      };
       draw(located, mode);
-      if (queue.length) status(focusId && queue.some((m) => m.id === focusId) ? `Söker adress för ${wanted.find((m) => m.id === focusId).address}…` : `Söker ${queue.length} adresser utan känd position…`);
-      for (const m of queue.slice(0, limit)) {
+      report();
+      for (const m of queue) {
         if (run !== version) return;
         try {
           const pos = await geocode(m, m.id === focusId);
           if (run !== version) return;
-          if (pos) {
-            located.push({ m, pos });
-            draw(located, mode);
-            const selected = located.find(({ m }) => m.id === focusId);
-            status(`${selected?.pos.approximate ? "Vald mätare: ungefärlig adressposition. " : ""}${located.length} av ${wanted.length} på kartan · söker återstående adresser…`);
-          }
+          if (pos) located.push({ m, pos });
         } catch (error) {
-          failures.push(m.id);
-          status(error.message);
-          // One failed lookup must not prevent the rest of the list loading.
+          if (run !== version) return;
+          failures.add(m.id);
         }
+        completed++;
+        if (m.id === focusId) focusResolved = true;
+        draw(located, mode);
+        report();
       }
       if (run !== version) return;
       draw(located, mode, true);
-      const missing = wanted.length - located.length;
-      const pending = Math.max(0, queue.length - limit);
-      const selected = wanted.find((m) => m.id === focusId);
-      const noSelectedPosition = selected && !located.some(({ m }) => m.id === focusId);
-      const selectedApproximate = located.find(({ m }) => m.id === focusId)?.pos.approximate;
-      status(`${noSelectedPosition ? `Vald mätare: adressen ${selected.address} kunde inte hittas. ` : selectedApproximate ? "Vald mätare: ungefärlig adressposition. " : ""}${located.length} av ${wanted.length} på kartan${pending ? ` · ${pending} adresser återstår att söka` : ""}${missing - pending - failures.length ? ` · ${missing - pending - failures.length} adresser kunde inte hittas` : ""}${failures.length ? ` · ${failures.length} adressökningar misslyckades, klicka på adressen för att försöka på nytt` : ""}`);
+      report();
+    }
+
+    function renderLegend(located) {
+      if (!options.legendElement) return;
+      const counts = new Map();
+      for (const { m } of located) counts.set(m.category || "normal", (counts.get(m.category || "normal") || 0) + 1);
+      const chips = Object.entries(View.statuses).filter(([key]) => counts.has(key)).map(([key, entry]) =>
+        `<span class="map-legend-chip" data-category="${key}" style="--meter-color:${entry.color}"><i aria-hidden="true"></i>${esc(entry.label)} <b>${counts.get(key)}</b></span>`).join("");
+      const content = `${chips}<span class="map-legend-selection"><i aria-hidden="true"></i>Svart ring = markerad · stor ring + adress = vald</span>`;
+      if (options.legendElement.innerHTML !== content) options.legendElement.innerHTML = content;
     }
 
     function draw(located, mode, final) {
-      markerLayer.clearLayers();
       entries = located.map(({ m, pos }) => ({ id: m.id, ...pos }));
-      const rank = (m) => m.id === current.focusId ? 2 : current.marked.has(m.id) ? 1 : 0;
+      const rank = (m) => m.id === current.focusId ? 200 : current.marked.has(m.id) ? 100 : ({ dispatch: 90, confirmed: 85, suspect_auto: 70, watch: 69, customer_side: 60, stable_high: 40 })[m.category] || 0;
       // Draw the selected meter last so its marker stays on top.
       located.sort((a, b) => rank(a.m) - rank(b.m));
+      const keep = new Set(located.map(({ m }) => m.id));
+      for (const [id, entry] of markerById) {
+        if (!keep.has(id)) { markerLayer.removeLayer(entry.marker); markerById.delete(id); }
+      }
       for (const { m, pos } of located) {
         const isFocus = m.id === current.focusId;
         const isMarked = current.marked.has(m.id);
-        const marker = L.circleMarker([pos.lat, pos.lng], {
+        const style = {
           radius: isFocus ? 11 : isMarked ? 9 : mode === "overview" ? 5.5 : 7,
           color: isFocus || isMarked ? "#111827" : "#ffffff",
-          weight: isFocus ? 4 : isMarked ? 3 : 1.5,
-          fillColor: COLORS[m.category] || COLORS.normal,
-          fillOpacity: 0.95,
-        });
+          weight: isFocus ? 4 : isMarked ? 3 : 2,
+          fillColor: (View.statuses[m.category] || View.statuses.normal).color,
+          fillOpacity: 1, opacity: 1,
+        };
+        let entry = markerById.get(m.id);
+        if (!entry) {
+          const marker = L.circleMarker([pos.lat, pos.lng], { ...style, className: "map-pin" });
+          marker.on("click", () => options.onFocus?.(m.id));
+          marker.addTo(markerLayer);
+          entry = { marker };
+          markerById.set(m.id, entry);
+        } else {
+          entry.marker.setLatLng([pos.lat, pos.lng]);
+          entry.marker.setStyle(style);
+        }
+        const marker = entry.marker;
         const address = esc(options.label ? options.label(m) : m.address);
         const max = m.series?.length ? Math.max(...m.series.map((p) => p.value)) : null;
-        marker.bindTooltip(`<div class="map-meter-tip"><b>${address}</b><span>${esc(m.status || "")}${pos.approximate ? " · Ungefärlig adressposition" : " · Adressposition"}</span><dl><dt>Senaste nivå</dt><dd>${esc(m.latest?.value ?? "–")}</dd><dt>Max i historiken</dt><dd>${esc(max ?? "–")}</dd></dl></div>`, { permanent: isFocus, direction: "top", offset: [0, -8], className: "map-label" });
-        marker.on("click", () => options.onFocus?.(m.id));
-        marker.addTo(markerLayer);
+        const date = m.latest?.date instanceof Date ? m.latest.date.toLocaleDateString("sv-SE") : "Datum saknas";
+        const tip = `<div class="map-meter-tip" style="--meter-color:${style.fillColor}"><b>${address}</b><span class="map-tip-status">${esc(m.status || View.statuses[m.category]?.label || "")}${isMarked ? " · Markerad" : ""}</span><span>Adressposition · ${esc(date)}</span><dl><dt>Senaste nivå</dt><dd>${esc(m.latest?.value ?? "–")}</dd><dt>Max i historiken</dt><dd>${esc(max ?? "–")}</dd></dl></div>`;
+        if (entry.tip !== tip || entry.focus !== isFocus) {
+          if (entry.tip != null) marker.unbindTooltip();
+          marker.bindTooltip(tip, { permanent: isFocus, direction: "top", offset: [0, -8], className: "map-label" });
+          entry.tip = tip; entry.focus = isFocus;
+          if (isFocus) marker.openTooltip();
+        }
+        // Priority and selection order determine both drawing and click order.
+        marker.bringToFront();
+        const node = marker.getElement();
+        if (node) {
+          node.dataset.meterId = m.id;
+          node.dataset.category = m.category || "normal";
+          node.classList.toggle("is-focus", isFocus);
+          node.classList.toggle("is-marked", isMarked);
+          node.setAttribute("tabindex", "0");
+          node.setAttribute("role", "button");
+          node.setAttribute("aria-pressed", String(isMarked));
+          node.setAttribute("aria-label", `${m.address} · ${m.status || ""} · nivå ${m.latest?.value ?? "saknas"}${isMarked ? " · markerad" : ""}`);
+          node.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); options.onFocus?.(m.id); } };
+        }
       }
+      renderLegend(located);
       drawMarks();
       const focused = located.find(({ m }) => m.id === current.focusId);
       if (current.focusId) {
@@ -350,8 +403,8 @@
           }
         }
       } else if (mode === "results") {
-        const resultKey = located.filter(({ m }) => current.resultIds.has(m.id)).map(({ m }) => m.id).join(",");
-        if (resultKey !== lastResults || final) { fitResults(); lastResults = resultKey; }
+        const resultKey = located.filter(({ m }) => current.resultIds.has(m.id)).map(({ m }) => m.id).sort().join(",");
+        if (resultKey !== lastResults || lastFlight) { fitResults(); lastResults = resultKey; }
       } else if (final || located.length) {
         lastFlight = "";
         const pts = located.map(({ pos }) => [pos.lat, pos.lng]);
@@ -360,9 +413,11 @@
       }
     }
 
-    function fitResults() {
-      const pts = entries.filter((e) => current.resultIds.has(e.id)).map((e) => [e.lat, e.lng]);
+    function fitResults(markedOnly = false) {
+      const pts = entries.filter((e) => (markedOnly ? current.marked : current.resultIds).has(e.id)).map((e) => [e.lat, e.lng]);
       map.stop();
+      lastFlight = "";
+      if (markedOnly && !pts.length) { status("De markerade adresserna har ännu ingen hittad adressposition."); return; }
       if (pts.length === 1) map.setView(pts[0], 17, { animate: false });
       else if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [32, 32], maxZoom: 17, animate: false });
       else map.setView(CENTER, 12, { animate: false });
@@ -388,7 +443,7 @@
     }
 
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && tool) { rect?.remove(); rect = null; rectStart = null; setTool(""); status("Verktyget avbröts."); } });
-    return { update, setTool, setStyle, locate, fitResults, invalidate: resizeMap, map };
+    return { update, setTool, setStyle, locate, fitResults, fitMarked: () => fitResults(true), invalidate: () => resizeMap(false), map };
   }
 
   function navigationUrl(meter) {

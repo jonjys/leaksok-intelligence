@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const { chromium } = require('playwright');
 const kit = require('./browser-kit.cjs');
 const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
@@ -86,13 +87,14 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     assert.ok(menu.x >= 0 && menu.x + menu.width <= 1366, 'Selection menu fits within the viewport');
     await page.locator('#selectionBar .selection-menu summary').click();
     assert.equal(await page.locator('#selectionBar [data-sort="value"]').isVisible(), true, 'Map list keeps sorting controls');
-    // Selecting a named list opens the map and clears the previous focus.
+    // With no chosen meter, a named list opens the map and fits its results.
     await page.locator('#search').fill('');
     await page.evaluate(() => {
       state.meters.forEach((m, i) => { m.category = i < 60 ? 'suspect_auto' : 'normal'; });
       LeakApp.render();
     });
     await page.locator('button[data-view="list"]').click();
+    await page.evaluate(() => LeakApp.setFocus(''));
     await page.locator('#rail [data-list="suspect"]').click();
     await page.waitForFunction(() => state.view === 'map' && !state.focusId && document.querySelector('#mapStatus').textContent.startsWith('60 av 60'));
     // The previous map also had 60 markers: wait for the new list's bounds,
@@ -160,8 +162,11 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     await fresh.locator('#selectionBar .selection-menu summary').click();
     await fresh.locator('#selectionBar [data-sel="all"]').click();
     await fresh.waitForFunction(() => state.marked.size === 2);
+    assert.equal(await fresh.locator('#rows [data-mark]:checked').count(), 2, 'Mark all updates the actual row checkboxes too');
+    const markedFocus = await fresh.evaluate(() => state.focusId);
     const markedStreet = await fresh.evaluate(() => [...state.marked]);
     await fresh.locator('#rail [data-list="suspect"]').click();
+    assert.equal(await fresh.evaluate(() => state.focusId), markedFocus, 'Changing tabs retains the marked chosen meter');
     await fresh.evaluate(id => LeakApp.setFocus(id), markedStreet[0]);
     await fresh.waitForFunction(() => {
       const pos = LeakMap.cachedPosition(state.byId.get(state.focusId));
@@ -201,6 +206,47 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
         const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
       });
     });
+    // The same address pin receives new values even when its status is unchanged.
+    await fresh.evaluate(id => LeakApp.applyDecision([id], 'interesting'), worklistId);
+    await fresh.waitForFunction(id => document.querySelector(`#map .map-pin[data-meter-id="${id}"]`)?.getAttribute('fill') === LeakMeterView.statuses.watch.color, worklistId);
+    const beforeUpdate = await fresh.evaluate(id => {
+      let pin; testMap.eachLayer(l => { if (l instanceof L.CircleMarker && l.getElement()?.dataset.meterId === id) pin = l; });
+      return { pinId: pin._leaflet_id, value: state.byId.get(id).latest.value, category: state.byId.get(id).category };
+    }, worklistId);
+    const extra = JSON.parse(JSON.stringify(addressFiles.at(-1)));
+    extra.rows.slice(1).forEach(r => { r[3] = '2026-09-30 04:00'; r[4] = Number(r[4]) + 1; });
+    await kit.importFiles(fresh, [{ name: 'Filtrerade mätare 2026-09-30 06-30.csv', text: toCsv(extra.rows) }]);
+    await fresh.waitForFunction(({ id, value }) => state.byId.get(id).latest.value === value + 1 && document.querySelector('.map-meter-tip dd')?.textContent === String(value + 1), { id: worklistId, value: beforeUpdate.value });
+    const afterUpdate = await fresh.evaluate(id => {
+      let pin; testMap.eachLayer(l => { if (l instanceof L.CircleMarker && l.getElement()?.dataset.meterId === id) pin = l; });
+      return { pinId: pin._leaflet_id, category: state.byId.get(id).category, marked: pin.getElement().classList.contains('is-marked') };
+    }, worklistId);
+    assert.equal(afterUpdate.pinId, beforeUpdate.pinId, 'Daily imports update an existing pin instead of replacing it');
+    assert.equal(afterUpdate.category, beforeUpdate.category);
+    assert.equal(afterUpdate.marked, true);
+    await fresh.locator('#search').fill('');
+    await fresh.locator('#rail [data-list="all"]').click();
+    await fresh.locator('#sort').selectOption('changeAbs');
+    let deltas = await fresh.evaluate(() => state.visible.map(m => m.changePrev?.delta).filter(v => v != null));
+    assert.deepEqual(deltas, [...deltas].sort((a, b) => b - a));
+    await fresh.locator('#sortDirection').click();
+    deltas = await fresh.evaluate(() => state.visible.map(m => m.changePrev?.delta).filter(v => v != null));
+    assert.deepEqual(deltas, [...deltas].sort((a, b) => a - b));
+    assert.equal(await fresh.locator('#sortDirection').getAttribute('aria-pressed'), 'true');
+    await fresh.locator('#showMarkedOnMap').click();
+    await fresh.waitForFunction(() => [...state.marked].every(id => {
+      const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
+    }));
+    assert.equal(await fresh.locator('#map .map-pin.is-marked').count(), 2);
+    const legendColour = await fresh.locator('#mapLegend [data-category="watch"] i').evaluate(el => getComputedStyle(el).backgroundColor);
+    const badgeColour = await fresh.locator('#rows tr.is-focus .pill').evaluate(el => getComputedStyle(el).backgroundColor);
+    assert.equal(badgeColour, legendColour, 'Map key and list use the same status colour');
+    fs.mkdirSync('test-results', { recursive: true });
+    await fresh.screenshot({ path: 'test-results/map-selection-desktop.png' });
+    await fresh.setViewportSize({ width: 390, height: 844 });
+    await fresh.waitForTimeout(250);
+    assert.equal(await fresh.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0);
+    await fresh.screenshot({ path: 'test-results/map-selection-mobile.png', fullPage: true });
     await fresh.close();
     console.log('Map search PASS: 60 results, persistent markers, warning colors, fitted bounds and mobile width.');
   } finally { await browser.close(); server.close(); }

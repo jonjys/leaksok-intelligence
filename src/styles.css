@@ -150,7 +150,7 @@ details.menu > summary::after { content: "▾"; font-size: 11px; color: var(--mu
 .focus.no-meter .split-handle { display: none; }
 body.is-splitting { cursor: col-resize; user-select: none; }
 .focus.no-meter .focus-chart, .focus.no-meter #focusNavigate, .focus.no-meter #focusMenu, .focus.no-meter #focusClose { display: none; }
-.focus-map { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; gap: 6px; min-width: 0; min-height: 0; }
+.focus-map { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 6px; min-width: 0; min-height: 0; }
 .map { width: 100%; height: 100%; min-height: 180px; border-radius: 6px; border: 1px solid var(--line); position: relative; z-index: 0; }
 .map-tools { display: flex; gap: 4px; flex-wrap: wrap; }
 .map-tools button { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 6px; padding: 3px 9px; font-size: 12.5px; font-weight: 600; min-height: 28px; }
@@ -383,7 +383,7 @@ fieldset.inline legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
   .focus-grid { grid-template-columns: minmax(0, 1fr); height: auto; row-gap: 12px; }
   .split-handle { display: none; }
   .focus-chart { min-height: 300px; }
-  .focus-map { grid-template-rows: auto 230px auto auto; }
+  .focus-map { grid-template-rows: auto auto 230px auto; }
   .map { min-height: 230px; }
   .table-wrap { background: none; border: 0; }
   table.meters, .meters tbody { display: block; }
@@ -702,4 +702,29 @@ body.has-focus .c-status .prio { display: none; }
   .brief-stats button { min-width: 0; padding: 7px 10px; }
   .brief-stats button b { font-size: 21px; }
   .rail { padding: 0; border: 0; background: transparent; }
+}
+
+/* Status has the same colour in the list, tooltip and map. Selection adds a
+   ring and size; it never replaces the status colour or hides a selected pin. */
+.c-status .pill { background: var(--meter-color, var(--cat-muted)); }
+.map-pin { filter: drop-shadow(0 1px 1px rgba(15, 23, 42, .5)); }
+.map-pin.is-marked, .map-pin.is-focus { filter: drop-shadow(0 0 2px #fff) drop-shadow(0 1px 2px rgba(15, 23, 42, .7)); }
+.map-pin:focus-visible { outline: none; stroke: #111827; stroke-width: 5px; }
+.map-tip-status { display: block; color: var(--meter-color) !important; font-weight: 800; margin-bottom: 3px; }
+.map-legend { gap: 5px 8px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); font-size: 11.5px; color: var(--text); max-height: 86px; overflow: auto; }
+.map-legend-chip { white-space: nowrap; }
+.map-legend-chip i { width: 11px; height: 11px; background: var(--meter-color); border: 1px solid rgba(0,0,0,.18); }
+.map-legend-chip b { font-variant-numeric: tabular-nums; color: var(--muted); }
+.map-legend-selection { flex-basis: 100%; font-size: 11px; color: var(--muted); }
+.map-legend-selection i { width: 12px; height: 12px; border: 3px solid #111827; background: #fff; }
+.map-status { overflow-wrap: anywhere; }
+.map-status[data-state="warning"] { color: #874c00; font-weight: 600; }
+.map-tools [data-map-action="marked"]:not(:disabled) { border-color: #111827; color: #111827; font-weight: 800; background: #f1f5f9; }
+.sort-direction { min-width: 34px; min-height: 34px; padding: 5px 8px; font-size: 18px; align-self: center; }
+.row.is-marked { box-shadow: inset 4px 0 0 #111827; }
+.row.is-focus { box-shadow: inset 5px 0 0 var(--meter-color, var(--accent)); }
+@media (max-width: 760px) {
+  .map-legend { max-height: 100px; }
+  .toolbar .field { max-width: 100%; }
+  .toolbar #sort { min-width: 0; max-width: 230px; }
 }
