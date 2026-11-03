@@ -269,7 +269,7 @@
       for (const { m } of located) counts.set(m.category || "normal", (counts.get(m.category || "normal") || 0) + 1);
       const chips = Object.entries(View.statuses).filter(([key]) => counts.has(key)).map(([key, entry]) =>
         `<span class="map-legend-chip" data-category="${key}" style="--meter-color:${entry.color}"><i aria-hidden="true"></i>${esc(entry.label)} <b>${counts.get(key)}</b></span>`).join("");
-      const content = `${chips}<span class="map-legend-selection"><i aria-hidden="true"></i>Svart ring = markerad · stor ring + adress = vald</span><a class="map-source" href="https://karta.botkyrka.se/" target="_blank" rel="noopener">Adresspunkter: Botkyrka kommun</a>`;
+      const content = `${chips}<details class="menu map-key"><summary aria-label="Om kartans markeringar" title="Om kartans markeringar">i</summary><div class="menu-panel"><p class="map-legend-selection"><i aria-hidden="true"></i>Svart ring = markerad · stor ring + adress = vald</p><p>Statusfärgen behålls när du markerar. Positionen följer hela adressen, inte mätarens GPS.</p><a class="map-source" href="https://karta.botkyrka.se/" target="_blank" rel="noopener">Adresspunkter: Botkyrka kommun</a></div></details>`;
       if (options.legendElement.innerHTML !== content) options.legendElement.innerHTML = content;
     }
 

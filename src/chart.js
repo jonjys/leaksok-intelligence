@@ -181,7 +181,8 @@
       const ref = meter.finding?.ref;
       const referenceNote = meter.finding?.type === "trend" ? " Trendlinjen är en beräkning från importerade punkter, inte uppmätta värden under luckorna."
         : Number.isFinite(ref?.level) ? ` Median ${num(ref.level)} (${ref.n} avläsningsdagar, ${Engine.fmtDate(ref.from, true)}–${Engine.fmtDate(ref.to, true)}) är ett räknat jämförelsemått, inte mellanliggande avläsningar.` : "";
-      container.querySelector(".ch-coverage").textContent = `${covered.readingDays} avläsningsdagar i appen under ${covered.expectedDays} kalenderdagar i vald period.${covered.missingDays ? ` ${covered.missingDays} dagar saknar importerade värden; Kamstrup kan ha fler.` : ""}${referenceNote}`;
+      container.querySelector(".ch-coverage-short").textContent = `${covered.readingDays} avläsningsdagar / ${covered.expectedDays} dagar${covered.missingDays ? ` · ${covered.missingDays} saknas i importen` : ""}`;
+      container.querySelector(".ch-coverage-explanation").textContent = `Vald period visar de avläsningar som finns i appens importer.${covered.missingDays ? ` ${covered.missingDays} dagar saknar importerade värden; Kamstrup kan ha fler.` : ""}${referenceNote}`;
       container.querySelector(".ch-coverage").dataset.state = covered.missingDays ? "warning" : "ready";
       state.points = built.points;
       state.size = `${width}x${height}`;
@@ -204,7 +205,7 @@
         <label class="ch-compare-pick">Jämför med <select>${[["previous", "föregående avläsning"], ["7", "7 dagar bakåt"], ["30", "30 dagar bakåt"], ["90", "90 dagar bakåt"], ["365", "1 år bakåt"]].map(([v, l]) => `<option value="${v}"${state.compare === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
       </div>
       <div class="ch-stage${compact ? " compact" : ""}"${compact ? ' role="button" tabindex="0" aria-label="Förstora grafen"' : ""}></div>
-      <p class="ch-coverage" role="status"></p>
+      <div class="ch-coverage"><span class="ch-coverage-short" role="status"></span><details class="ch-coverage-help"><summary>Så läser du grafen</summary><p class="ch-coverage-explanation"></p></details></div>
       <div class="ch-tip" hidden></div>
       <div class="ch-legend">${legend}</div>`;
     container.querySelectorAll("[data-period]").forEach((b) => b.addEventListener("click", (e) => {

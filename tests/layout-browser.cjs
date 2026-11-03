@@ -106,7 +106,16 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal(await page.locator("#sort").inputValue(), "address");
     assert.equal(await page.locator("#contextMenu").isVisible(), false);
     assert.equal(await page.evaluate(() => state.marked.size), 2);
-    await page.locator("#sort").selectOption("priority");
+    await kit.chooseSort(page, 'priority');
+    assert.equal(await page.locator('#sortLabel').textContent(), 'Arbetsordning');
+    assert.equal(await page.locator('#sortMenu').getAttribute('open'), null, 'Choosing a sort closes the menu');
+    assert.equal(await page.locator('#selectionBar [data-sort]').count(), 0, 'The marking bar has no duplicated sort controls');
+    await page.locator('#sortMenu > summary').focus();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#sortLabel').textContent(), 'Område', 'Keyboard can choose the last sorting option');
+    await kit.chooseSort(page, 'priority');
     await page.evaluate(() => document.querySelector(".table-wrap").scrollTop = 500);
 
     // Wide office screens: no max-width, table fills the width, panel bounded.
@@ -170,6 +179,11 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
       await page.setViewportSize({ width: w, height: h });
       await page.waitForTimeout(300);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, `No horizontal scroll at ${w}×${h}`);
+      if (w <= 760) assert.ok((await page.locator('#sortMenu > summary').boundingBox()).width >= 180, 'Selected sort remains readable on a phone');
+      await page.locator('#sortMenu > summary').click();
+      const menu = await page.locator('#sortOptions').boundingBox();
+      assert.ok(menu.x >= 0 && menu.x + menu.width <= w && menu.y + menu.height <= h, 'Grouped sort menu fits the viewport');
+      await page.locator('#sortMenu > summary').click();
     }
     await page.evaluate(() => LeakApp.setFocus(state.visible[0].id, { scroll: false }));
     await page.waitForSelector("#focusChart .ch-stage svg");

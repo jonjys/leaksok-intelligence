@@ -63,7 +63,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await page.locator("#selectionBar .selection-menu summary").click();
     assert.match(await page.locator('#selectionBar [data-sel="all"]').innerText(), /Markera alla 2 träffar/);
     await kit.selectionAction(page, "all");
-    assert.match(await page.locator("#selectionBar").innerText(), /5 markerade \(3 utanför listan · kvar på kartan\)/);
+    assert.match(await page.locator("#selectionBar").innerText(), /5 markerade.*3 utanför filtret/);
     await kit.selectionAction(page, "clear");
     assert.equal(await page.locator('#selectionBar [data-sel="excel"]').count(), 0, "No export without a selection");
     await kit.selectionAction(page, "all");

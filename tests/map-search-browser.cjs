@@ -86,7 +86,7 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     const menu = await page.locator('#selectionBar .menu-panel').boundingBox();
     assert.ok(menu.x >= 0 && menu.x + menu.width <= 1366, 'Selection menu fits within the viewport');
     await page.locator('#selectionBar .selection-menu summary').click();
-    assert.equal(await page.locator('#selectionBar [data-sort="value"]').isVisible(), true, 'Map list keeps sorting controls');
+    assert.equal(await page.locator('#sortMenu > summary').isVisible(), true, 'Map list keeps the shared sorting menu');
     // With no chosen meter, a named list opens the map and fits its results.
     await page.locator('#search').fill('');
     await page.evaluate(() => {
@@ -229,7 +229,7 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     assert.equal(afterUpdate.marked, true);
     await fresh.locator('#search').fill('');
     await fresh.locator('#rail [data-list="all"]').click();
-    await fresh.locator('#sort').selectOption('changeAbs');
+    await kit.chooseSort(fresh, 'changeAbs');
     let deltas = await fresh.evaluate(() => state.visible.map(m => m.changePrev?.delta).filter(v => v != null));
     assert.deepEqual(deltas, [...deltas].sort((a, b) => b - a));
     await fresh.locator('#sortDirection').click();
@@ -241,12 +241,12 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
       const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
     }));
     assert.equal(await fresh.locator('#map .map-pin.is-marked').count(), 2);
-    await fresh.locator('#sort').selectOption('suspicion');
+    await kit.chooseSort(fresh, 'suspicion');
     assert.match(await fresh.locator('#sortHelp').textContent(), /inte sannolikhet/);
     const scores = await fresh.evaluate(() => state.visible.map(m => m.priority));
     assert.deepEqual(scores, [...scores].sort((a, b) => b - a), 'Most suspicious sorts by analysis score');
     for (const sort of ['kamstrup', 'persistence', 'neighbors', 'confidence', 'signalDate', 'maxValue']) {
-      await fresh.locator('#sort').selectOption(sort);
+      await kit.chooseSort(fresh, sort);
       assert.equal(await countPins(), 3, `Sort ${sort} retains every pin`);
       assert.equal(await fresh.locator('#map .map-pin.is-marked').count(), 2);
     }
@@ -293,6 +293,7 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     await fresh.evaluate(() => LeakApp.setFocus('99000000', { scroll: false }));
     await fresh.waitForFunction(() => LeakMap.cachedPosition(state.byId.get('99000000'))?.corrected === true);
     assert.match(await fresh.evaluate(() => LeakMap.navigationUrl(state.byId.get('99000000'))), /Bro%C3%A4ngsv%C3%A4gen%2036/);
+    await fresh.locator('.map-more > summary').click();
     await fresh.locator('#correctMapAddress').click();
     await fresh.locator('#addressReset').click();
     await fresh.waitForFunction(() => !document.querySelector('#addressDialog').open && LeakMap.cachedPosition(state.byId.get('99000000')) === null);

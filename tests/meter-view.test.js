@@ -69,12 +69,43 @@ test('Kamstrup rank 1 sorts first and missing export ranks stay last in either d
 
 test('Signal duration, neighbourhood, evidence strength, onset and historical max have useful ordering', () => {
   const rows = [
-    { id: 'high', upFinding: { persistence: { days: 20 }, onset: { at: new Date('2026-11-02') } }, areaSignal: { count: 5 }, confidence: 'starkt', series: [{ value: 8 }, { value: 90 }] },
-    { id: 'low', upFinding: { persistence: { days: 1 }, onset: { at: new Date('2026-10-01') } }, areaSignal: { count: 2 }, confidence: 'tunt', series: [{ value: 10 }] },
+    { id: 'high', upFinding: { persistence: { n: 20, days: 20 }, onset: { at: new Date('2026-11-02') } }, areaSignal: { count: 5, buildingCount: 5 }, confidence: 'starkt', series: [{ value: 8 }, { value: 90 }] },
+    { id: 'low', upFinding: { persistence: { n: 1, days: 1 }, onset: { at: new Date('2026-10-01') } }, areaSignal: { count: 2, buildingCount: 2 }, confidence: 'tunt', series: [{ value: 10 }] },
     { id: 'missing' },
   ];
   for (const sort of ['persistence', 'neighbors', 'confidence', 'signalDate', 'maxValue']) {
     assert.deepEqual(order(rows, sort), ['high', 'low', 'missing'], sort);
     assert.deepEqual(order(rows, sort, true), ['low', 'high', 'missing'], sort);
   }
+});
+
+test('Signal-day sorting counts observations rather than an unobserved calendar span', () => {
+  const rows = [
+    { id: 'sparse', upFinding: { persistence: { n: 2, days: 100 } } },
+    { id: 'dense', upFinding: { persistence: { n: 5, days: 5 } } },
+    { id: 'new', upFinding: { type: 'new_signal', now: { n: 1 } } },
+    { id: 'quiet' },
+  ];
+  assert.deepEqual(order(rows, 'persistence'), ['dense', 'sparse', 'new', 'quiet']);
+  assert.deepEqual(order(rows, 'persistence', true), ['new', 'sparse', 'dense', 'quiet']);
+});
+
+test('Neighbour sorting counts separate addresses, not repeated meters at the same house', () => {
+  const rows = [
+    { id: 'duplicate-meters', areaSignal: { count: 10, buildingCount: 2 } },
+    { id: 'independent-addresses', areaSignal: { count: 5, buildingCount: 4 } },
+    { id: 'no-signal' },
+  ];
+  assert.deepEqual(order(rows, 'neighbors'), ['independent-addresses', 'duplicate-meters', 'no-signal']);
+  assert.deepEqual(order(rows, 'neighbors', true), ['duplicate-meters', 'independent-addresses', 'no-signal']);
+});
+
+test('A new one-reading signal has a date, while a trend retains the start of its period', () => {
+  const rows = [
+    { id: 'older-shift', upFinding: { onset: { at: new Date('2026-10-01') } } },
+    { id: 'new-signal', upFinding: { type: 'new_signal', now: { from: new Date('2026-11-02') } } },
+    { id: 'trend', upFinding: { type: 'trend', ref: { from: new Date('2026-09-01') }, now: { from: new Date('2026-11-03') } } },
+    { id: 'quiet' },
+  ];
+  assert.deepEqual(order(rows, 'signalDate'), ['new-signal', 'older-shift', 'trend', 'quiet']);
 });
