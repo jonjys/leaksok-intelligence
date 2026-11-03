@@ -75,14 +75,10 @@ test('LEAK and BURST route into customer-side checks without inventing a main-li
 });
 module.exports={fixture,result};
 
-test('Provider schema restricts each case to its own actual evidence IDs',()=>{
+test('Provider schema stays compact while server enforces exact own-case evidence',()=>{
  const f=fixture();f.mode='triage';f.cases.push({...structuredClone(f.cases[0]),caseId:'m2'});const input=Evidence.build(f),s=Evidence.schemaFor(input);
- assert.deepEqual(s.properties.order.items.enum,['m1','m2']);
- for(const [i,c]of input.cases.entries()){
-  const p=s.properties.cases.properties[c.caseId].properties;assert.deepEqual(p.caseId.enum,[c.caseId]);
-  for(const refs of [p.evidenceIds,p.hypotheses.items.properties.support,p.hypotheses.items.properties.against])assert.deepEqual(refs.items.enum,c.evidence.map(e=>e.id));
- }
+ assert.deepEqual(s.properties.order.items.enum,['m1','m2']);assert.deepEqual(s.properties.cases.items.properties.caseId.enum,['m1','m2']);
+ assert.ok(JSON.stringify(s).length<2000);
  const r=result(input);r.cases[0].evidenceIds=input.cases[0].evidence.map(e=>e.id);assert.doesNotThrow(()=>Evidence.clean(r,input));
- const keyed={...r,cases:Object.fromEntries(r.cases.map(c=>[c.caseId,c]))};assert.deepEqual(Evidence.clean(keyed,input),r);
- keyed.cases.m1.caseId='m2';assert.throws(()=>Evidence.clean(keyed,input));
+ r.cases[0].evidenceIds=['m2:e1'];assert.throws(()=>Evidence.clean(r,input));
 });
