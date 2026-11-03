@@ -92,7 +92,7 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
         headers: { Authorization: `Bearer ${env.ANTHROPIC_API_KEY}`, 'anthropic-version': '2026-10-21', 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: MODEL, max_tokens: input.version === 2 ? Math.min(12000, 4000 + input.cases.length * 1000) : 1600, thinking: { type: input.version === 2 ? 'adaptive' : 'between_tools' }, system: input.version === 2 ? Evidence.prompt : PROMPT,
           messages: [{ role: 'user', content: JSON.stringify(input) }],
-          output_config: { ...(input.version === 2 ? {effort:'medium'} : {}), format: { type: 'json_schema', schema: input.version === 2 ? Evidence.schema : outputSchema } } }),
+          output_config: { ...(input.version === 2 ? {effort:'medium'} : {}), format: { type: 'json_schema', schema: input.version === 2 ? Evidence.schemaFor(input) : outputSchema } } }),
       });
       if (!response.ok) return res.status(response.status === 429 ? 429 : 502).json({ error: response.status === 429 ? 'Anthropic begränsar anropen just nu. Försök senare.' : 'Claude-anropet kunde inte slutföras. Kontrollera serverns nyckel, modellåtkomst och Anthropic-saldo.' });
       const data = await response.json();
@@ -108,8 +108,9 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
       if (cache.size >= 32) cache.delete(cache.keys().next().value);
       cache.set(key, { at: now(), result });
       return res.status(200).json(result);
-    } catch {
-      console.warn('ai-review-incomplete', { stage, stopReason, outputTokens, cases: input.cases?.length || 1 });
+    } catch (error) {
+      const reason = ['Ogiltig kontrollplan.','Ogiltig fallbedömning.','Okända belägg.','Ogiltig hypotes.'].includes(error.message) ? error.message : 'incomplete';
+      console.warn('ai-review-incomplete', { stage, reason, stopReason, outputTokens, cases: input.cases?.length || 1 });
       return res.status(502).json({ error: 'Claude gav inget komplett läsbart svar. Ingen automatisk omkörning görs.' });
     }
     finally { busy = false; }
