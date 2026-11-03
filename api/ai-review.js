@@ -85,18 +85,22 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
     if (now() - windowAt >= 3600000) { windowAt = now(); calls = 0; }
     if (busy || now() - lastCall < 10000 || calls >= 20) { res.setHeader('Retry-After', '10'); return res.status(429).json({ error: 'Vänta en stund före nästa Claude-bedömning.' }); }
     busy = true; calls++; lastCall = now();
+    let stage = 'request', stopReason = null, outputTokens = 0;
     try {
       const response = await fetcher('https://api.anthropic.com/v1/messages', {
         method: 'POST', signal: AbortSignal.timeout(input.version === 2 ? 90000 : 45000),
         headers: { Authorization: `Bearer ${env.ANTHROPIC_API_KEY}`, 'anthropic-version': '2026-10-21', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, max_tokens: input.version === 2 ? Math.min(6000, 2000 + input.cases.length * 500) : 1600, thinking: { type: input.version === 2 ? 'adaptive' : 'between_tools' }, system: input.version === 2 ? Evidence.prompt : PROMPT,
+        body: JSON.stringify({ model: MODEL, max_tokens: input.version === 2 ? Math.min(12000, 4000 + input.cases.length * 1000) : 1600, thinking: { type: input.version === 2 ? 'adaptive' : 'between_tools' }, system: input.version === 2 ? Evidence.prompt : PROMPT,
           messages: [{ role: 'user', content: JSON.stringify(input) }],
           output_config: { ...(input.version === 2 ? {effort:'medium'} : {}), format: { type: 'json_schema', schema: input.version === 2 ? Evidence.schema : outputSchema } } }),
       });
       if (!response.ok) return res.status(response.status === 429 ? 429 : 502).json({ error: response.status === 429 ? 'Anthropic begränsar anropen just nu. Försök senare.' : 'Claude-anropet kunde inte slutföras. Kontrollera serverns nyckel, modellåtkomst och Anthropic-saldo.' });
       const data = await response.json();
+      stage = 'completion'; stopReason = data.stop_reason; outputTokens = Number(data.usage?.output_tokens) || 0;
       if (data.stop_reason !== 'end_turn') throw Error('Incomplete result');
+      stage = 'parse';
       const parsed = JSON.parse((data.content || []).filter(b => b.type === 'text').map(b => b.text).join(''));
+      stage = 'validation';
       const review = input.version === 2 ? Evidence.clean(parsed,input) : cleanResult(parsed);
       const result = { review, model: data.model || MODEL, createdAt: new Date(now()).toISOString(),
         ...(input.version === 2 ? { evidence: input, promptVersion: 'field-plan-2.0' } : {}),
@@ -104,7 +108,10 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
       if (cache.size >= 32) cache.delete(cache.keys().next().value);
       cache.set(key, { at: now(), result });
       return res.status(200).json(result);
-    } catch { return res.status(502).json({ error: 'Claude gav inget komplett läsbart svar. Ingen automatisk omkörning görs.' }); }
+    } catch {
+      console.warn('ai-review-incomplete', { stage, stopReason, outputTokens, cases: input.cases?.length || 1 });
+      return res.status(502).json({ error: 'Claude gav inget komplett läsbart svar. Ingen automatisk omkörning görs.' });
+    }
     finally { busy = false; }
   };
 }
