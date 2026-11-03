@@ -51,7 +51,7 @@ test('Changing old data invalidates the audit fingerprint even outside the recen
 test('The v2 endpoint forwards computed evidence, validates references, caches and keeps v1 compatibility',async()=>{
  const code='synthetic-access-code-at-least-24';let calls=0,modelInput;
  const h=createHandler({env:{ANTHROPIC_API_KEY:'not-real',LEAKSOK_AI_ACCESS_CODE:code},fetcher:async(url,opts)=>{
-   calls++;modelInput=JSON.parse(JSON.parse(opts.body).messages[0].content);
+   calls++;const sent=JSON.parse(opts.body);assert.equal(sent.max_tokens,5000);assert.equal(sent.output_config.effort,'medium');modelInput=JSON.parse(sent.messages[0].content);
    return {ok:true,json:async()=>({model:'test',stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify(result(modelInput))}],usage:{input_tokens:100,output_tokens:100}})};
  }});
  const run=async()=>{let status,data;const res={setHeader(){},status(n){status=n;return this},json(v){data=v},end(){}};await h({method:'POST',headers:{authorization:`Bearer ${code}`,'content-type':'application/json',host:'example.test'},body:fixture()},res);return {status,data}};
