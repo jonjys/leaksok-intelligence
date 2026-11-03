@@ -123,18 +123,22 @@ const schema={type:'object',additionalProperties:false,properties:{summary:{type
 function schemaFor(input){
   const output=structuredClone(schema);
   output.properties.order.items={type:'string',enum:input.cases.map(c=>c.caseId)};
-  output.properties.cases.items={anyOf:input.cases.map(c=>{
+  output.properties.cases={type:'object',additionalProperties:false,required:input.cases.map(c=>c.caseId),properties:Object.fromEntries(input.cases.map(c=>{
     const item=structuredClone(schema.properties.cases.items);
     const refs={type:'array',items:{type:'string',enum:c.evidence.map(e=>e.id)}};
     item.properties.caseId={type:'string',enum:[c.caseId]};
     item.properties.evidenceIds=refs;
     item.properties.hypotheses.items.properties.support=structuredClone(refs);
     item.properties.hypotheses.items.properties.against=structuredClone(refs);
-    return item;
-  })};
+    return [c.caseId,item];
+  }))};
   return output;
 }
 function clean(result,input){
+  if(result?.cases && !Array.isArray(result.cases) && typeof result.cases==='object') {
+    if(Object.keys(result.cases).length!==input.cases.length || !input.cases.every(c=>result.cases[c.caseId]?.caseId===c.caseId))throw Error('Ogiltig fallbedömning.');
+    result={...result,cases:input.cases.map(c=>result.cases[c.caseId])};
+  }
   const text=s=>typeof s==='string'&&s.trim().length>0&&s.length<=1500;
   const list=(a,max=6)=>Array.isArray(a)&&a.length<=max&&a.every(text);
   if(!text(result?.summary)||!list(result.order,8)||result.order.length!==input.cases.length||new Set(result.order).size!==input.cases.length||!result.order.every(id=>input.cases.some(c=>c.caseId===id))||!list(result.sharedChecks)||!Array.isArray(result.cases)||result.cases.length!==input.cases.length)throw Error('Ogiltig kontrollplan.');
@@ -149,5 +153,5 @@ function clean(result,input){
 const prompt=`Du är VA-driftens analysassistent. Underlaget är serverberäknat med samma regelmotor som LeakSök och beläggen har stabila ID:n. Räkna inte om värden och hitta inte på fakta. Använd både stöd och motbevis, periodtäckning, senaste datum, infokoder, manuella beslut, återgång efter lagning, säsong och samtidiga områdessignaler. Alla slutsatser gäller endast urvalet. Bevara beslut om konstaterad/lagad läcka; builtin-uppgifter är inte oberoende pilotfacit. Brist på historik eller flöde är okänt, inte normalt. Skilj sedan föregående avläsning från förändring mot egen referens. Gamla toppar är inte nya varningar. Ange inga läcksannolikheter, läckflöden, geografiska lägen eller nätkopplingar. Prioritera nästa undersökning, aldrig automatiska statusändringar. DRY och för gammal avläsning kräver datakontroll. Dämpa säkra tolkningar vid gles referens eller osäkert fältdatum.
 Bakgrund: Kamstrup FILE100004503_A_EN_08.2024 beskriver kurvbeteende framför absolut brusnivå, ny bestående ökning, gradvis ökning, återkommande förändringar, grannsamband, pump-/värmestörning samt kontroll av spolning, värme, rörarbete och ny pump före utryckning. Det är kvalitativa råd, inte numeriska gränser eller bevisad träffsäkerhet för LeakSök. Brusvärdet har ingen angiven fysisk enhet. Flöde ska ha datum, kan vara legitim förbrukning och fastställer inte läckans läge. Adressnärhet bevisar inte samma ledning.
 Samstämmiga ökningar hos separata närliggande adresspunkter får motivera hypotes om gemensam läcka, även på huvudledning, men ställ den mot spolning, tryck/drift och värme. Kräv ledningsuppgifter och kontroll i fält innan en sådan koppling fastställs. Anta aldrig närhet bara för att flera mätare valts.
-Svara kort på svenska. order ska innehålla varje caseId exakt en gång som föreslagen kontrollordning, inte riskprocent. Ge summary och gemensamma sharedChecks utan påhittade samband. Varje fall ska ha giltiga evidenceIds; varje hypotes ska ange support och against som ID-listor (tom lista om belägg saknas) samt en konkret check som kan skilja orsakerna åt. Referera bara det egna fallets belägg. Högst två hypoteser och tre korta nästa kontroller per fall. Högst sex punkter i sharedChecks och limitations. Varje textfält högst 1 500 tecken. Förklara vad som skulle ändra bedömningen. Ingen fri chatt, inga verktyg eller externa datakällor. Nätets topologi, modellvariant, mätarstorlek, tryck och rörmaterial saknas.`;
+Svara kort på svenska. order ska innehålla varje caseId exakt en gång som föreslagen kontrollordning, inte riskprocent. Ge summary och gemensamma sharedChecks utan påhittade samband. cases ska vara ett objekt med exakt en nyckel per valt caseId enligt schemat. Varje fall ska ha giltiga evidenceIds; varje hypotes ska ange support och against som ID-listor (tom lista om belägg saknas) samt en konkret check som kan skilja orsakerna åt. Referera bara det egna fallets belägg. Högst två hypoteser och tre korta nästa kontroller per fall. Högst sex punkter i sharedChecks och limitations. Varje textfält högst 1 500 tecken. Förklara vad som skulle ändra bedömningen. Ingen fri chatt, inga verktyg eller externa datakällor. Nätets topologi, modellvariant, mätarstorlek, tryck och rörmaterial saknas.`;
 module.exports={build,clean,schema,schemaFor,prompt,VERSION};
