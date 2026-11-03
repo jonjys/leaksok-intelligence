@@ -1,6 +1,7 @@
 /* Optional Claude second opinion. No meter identities, free-form prompts or
    client-selected models are accepted. Local analysis remains authoritative. */
 const { createHash, timingSafeEqual } = require('node:crypto');
+const Evidence = require('../server/ai-evidence');
 const MODEL = 'claude-sonnet-5-5';
 const MAX_BYTES = 24000;
 const PROMPT = `Du är ett försiktigt stöd för svensk VA-drift. Bedöm endast det anonymiserade underlaget i JSON.
@@ -64,7 +65,7 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
     res.setHeader('X-Content-Type-Options', 'nosniff');
     const configured = !!env.ANTHROPIC_API_KEY && (env.LEAKSOK_AI_ACCESS_CODE || '').length >= 24;
     if (req.method === 'GET') return res.status(200).json({ configured, hasApiKey: !!env.ANTHROPIC_API_KEY, model: MODEL,
-      needsAccessCode: (env.LEAKSOK_AI_ACCESS_CODE || '').length < 24, maxReadingDays: 180 });
+      needsAccessCode: (env.LEAKSOK_AI_ACCESS_CODE || '').length < 24, maxReadingDays: 1460, maxCases: 8, evidenceVersion: Evidence.VERSION });
     if (req.method !== 'POST') { res.setHeader('Allow', 'GET, POST'); return res.status(405).end(); }
     if (!configured) return res.status(503).json({ error: 'Claude behöver serverns API-nyckel och LEAKSOK_AI_ACCESS_CODE (minst 24 tecken).' });
     const credential = String(req.headers.authorization || '').replace(/^Bearer /, '');
@@ -73,8 +74,9 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
     if (!String(req.headers['content-type'] || '').startsWith('application/json')) return res.status(415).json({ error: 'Underlaget behöver vara JSON.' });
     let input;
     try {
-      if (Number(req.headers['content-length']) > MAX_BYTES || Buffer.byteLength(JSON.stringify(req.body) || '') > MAX_BYTES) return res.status(413).json({ error: 'För stort underlag.' });
-      input = validate(req.body);
+      const limit = req.body?.version === 2 ? 700000 : MAX_BYTES;
+      if (Number(req.headers['content-length']) > limit || Buffer.byteLength(JSON.stringify(req.body) || '') > limit) return res.status(413).json({ error: 'För stort underlag.' });
+      input = req.body?.version === 2 ? Evidence.build(req.body) : validate(req.body);
     } catch (error) { return res.status(400).json({ error: error.message }); }
     const key = hash(JSON.stringify(input)).toString('hex'), cached = cache.get(key);
     if (cached && now() - cached.at < 600000) return res.status(200).json({ ...cached.result, cached: true });
@@ -85,17 +87,19 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
     busy = true; calls++; lastCall = now();
     try {
       const response = await fetcher('https://api.anthropic.com/v1/messages', {
-        method: 'POST', signal: AbortSignal.timeout(45000),
+        method: 'POST', signal: AbortSignal.timeout(input.version === 2 ? 90000 : 45000),
         headers: { Authorization: `Bearer ${env.ANTHROPIC_API_KEY}`, 'anthropic-version': '2026-10-21', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, max_tokens: 1600, thinking: { type: 'between_tools' }, system: PROMPT,
+        body: JSON.stringify({ model: MODEL, max_tokens: input.version === 2 ? Math.min(6000, 2000 + input.cases.length * 500) : 1600, thinking: { type: input.version === 2 ? 'adaptive' : 'between_tools' }, system: input.version === 2 ? Evidence.prompt : PROMPT,
           messages: [{ role: 'user', content: JSON.stringify(input) }],
-          output_config: { format: { type: 'json_schema', schema: outputSchema } } }),
+          output_config: { ...(input.version === 2 ? {effort:'medium'} : {}), format: { type: 'json_schema', schema: input.version === 2 ? Evidence.schema : outputSchema } } }),
       });
       if (!response.ok) return res.status(response.status === 429 ? 429 : 502).json({ error: response.status === 429 ? 'Anthropic begränsar anropen just nu. Försök senare.' : 'Claude-anropet kunde inte slutföras. Kontrollera serverns nyckel, modellåtkomst och Anthropic-saldo.' });
       const data = await response.json();
       if (data.stop_reason !== 'end_turn') throw Error('Incomplete result');
-      const review = cleanResult(JSON.parse((data.content || []).filter(b => b.type === 'text').map(b => b.text).join('')));
+      const parsed = JSON.parse((data.content || []).filter(b => b.type === 'text').map(b => b.text).join(''));
+      const review = input.version === 2 ? Evidence.clean(parsed,input) : cleanResult(parsed);
       const result = { review, model: data.model || MODEL, createdAt: new Date(now()).toISOString(),
+        ...(input.version === 2 ? { evidence: input, promptVersion: 'field-plan-2.0' } : {}),
         usage: { inputTokens: Number(data.usage?.input_tokens) || 0, outputTokens: Number(data.usage?.output_tokens) || 0 }, cached: false };
       if (cache.size >= 32) cache.delete(cache.keys().next().value);
       cache.set(key, { at: now(), result });

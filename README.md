@@ -90,9 +90,17 @@ Tillverkarkällor: [flowIQ 2200, svensk produktinformation](https://www.kamstrup
 
 ## Valfri Claude-bedömning
 
-Välj en mätare → **Claude**, eller öppna grafens underlag → **Claude-bedömning**. Dialogen visar exakt JSON-underlag före sändning. Endast de senaste högst 180 faktiska avläsningsdagarna, totalantal dagar, exportdatum, kodflaggor, antal separata adresser i områdessignal, minimiflöde med datum och lokal poäng/underlagsstyrka ingår. Adress, serienummer, GPS, egna kommentarer och hela Excel-filer skickas inte. Servern avvisar extra fält och räknar datatäckningen själv.
+Alla importerade Excel-filer analyseras av den lokala regelmotorn. Välj **Claude** för en mätare, eller markera högst åtta mätare → **AI-plan** för en gemensam kontrollordning. Ingen AI-masskörning startas vid import.
 
-Claude Sonnet 5.5 ger observationer, möjliga förklaringar, nästa kontroller och osäkerheter. Svaret ändrar aldrig status, poäng, sortering, manuella beslut eller historik. Ingen schemalagd massanalys sker. Ett oförändrat underlag återanvänder svaret i den öppna arbetsytan; serverinstansen cachar upp till 32 svar i tio minuter. AI-resultat och åtkomstkod lagras bara i minnet och rensas vid låsning/omladdning.
+Version 2 tar upp till 1 460 faktiska avläsningsdagar per mätare, originalets importkvalitetsräknare, daterade exportfält, kodflaggor, lokala beslut och högst fem registrerade läckfall. Adress, serienummer, GPS, kommentarer och hela Excel-filer skickas inte. Servern validerar strukturen och använder samma History-/Engine-moduler som appen för datatäckning, signal, egen referens, senaste förändring, jämförelse med tidigare år, säsong och före/under/efter lagning. Serverns basrangordning saknar appens områdes- och fältfallsbonus och anges därför uttryckligen separat. Lokalt rapporterad störmiljö, områdesgrupp och avrundade avstånd mellan valda adresspunkter är märkta som sådana; ingen ledningstopologi antas.
+
+Claude får komprimerade belägg med ID:n, månadssammanfattningar, beräknade periodfönster och högst 30 senaste punkter per fall. Dialogen visar råpaketet före sändning; de serverberäknade beläggen med exakt refererade period-/månadstabeller följer med svaret. Fullhistoriken används i beräkningarna men skickas inte som en lång kurva till språkmodellen. Historikfingeravtryck gör att även ändrade gamla värden bryter cache. Avkortning och dataluckor anges.
+
+Claude Sonnet 5.5 använder adaptivt resonemang på medium-nivå och lämnar en föreslagen kontrollordning, hypoteser med stöd/motbelägg, skiljande kontroller och osäkerheter. Servern avvisar okända belägg-ID:n, referenser till fel fall, saknade fall och dubbelrangordning. Det validerar spårbarheten, inte sanningshalten i fri AI-text. Svaret ändrar aldrig status, poäng, manuella beslut eller historik. **Visa mätare** öppnar rätt lokal adress på kartan. **Exportera kontrollplan** skapar ett lokalt HTML-underlag med belägg, källtyp, modell, analysversion, tidsstämpel och historikfingeravtryck, som kan skrivas ut till PDF. Inga autentiseringskoder följer med exporten.
+
+Säsongsdämpningen är snävare: en ny avvikelse utöver mätarens egen förväntade årstidsnivå kan inte längre döljas av det tidigare breda säsongsintervallet. Återkommande vinter-/sommarmönster är fortfarande stöd för säsong; ett enda skifte kan bero på annat. LEAK/BURST fortsätter automatiskt till **Efter mätare**, med manuella beslut som överordnat facit. Registrerade fältfall återanvänds som jämförelser; någon modellträning eller bevisad träffsäkerhet påstås inte.
+
+Ett oförändrat underlag återanvänder svaret i den öppna arbetsytan; serverinstansen cachar upp till 32 svar i tio minuter. AI-resultat och åtkomstkod lagras bara i minnet och rensas vid låsning/omladdning. Version 1 fungerar fortsatt för äldre klienter.
 
 Konfigurera hemliga servervariabler i samma Vercel-projekt, i de miljöer där AI ska användas, och gör en ny deployment:
 
@@ -103,9 +111,11 @@ Konfigurera hemliga servervariabler i samma Vercel-projekt, i de miljöer där A
 
 Den lokala profilkoden är inte serverautentisering. Saknas någon av servervariablerna är betalda anrop avstängda. API-nyckeln lämnar aldrig servern; åtkomstkoden kontrolleras där med konstantlång hashjämförelse. Skicka aldrig API-nyckeln som åtkomstkod. Inga fria användarprompter, verktyg, modellval eller godtyckliga upstream-URL:er accepteras. Endast anrop från samma ursprung tillåts i webbläsaren.
 
-Varje anrop begränsas till 24 kB indata, 180 avläsningsdagar, 1 600 genererade token och 45 sekunder. Ingen automatisk återförsökning sker. En varm serverinstans tillåter en samtidig körning, minst tio sekunder mellan nya anrop och högst tjugo anrop per timme. **Detta är inte ett globalt kostnadstak:** flera instanser eller nya deploymenter har egna räknare. Sätt ett hårt utgiftstak i Anthropic-arbetsytan för gemensamt kostnadsskydd. En avbruten webbläsarförfrågan kan redan ha kostat token hos Anthropic.
+Version 2 begränsas till åtta fall, 1 460 avläsningsdagar per fall, 700 kB indata, högst 6 000 genererade token (2 500 för ett fall) och 90 sekunder. Version 1 har kvar 24 kB, 180 dagar, 1 600 token och 45 sekunder. Ingen automatisk återförsökning sker. En varm serverinstans tillåter en samtidig körning, minst tio sekunder mellan nya anrop och högst tjugo anrop per timme. **Detta är inte ett globalt kostnadstak:** flera instanser eller nya deploymenter har egna räknare. Sätt ett hårt utgiftstak i Anthropic-arbetsytan för gemensamt kostnadsskydd. En avbruten webbläsarförfrågan kan redan ha kostat token hos Anthropic.
 
 Källor: [Anthropic-autentisering](https://platform.claude.com/docs/en/manage-claude/authentication), [strukturerade svar](https://platform.claude.com/docs/en/build-with-claude/structured-outputs), [Sonnet 5.5](https://platform.claude.com/docs/en/models/sonnet-5-5/overview). Anrop går direkt till Anthropic så att den konfigurerade nyckelns krediter används; ingen separat AI Gateway-kredit krävs.
+
+För ett leverantörspaket och en ärlig fältpilot, se [pilotunderlaget](docs/KAMSTRUP-PILOT.md).
 
 ## Utveckling och verifiering
 
