@@ -88,6 +88,7 @@
             <button type="button" class="secondary" id="showFocusChart" data-chart-action="show" hidden>Visa graf</button>
             <button type="button" class="secondary" id="focusNavigate">Kör hit</button>
             <button type="button" class="secondary" id="focusMenu">Flytta till…</button>
+            <button type="button" class="secondary" id="focusAI">Claude</button>
             <button type="button" class="secondary" id="focusClose" aria-label="Stäng vald mätare">×</button>
           </div>
         </div>
@@ -209,6 +210,20 @@
     </form>
   </dialog>
 
+  <dialog id="aiDialog" class="form-dialog ai-dialog" aria-labelledby="aiTitle">
+    <div class="dialog-head"><div><h2 id="aiTitle">Claude-bedömning</h2><p id="aiMeter"></p></div><button type="button" class="secondary" data-close>Stäng</button></div>
+    <p class="ai-notice">Extra förslag att kontrollera i fält. Appens poäng och dina beslut påverkas inte.</p>
+    <p id="aiScope" class="small"></p>
+    <details class="ai-data"><summary>Visa exakt vad som skickas till Anthropic</summary><pre id="aiPayload"></pre></details>
+    <form id="aiForm">
+      <label class="stack">Åtkomstkod för Claude<input id="aiAccessCode" type="password" autocomplete="off" required minlength="24" placeholder="Separat från din lokala profilkod"></label>
+      <p class="small">Koden hålls i minnet tills arbetsytan låses eller sidan laddas om. Underlaget skickas först när du trycker nedan.</p>
+      <button type="submit" id="aiRun" class="primary">Skicka underlag &amp; bedöm</button>
+    </form>
+    <p id="aiStatus" role="status" aria-live="polite"></p>
+    <section id="aiResult" aria-label="Claudes förslag" aria-live="polite"></section>
+  </dialog>
+
   <dialog id="profileDialog" class="form-dialog profile-dialog">
     <form id="profileForm">
       <p class="eyebrow">Din lokala arbetsyta</p>
@@ -236,6 +251,7 @@
   <script src="./src/address-index.js"></script>
   <script src="./src/map.js"></script>
   <script src="./src/worklist.js"></script>
+  <script src="./src/ai-review.js"></script>
   <script src="./src/app.js"></script>
 </body>
 </html>

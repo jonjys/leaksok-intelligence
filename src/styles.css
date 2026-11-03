@@ -731,6 +731,20 @@ body.has-focus .c-status .prio { display: none; }
 
 .sort-help { color: var(--muted); font-size: 12px; line-height: 1.4; margin: -3px 0 0; flex-shrink: 0; }
 .sort-help:empty { display: none; }
+.ai-dialog { width: min(700px, calc(100vw - 24px)); }
+.ai-dialog .dialog-head p { font-size: 12px; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+.ai-notice { padding: 10px 12px; background: var(--accent-soft); border-radius: 7px; margin: 12px 0; font-size: 13px; }
+.ai-data { margin: 10px 0; font-size: 12px; }
+.ai-data summary { cursor: pointer; color: var(--accent); }
+.ai-data pre { max-height: 240px; overflow: auto; padding: 10px; background: var(--surface-2); border-radius: 6px; font-size: 11px; }
+#aiForm { display: grid; gap: 10px; margin: 14px 0; }
+#aiForm > button { justify-self: start; }
+#aiStatus { color: var(--warn); font-size: 13px; line-height: 1.6; margin: 10px 0; }
+#aiResult { display: grid; gap: 8px; line-height: 1.6; }
+#aiResult h3 { font-size: 13px; margin-top: 8px; }
+#aiResult ul { margin: 0; padding-left: 20px; font-size: 13px; }
+.ai-summary { font-weight: 600; }
+.focus.no-meter #focusAI { display: none; }
 .ch-coverage { margin: 0; padding: 7px 9px; font-size: 12px; line-height: 1.45; color: var(--muted); background: var(--surface-2); border-radius: 5px; }
 .ch-coverage[data-state="warning"] { color: #805300; background: #fff8e8; }
 .meter-panel .ch-coverage { display: none; }
