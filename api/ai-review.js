@@ -114,7 +114,7 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
       cache.set(key, { at: now(), result });
       return res.status(200).json(result);
     } catch (error) {
-      const reason = ['Ogiltig kontrollplan.','Ogiltig fallbedömning.','Okända belägg.','Ogiltig hypotes.'].includes(error.message) ? error.message : 'incomplete';
+      const reason = /^AI_[A-Z_]+$/.test(error.code || '') ? error.code : 'incomplete';
       console.warn('ai-review-incomplete', { stage, reason, stopReason, outputTokens, cases: input.cases?.length || 1 });
       return res.status(502).json({ error: 'Claude gav inget komplett läsbart svar. Ingen automatisk omkörning görs.' });
     }

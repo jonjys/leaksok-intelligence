@@ -129,18 +129,27 @@ function schemaFor(input){
   return output;
 }
 function clean(result,input){
-  if(result?.cases && !Array.isArray(result.cases) && typeof result.cases==='object') {
-    if(Object.keys(result.cases).length!==input.cases.length || !input.cases.every(c=>result.cases[c.caseId]?.caseId===c.caseId))throw Error('Ogiltig fallbedömning.');
-    result={...result,cases:input.cases.map(c=>result.cases[c.caseId])};
-  }
+  const fail=code=>{const error=Error('Ogiltig kontrollplan.');error.code=code;throw error;};
   const text=s=>typeof s==='string'&&s.trim().length>0&&s.length<=1500;
   const list=(a,max=6)=>Array.isArray(a)&&a.length<=max&&a.every(text);
-  if(!text(result?.summary)||!list(result.order,8)||result.order.length!==input.cases.length||new Set(result.order).size!==input.cases.length||!result.order.every(id=>input.cases.some(c=>c.caseId===id))||!list(result.sharedChecks)||!Array.isArray(result.cases)||result.cases.length!==input.cases.length)throw Error('Ogiltig kontrollplan.');
+  const caseId=id=>typeof id==='string'?(input.cases.find(c=>c.caseId.toLowerCase()===id.toLowerCase())?.caseId||id):id;
+  if(!result||typeof result!=='object')fail('AI_PLAN_OBJECT');
+  result=structuredClone(result);
+  if(Array.isArray(result.order))result.order=result.order.map(caseId);
+  if(!text(result.summary)||!list(result.order,8)||result.order.length!==input.cases.length||new Set(result.order).size!==input.cases.length||!result.order.every(id=>input.cases.some(c=>c.caseId===id))||!list(result.sharedChecks)||!Array.isArray(result.cases)||result.cases.length!==input.cases.length)fail('AI_PLAN_STRUCTURE');
   const seen=new Set();
-  for(const c of result.cases){const source=input.cases.find(s=>s.caseId===c.caseId);if(!source||seen.has(c.caseId)||!text(c.summary)||!list(c.evidenceIds,source.evidence.length)||!c.evidenceIds.length||!list(c.nextChecks)||!c.nextChecks.length||!list(c.limitations)||!Array.isArray(c.hypotheses)||c.hypotheses.length>4)throw Error('Ogiltig fallbedömning.');seen.add(c.caseId);
+  for(const c of result.cases){
+    c.caseId=caseId(c.caseId);const source=input.cases.find(s=>s.caseId===c.caseId);
+    if(!source||seen.has(c.caseId))fail('AI_CASE_ID');seen.add(c.caseId);
+    if(!text(c.summary))fail('AI_CASE_SUMMARY');
+    if(!list(c.evidenceIds,source.evidence.length)||!c.evidenceIds.length)fail('AI_CASE_EVIDENCE_LIST');
+    if(!list(c.nextChecks)||!c.nextChecks.length)fail('AI_CASE_CHECKS');
+    if(!list(c.limitations))fail('AI_CASE_LIMITATIONS');
+    if(!Array.isArray(c.hypotheses)||c.hypotheses.length>4)fail('AI_CASE_HYPOTHESES');
+    const canonical=ids=>Array.isArray(ids)?ids.map(id=>typeof id==='string'?(source.evidence.find(e=>e.id.toLowerCase()===id.toLowerCase())?.id||id):id):ids;
     const refs=ids=>list(ids,source.evidence.length)&&ids.every(id=>source.evidence.some(e=>e.id===id));
-    if(!refs(c.evidenceIds))throw Error('Okända belägg.');
-    for(const h of c.hypotheses)if(!text(h.explanation)||!refs(h.support)||!refs(h.against)||!text(h.check))throw Error('Ogiltig hypotes.');
+    c.evidenceIds=canonical(c.evidenceIds);if(!refs(c.evidenceIds))fail('AI_EVIDENCE_MEMBERSHIP');
+    for(const h of c.hypotheses){h.support=canonical(h.support);h.against=canonical(h.against);if(!text(h.explanation)||!refs(h.support)||!refs(h.against)||!text(h.check))fail('AI_HYPOTHESIS');}
   }
   return result;
 }

@@ -82,3 +82,8 @@ test('Provider schema stays compact while server enforces exact own-case evidenc
  const r=result(input);r.cases[0].evidenceIds=input.cases[0].evidence.map(e=>e.id);assert.doesNotThrow(()=>Evidence.clean(r,input));
  r.cases[0].evidenceIds=['m2:e1'];assert.throws(()=>Evidence.clean(r,input));
 });
+
+test('Provider enum casing is canonicalised without accepting unknown or cross-case references',()=>{
+ const e=Evidence.build(fixture()),r=result(e);r.order=['M1'];r.cases[0].caseId='M1';r.cases[0].evidenceIds=['M1:E1'];r.cases[0].hypotheses[0].support=['M1:E1'];
+ assert.equal(Evidence.clean(r,e).cases[0].evidenceIds[0],'m1:e1');r.cases[0].evidenceIds=['M2:E1'];assert.throws(()=>Evidence.clean(r,e),{code:'AI_EVIDENCE_MEMBERSHIP'});
+});
