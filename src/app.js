@@ -648,6 +648,7 @@
       <div class="sel-actions">
         ${marked ? `<button type="button" class="secondary" data-sel="move">Beslut</button>
         <button type="button" class="primary" data-sel="excel">Excel</button>` : ""}
+        ${marked ? `<button type="button" class="secondary" data-sel="ai"${marked>8?' disabled title="Markera högst åtta mätare per kontrollplan"':''}>AI-plan</button>` : ""}
         <details class="menu selection-menu"${menuOpen ? " open" : ""}><summary aria-label="${marked ? "Fler markeringsverktyg" : "Markera mätare"}">${marked ? "⋯" : "Markera"}</summary>
           <div class="menu-panel">
             <button type="button" data-sel="page" ${pageCount ? "" : "disabled"}>Markera sidan (${pageCount})</button>
@@ -1189,10 +1190,12 @@
 
   document.addEventListener("click", (event) => {
     const t = event.target;
-    const aiButton = t.closest('[data-act="ai"], #focusAI');
+    const aiButton = t.closest('[data-act="ai"], #focusAI, [data-sel="ai"]');
     if (aiButton) {
       const id = aiButton.closest('[data-detail]')?.dataset.detail || aiButton.closest('#chartDialogDetail')?.dataset.id || state.focusId;
-      window.LeakAI?.open(state.byId.get(id));
+      const meters=aiButton.dataset.sel==='ai'?[...state.marked].map(id=>state.byId.get(id)):[state.byId.get(id)];
+      if(meters.length>8||meters.some(m=>!m?.series?.length)){toast('Välj högst åtta mätare som har avläsningar.');return;}
+      window.LeakAI?.open(meters,{histories:state.prepared?.histories,latestExport:state.latestExport});
       return;
     }
     if (!t.closest("#contextMenu") && !els.menu.hidden && !t.closest("[data-act='menu']") && !t.closest("#focusMenu") && !t.closest("[data-sel='move']")) closeMenu();

@@ -463,7 +463,9 @@
     };
     excel.P = excel.E != null && excel.F > 0 ? excel.E / excel.F - 1 : null;
     const codes = codesOf(latestRow);
-    const interference = interferenceOf(history.address, history.area);
+    const interference = ctx.interference ? { districtHeating: ctx.interference.districtHeating === true,
+      largeSubstation: ctx.interference.largeSubstation === true,
+      any: ctx.interference.districtHeating === true || ctx.interference.largeSubstation === true } : interferenceOf(history.address, history.area);
 
     // Nollställ: only readings strictly after the reset moment are assessed.
     let series = history.series;
@@ -820,7 +822,10 @@
       && latestRow.readAt && days(latestRow.readAt, latestExport) <= 1 && excel.E != null
       && days(history.lastExport, latestExport) <= 1 && !missedExports && !codes.dry
       && (!reset || (latestRow.readAt > reset.at && history.lastExport > reset.at)));
-    const withinSeason = upFinding && season?.status === "verified" && season.expected != null && upFinding.now.level <= season.expected * 1.6 + 5;
+    // A known heating cycle must not hide a new relative increase above that
+    // meter's own expected seasonal level, especially at low absolute values.
+    const seasonalBand = season?.expected != null ? tolerance(season.expected, result.history.sigma || RULES.sigmaFloor) : null;
+    const withinSeason = upFinding && season?.status === "verified" && season.expected != null && upFinding.now.level <= season.expected + seasonalBand;
     if (!latest && reset) category = "normal";
     else if (!latest || stale) category = "stale_contact";
     else if (codes.leak || codes.burst || codes.afterMeterText || codes.minimumFlowContinuous) category = "customer_side";

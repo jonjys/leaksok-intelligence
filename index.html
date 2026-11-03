@@ -214,7 +214,7 @@
     <div class="dialog-head"><div><h2 id="aiTitle">Claude-bedömning</h2><p id="aiMeter"></p></div><button type="button" class="secondary" data-close>Stäng</button></div>
     <p class="ai-notice">Extra förslag att kontrollera i fält. Appens poäng och dina beslut påverkas inte.</p>
     <p id="aiScope" class="small"></p>
-    <details class="ai-data"><summary>Visa exakt vad som skickas till Anthropic</summary><pre id="aiPayload"></pre></details>
+    <details class="ai-data"><summary>Visa underlaget som skickas till servern</summary><pre id="aiPayload"></pre></details>
     <form id="aiForm">
       <label class="stack">Åtkomstkod för Claude<input id="aiAccessCode" type="password" autocomplete="off" required minlength="24" placeholder="Separat från din lokala profilkod"></label>
       <p class="small">Koden hålls i minnet tills arbetsytan låses eller sidan laddas om. Underlaget skickas först när du trycker nedan.</p>
@@ -222,6 +222,7 @@
     </form>
     <p id="aiStatus" role="status" aria-live="polite"></p>
     <section id="aiResult" aria-label="Claudes förslag" aria-live="polite"></section>
+    <button type="button" id="aiExport" class="secondary" hidden>Exportera kontrollplan</button>
   </dialog>
 
   <dialog id="profileDialog" class="form-dialog profile-dialog">
