@@ -82,6 +82,11 @@
   const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const norm = (v) => String(v || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
   const num = Engine.fmtNum;
+  // One catalogue feeds the toolbar and the row menu. Keep the native select as
+  // the value control, with the grouped menu providing the visible interface.
+  els.sort.innerHTML = MeterView.sortOptions.map(o => `<option value="${o.key}">${esc(o.label)}</option>`).join("");
+  $("sortOptions").innerHTML = [...new Set(MeterView.sortOptions.map(o => o.group))].map(group =>
+    `<div class="sort-group" role="group" aria-label="${esc(group)}"><span class="sort-group-label">${esc(group)}</span>${MeterView.sortOptions.filter(o => o.group === group).map(o => `<button type="button" role="menuitemradio" aria-checked="false" data-sort-option="${o.key}"><span>${esc(o.label)}</span><i aria-hidden="true">✓</i></button>`).join("")}</div>`).join("");
 
   // ---------------- storage ----------------
   function loadLabelBackup() {
@@ -454,23 +459,18 @@
     const exportAt = state.latestExport;
     const ageHours = exportAt ? (Date.now() - exportAt.getTime()) / 3600000 : Infinity;
     const time = exportAt ? `${Engine.fmtDate(exportAt, true)} ${String(exportAt.getHours()).padStart(2, "0")}:${String(exportAt.getMinutes()).padStart(2, "0")}` : "okänt";
-    const items = report.newToday.slice(0, 4).map((m) => {
-      const f = m.upFinding;
-      return `<button type="button" class="brief-item" data-focus="${esc(m.id)}"><span>${esc(shortAddress(m))}</span><b>${num(f.ref.level)} → ${num(f.now.level)}</b><em>${f.pct != null ? Engine.fmtPct(f.pct) : Engine.fmtSigned(f.delta)}</em></button>`;
-    }).join("");
     els.brief.innerHTML = `
       <div class="brief-row">
-        <div class="brief-heading"><p class="eyebrow">Läget i nätet</p><h2>${esc(LIST[state.list]?.label || "Alla mätare")}</h2><p class="brief-date${ageHours > 30 ? " is-old" : ""}">${ageHours > 30 ? "Äldre export" : "Senaste export"} <b>${esc(time)}</b> · ${report.fresh.toLocaleString("sv-SE")} av ${report.total.toLocaleString("sv-SE")} avlästa senaste exportdygnet</p></div>
+        <div class="brief-heading"><h2>${esc(LIST[state.list]?.label || "Alla mätare")}</h2><p class="brief-date${ageHours > 30 ? " is-old" : ""}">${ageHours > 30 ? "Äldre export" : "Export"} <b>${esc(time)}</b><span title="Avlästa under senaste exportdygnet"> · ${report.fresh.toLocaleString("sv-SE")}/${report.total.toLocaleString("sv-SE")} avlästa</span></p></div>
         <div class="brief-stats">
           <button type="button" data-list="today"><b>${report.newToday.length}</b> nya signaler</button>
           <button type="button" data-list="dispatch"><b>${report.dispatch}</b> åk ut</button>
           <button type="button" data-list="suspect"><b>${report.suspect}</b> misstänk</button>
-          <button type="button" data-list="stale_contact"><b>${report.stale}</b> utan färsk avläsning</button>
+          <button type="button" data-list="stale_contact" title="Utan färsk avläsning"><b>${report.stale}</b> ej färska</button>
         </div>
-      </div>
-      ${items ? `<div class="brief-items">${items}${report.newToday.length > 4 ? `<button type="button" class="brief-more" data-list="today">Alla ${report.newToday.length} →</button>` : ""}</div>` : ""}`;
+      </div>`;
     if (state.areaSignals.length) {
-      els.brief.insertAdjacentHTML("beforeend", `<details class="area-signals"${areaOpen ? " open" : ""}><summary>${state.areaSignals.length} områdessignal${state.areaSignals.length > 1 ? "er" : ""} · flera mätare ökar tillsammans</summary><div class="area-signal-list">${state.areaSignals.map((signal) => areaSignalHtml(signal)).join("")}</div></details>`);
+      els.brief.insertAdjacentHTML("beforeend", `<details class="area-signals"${areaOpen ? " open" : ""}><summary>${state.areaSignals.length} områdessignal${state.areaSignals.length > 1 ? "er" : ""}</summary><div class="area-signal-list">${state.areaSignals.map((signal) => areaSignalHtml(signal)).join("")}</div></details>`);
     }
   }
 
@@ -525,13 +525,27 @@
     if (state.tripList.some((e) => e.id === m.id)) tags.push(`<span class="tag">I arbetslista</span>`);
     return `<tr data-id="${esc(m.id)}" data-category="${esc(m.category)}" style="--meter-color:${MeterView.statuses[m.category]?.color || MeterView.statuses.normal.color}" class="row${marked ? " is-marked" : ""}${state.focusId === m.id ? " is-focus" : ""}">
       <td class="c-check"><input type="checkbox" data-mark ${marked ? "checked" : ""} aria-label="Markera ${esc(m.address)}"></td>
-      <td class="c-status"><span class="pill cat-${esc(m.category)}">${esc(m.status)}</span><span class="prio" title="Prioritet: rangordning 0–100, inte sannolikhet för läcka">${m.priority}</span><span class="conf">underlag ${esc(m.confidence)}</span></td>
+      <td class="c-status"><span class="pill cat-${esc(m.category)}">${esc(m.status)}</span>${sortMetricHtml(m)}<span class="conf">underlag ${esc(m.confidence)}</span></td>
       <td class="c-addr"><span class="addr-line"><button type="button" class="addr" data-act="focus">${esc(shortAddress(m))}</button>${copyButton(m)}</span><span class="sub">${esc(m.serial || m.id)} · ${esc(districtOf(m))}</span>${tags.length ? `<span class="tags">${tags.join("")}</span>` : ""}</td>
       <td class="c-latest">${changeHtml(m)}</td>
       <td class="c-reason"><p class="summary">${esc(m.summary)}</p><p class="action">${esc(m.action)}</p></td>
       <td class="c-spark" data-act="chart" title="Öppna graf">${Chart.sparkline(m, { width: state.sparkWidth || 120 })}</td>
       <td class="c-menu"><button type="button" class="row-info" data-act="expand" aria-expanded="${expanded}" aria-label="${expanded ? "Dölj" : "Visa"} underlag" title="${expanded ? "Dölj" : "Visa"} underlag">i</button><button type="button" class="icon" data-act="menu" aria-label="Åtgärder för ${esc(m.address)}">⋯</button></td>
     </tr>${expanded ? `<tr class="detail-row" data-detail="${esc(m.id)}"><td colspan="7">${detailHtml(m)}</td></tr>` : ""}`;
+  }
+
+  function sortMetricHtml(m) {
+    const metrics = {
+      suspicion: m.latest ? [`${m.priority} p`, "Analyspoäng 0–100 · rangordning, inte sannolikhet för läcka"] : null,
+      priority: m.latest ? [`${m.priority} p`, "Analyspoäng inom arbetsordningen"] : null,
+      kamstrup: m.excel.interestRank > 0 ? [`#${m.excel.interestRank}`, "Kamstrups rang i senaste exporten"] : null,
+      persistence: m.upFinding ? [`${m.upFinding.persistence?.n ?? m.upFinding.now?.n ?? 0} avl.dagar`, "Faktiska avläsningsdagar i signalen"] : null,
+      neighbors: m.areaSignal ? [`${m.areaSignal.buildingCount} adresser`, "Separata adresser i områdessignalen"] : null,
+      confidence: [m.confidence, "Analysunderlag"],
+      maxValue: m.series.length ? [`max ${num(Math.max(...m.series.map(p => p.value)))}`, "Högsta importerade brusvärde"] : null,
+    };
+    const metric = metrics[state.sort];
+    return metric ? `<span class="sort-metric" title="${esc(metric[1])}">${esc(metric[0])}</span>` : "";
   }
 
   function comparisonRows(m) {
@@ -574,24 +588,21 @@
   function detailHtml(m) {
     const label = state.labels[m.id] || {};
     const comment = label.comment ?? label.note ?? "";
+    const qualityOpen = m.confidence === "tunt" || !m.latest || m.latest.ageDays >= Engine.RULES.oldDays || m.history.conflicts > 0 || m.codes.dry;
     return `<div class="detail">
-      <section>
+      <section class="detail-analysis">
+        <div class="next-step"><h4>Nästa steg</h4><p>${esc(m.action)}</p></div>
         ${m.areaSignal ? `<h4>Möjlig gemensam källa i området</h4>${areaSignalHtml(m.areaSignal, true)}` : ""}
         ${caseEvidenceHtml(m)}
-        <h4>Observation</h4>${list(m.observations)}
-        <h4>Möjlig förklaring</h4>${list(m.explanations)}
-        <h4>Rekommenderad åtgärd</h4><p>${esc(m.action)}</p>
+        <details class="evidence-section detail-assessment"><summary>Bedömning &amp; förklaringar <span>${esc(m.confidence)} underlag</span></summary><p class="assessment-summary">${esc(m.summary)}</p><h4>Observation</h4>${list(m.observations)}<h4>Möjlig förklaring</h4>${list(m.explanations)}</details>
+        <details class="evidence-section detail-comparisons"><summary>Jämförelser</summary><table class="cmp"><thead><tr><th>Mått</th><th>Period</th><th>Värden</th><th>Skillnad</th><th>%</th></tr></thead><tbody>${comparisonRows(m)}</tbody></table></details>
+        <details class="evidence-section detail-quality"${qualityOpen ? " open" : ""}><summary>Datakvalitet${qualityOpen ? ' <span class="quality-warning">Kontrollera underlaget</span>' : ""}</summary>${list(m.dataQuality)}${m.missing.length ? `<h4>Saknas för säkrare slutsats</h4>${list(m.missing)}` : ""}</details>
+        ${importTraceHtml(m)}
+        <details class="evidence-section detail-score"><summary>Analyspoäng <span>${m.priority}/100</span></summary><p class="hint">Rangordning, inte sannolikhet för läcka.</p><p class="parts">${m.priorityParts.map((p) => `${esc(p.name)} ${p.points > 0 ? "+" : ""}${p.points}`).join(" · ")}</p></details>
       </section>
-      <section>
-        <h4>Jämförelser</h4>
-        <table class="cmp"><thead><tr><th>Mått</th><th>Period</th><th>Värden</th><th>Skillnad</th><th>%</th></tr></thead><tbody>${comparisonRows(m)}</tbody></table>
-        <h4>Datakvalitet</h4>${list(m.dataQuality)}${importTraceHtml(m)}
-        ${m.missing.length ? `<h4>Vad saknas för säkrare slutsats</h4>${list(m.missing)}` : ""}
-        <h4>Prioritet ${m.priority} (rangordning, inte sannolikhet)</h4><p class="parts">${m.priorityParts.map((p) => `${esc(p.name)} ${p.points > 0 ? "+" : ""}${p.points}`).join(" · ")}</p>
-      </section>
-      <section>
-        <h4>Beslut</h4><p>${m.label ? esc(Engine.LABELS[m.label.type] || m.label.type) + (m.label.at ? ` · ${esc(String(m.label.at).slice(0, 10))}` : "") : "Inget manuellt beslut – automatisk bedömning."}</p>
-        <button type="button" class="secondary" data-act="menu">Flytta till…</button>
+      <section class="detail-decision">
+        <h4>Beslut</h4><p>${m.label ? esc(Engine.LABELS[m.label.type] || m.label.type) + (m.label.at ? ` · ${esc(String(m.label.at).slice(0, 10))}` : "") : "Automatisk bedömning"}</p>
+        <button type="button" class="secondary" data-act="menu">Ändra beslut</button>
         <label class="stack">Kommentar<textarea data-comment rows="3" placeholder="Följer med i arbetslistan och Excel">${esc(comment)}</textarea></label>
         <div class="detail-actions"><button type="button" class="secondary" data-act="chart">Stor graf</button><button type="button" class="secondary" data-act="worklist">Lägg i arbetslista</button></div>
       </section>
@@ -632,11 +643,11 @@
     const allMarked = total > 0 && state.visible.every((m) => state.marked.has(m.id));
     els.selection.classList.toggle("has-marked", marked > 0);
     els.selection.innerHTML = !state.files.length ? "" : `
-      <p><b>${marked ? `${marked.toLocaleString("sv-SE")} markerade` : "Inga markerade"}</b>${outside ? ` <span class="muted">(${outside} utanför listan · kvar på kartan)</span>` : ""}</p>
+      <p><b>${marked ? `${marked.toLocaleString("sv-SE")} markerade` : `${total.toLocaleString("sv-SE")} träffar`}</b>${outside ? ` <span class="muted" title="Markerade mätare utanför filtret finns kvar på kartan">· ${outside} utanför filtret</span>` : ""}</p>
       <div class="sel-actions">
-        ${marked ? `<button type="button" class="secondary" data-sel="move">Flytta till…</button>
+        ${marked ? `<button type="button" class="secondary" data-sel="move">Beslut</button>
         <button type="button" class="primary" data-sel="excel">Excel</button>` : ""}
-        <details class="menu selection-menu"${menuOpen ? " open" : ""}><summary>${marked ? "Mer" : "Markera"}</summary>
+        <details class="menu selection-menu"${menuOpen ? " open" : ""}><summary aria-label="${marked ? "Fler markeringsverktyg" : "Markera mätare"}">${marked ? "⋯" : "Markera"}</summary>
           <div class="menu-panel">
             <button type="button" data-sel="page" ${pageCount ? "" : "disabled"}>Markera sidan (${pageCount})</button>
             <button type="button" data-sel="all" ${total && !allMarked ? "" : "disabled"}>Markera alla ${total.toLocaleString("sv-SE")} träffar</button>
@@ -645,14 +656,15 @@
             <button type="button" data-sel="clear">Avmarkera</button>` : ""}
           </div>
         </details>
-      </div>
-      <div class="list-sort" role="group" aria-label="Sortera efter"><button type="button" data-sort="address">Adress</button><button type="button" data-sort="value">Nivå</button><button type="button" data-sort="change">Förändring %</button><button type="button" data-sort="suspicion">Mest misstänkt</button><button type="button" data-sort="priority">Status</button></div>`;
+      </div>`;
     renderSortControls();
   }
 
   function renderSortControls() {
     const ascending = MeterView.ascendingSorts.has(state.sort) !== state.sortReverse;
     $("sortHelp").textContent = MeterView.sortHelp[state.sort] || "";
+    $("sortLabel").textContent = MeterView.sortOptions.find(o => o.key === state.sort)?.label || "Arbetsordning";
+    $("sortOptions").querySelectorAll("[data-sort-option]").forEach(b => b.setAttribute("aria-checked", String(b.dataset.sortOption === state.sort)));
     const directionButton = $("sortDirection");
     directionButton.textContent = ascending ? "↑" : "↓";
     directionButton.setAttribute("aria-label", `Byt sorteringsriktning · ${ascending ? "stigande" : "fallande"}`);
@@ -704,12 +716,12 @@
     document.body.classList.toggle("has-focus", !els.focus.hidden);
     if (els.focus.hidden) { mapRenderVersion++; lastMapKey = ""; return; }
     if (m) {
-      const maxLevel = m.series?.length ? Math.max(...m.series.map((p) => p.value)) : null;
-      $("meterSummary").innerHTML = `<b>${esc(shortAddress(m))}</b><span class="sub">${esc(m.serial || m.id)} · ${m.latest ? esc(Engine.fmtDate(m.latest.date)) : "Ingen avläsning"}</span><span class="pill cat-${esc(m.category)}" style="background:${MeterView.statuses[m.category]?.color || MeterView.statuses.normal.color}">${esc(m.status)}</span><dl><div><dt>Senaste nivå</dt><dd>${num(m.latest?.value)}</dd></div><div><dt>Max i historiken</dt><dd>${num(maxLevel)}</dd></div><div><dt>Jämförelsenivå</dt><dd>${num(m.finding?.ref?.level)}</dd></div><div><dt>Förändring</dt><dd>${m.changePrev?.pct != null ? esc(Engine.fmtPct(m.changePrev.pct)) : "–"}</dd></div></dl><p>${esc(m.summary)}</p><button type="button" class="secondary" data-focus-enlarge="${esc(m.id)}">Öppna större graf</button>`;
+      const change = m.changePrev;
+      $("meterSummary").innerHTML = `<div class="meter-reading"><div><span class="sub">Senaste brusvärde</span><strong>${num(m.latest?.value)}</strong></div><span class="pill cat-${esc(m.category)}" style="background:${MeterView.statuses[m.category]?.color || MeterView.statuses.normal.color}">${esc(m.status)}</span></div><p class="meter-change" title="Sedan föregående avläsning">${change ? `${Engine.fmtSigned(change.delta)} (${change.pct == null ? "ingen procent" : esc(Engine.fmtPct(change.pct))}) <span>sedan ${esc(Engine.fmtDate(change.fromDate))}</span>` : "Ingen tidigare avläsning"}</p><dl><div><dt>Analyspoäng</dt><dd>${m.priority}<small>/100</small></dd></div><div><dt>Underlag</dt><dd>${esc(m.confidence)}</dd></div></dl><p class="meter-next">${esc(m.action)}</p><button type="button" class="secondary" data-focus-enlarge="${esc(m.id)}">Visa graf &amp; underlag ↗</button>`;
       els.focusTitle.textContent = m.address;
       $("focusCopy").dataset.copy = m.id;
       $("focusCopy").hidden = false;
-      els.focusMeta.textContent = ` · ${m.serial || m.id} · ${m.status} · prioritet ${m.priority}`;
+      els.focusMeta.textContent = `${m.serial || m.id} · ${m.latest ? Engine.fmtDate(m.latest.date) : "Ingen avläsning"}${m.latest?.ageDays >= 2 ? ` · ${m.latest.ageDays} d sedan` : ""}`;
       const cases = (state.leakCases || []).filter((r) => r.anchorId === m.id);
     if (cases.length) els.focusMeta.textContent += caseGeocoding ? " · söker grannmätarnas adresspositioner…" : ` · ${cases.at(-1).profiles.filter((p) => p.validated).length} jämförelsemönster (Visa underlag)`;
       if (!state.chartHidden && (els.focusChart.__chart?.id !== m.id || els.focusChart.__version !== m)) {
@@ -819,7 +831,7 @@
     if (!m) return;
     $("chartDialogTitle").textContent = m.address;
     $("chartCopy").dataset.copy = m.id;
-    $("chartDialogMeta").textContent = `${m.serial || m.id} · ${m.status} · prioritet ${m.priority} (rangordning) · ${m.summary}`;
+    $("chartDialogMeta").textContent = `${m.serial || m.id} · ${m.status} · ${m.confidence} underlag`;
     $("chartDialogDetail").innerHTML = detailHtml(m);
     $("chartDialogDetail").dataset.id = m.id;
     if (!els.chartDialog.open) els.chartDialog.showModal();
@@ -1351,7 +1363,31 @@
   });
   els.search.addEventListener("input", () => { state.search = els.search.value; state.page = 1; render(); });
   $("sortDirection").addEventListener("click", () => { state.sortReverse = !state.sortReverse; state.page = 1; render(); });
-  els.sort.addEventListener("change", () => { state.sort = els.sort.value; state.sortReverse = false; state.page = 1; render(); });
+  function chooseSort(key) {
+    if (!MeterView.sortOptions.some(o => o.key === key)) return;
+    state.sort = key; state.sortReverse = false; state.page = 1;
+    $("sortMenu").open = false; $("sortInfo").open = false;
+    render();
+  }
+  els.sort.addEventListener("change", () => chooseSort(els.sort.value));
+  $("sortOptions").addEventListener("click", event => {
+    const button = event.target.closest("[data-sort-option]");
+    if (button) { chooseSort(button.dataset.sortOption); $("sortMenu").querySelector("summary").focus({ preventScroll: true }); }
+  });
+  $("sortMenu").addEventListener("toggle", () => {
+    if (!$("sortMenu").open) return;
+    const panel = $("sortOptions");
+    panel.style.maxHeight = `${Math.max(160, innerHeight - panel.getBoundingClientRect().top - 12)}px`;
+  });
+  $("sortMenu").addEventListener("keydown", event => {
+    const menu = $("sortMenu"), buttons = [...menu.querySelectorAll("[data-sort-option]")];
+    if (event.key === "Escape") { event.preventDefault(); menu.open = false; menu.querySelector("summary").focus(); return; }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault(); menu.open = true;
+    const current = buttons.indexOf(document.activeElement);
+    const index = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : current < 0 ? Math.max(0, buttons.findIndex(b => b.dataset.sortOption === state.sort)) : (current + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[index].focus();
+  });
   els.area.addEventListener("change", () => { state.area = els.area.value; state.page = 1; render(); });
   els.groupFilter.addEventListener("change", () => {
     state.excluded = new Set([...els.groupFilter.querySelectorAll("input:not(:checked)")].map((i) => i.value));

@@ -21,6 +21,7 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
       await writable.write(f.text); await writable.close();
     }, file);
     await write(files[0]); await write(files[1]);
+    await page.locator('#infoMenu > summary').click();
     await page.locator('#folderButton').click(); await page.locator('#sourceConnect').click();
     await page.waitForFunction(() => state.files.length === 2 && !LeakApp.folderImport.isBusy());
     assert.equal(await page.locator('#folderButton').textContent(), 'Autoimport aktiv');

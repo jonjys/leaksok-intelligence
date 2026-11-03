@@ -67,5 +67,10 @@ async function selectionAction(page, action) {
   await button.click();
 }
 
-module.exports = { root, startServer, routeExternal, unlock, importFiles, selectionAction };
+async function chooseSort(page, key) {
+  await page.locator('#sortMenu > summary').click();
+  await page.locator(`#sortOptions [data-sort-option="${key}"]`).click();
+}
+
+module.exports = { root, startServer, routeExternal, unlock, importFiles, selectionAction, chooseSort };
 

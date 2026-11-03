@@ -72,6 +72,8 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     await row("90000013").count() || await list("suspect");
     await row("90000013").locator('[data-act="expand"]').click();
     const detail = page.locator('tr[data-detail="90000013"]');
+    await detail.locator('.detail-assessment > summary').click();
+    await detail.locator('.detail-comparisons > summary').click();
     assert.match(await detail.innerText(), /fortfarande lägre än den äldre nivån 34/);
     assert.match(await detail.innerText(), /Sedan föregående avläsning/i);
     await detail.locator("textarea[data-comment]").fill("Lyssna vid servisventilen");
