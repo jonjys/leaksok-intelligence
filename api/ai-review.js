@@ -94,7 +94,12 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
           messages: [{ role: 'user', content: JSON.stringify(input) }],
           output_config: { ...(input.version === 2 ? {effort:'medium'} : {}), format: { type: 'json_schema', schema: input.version === 2 ? Evidence.schemaFor(input) : outputSchema } } }),
       });
-      if (!response.ok) return res.status(response.status === 429 ? 429 : 502).json({ error: response.status === 429 ? 'Anthropic begränsar anropen just nu. Försök senare.' : 'Claude-anropet kunde inte slutföras. Kontrollera serverns nyckel, modellåtkomst och Anthropic-saldo.' });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        console.warn('ai-review-upstream', { status: response.status, type: detail.error?.type,
+          schemaError: response.status === 400 && detail.error?.type === 'invalid_request_error' ? String(detail.error.message).slice(0,600) : null });
+        return res.status(response.status === 429 ? 429 : 502).json({ error: response.status === 429 ? 'Anthropic begränsar anropen just nu. Försök senare.' : 'Claude-anropet kunde inte slutföras. Kontrollera serverns nyckel, modellåtkomst och Anthropic-saldo.' });
+      }
       const data = await response.json();
       stage = 'completion'; stopReason = data.stop_reason; outputTokens = Number(data.usage?.output_tokens) || 0;
       if (data.stop_reason !== 'end_turn') throw Error('Incomplete result');
