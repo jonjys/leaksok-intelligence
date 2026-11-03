@@ -92,3 +92,11 @@ test('Every case including a seasonal one requires at least one follow-up check'
  const input=Evidence.build(fixture()),s=Evidence.schemaFor(input);assert.equal(s.properties.cases.items.properties.nextChecks.minItems,1);
  const r=result(input);r.cases[0].nextChecks=[];assert.throws(()=>Evidence.clean(r,input),{code:'AI_CASE_CHECKS_EMPTY'});
 });
+
+test('Case-ID enums never constrain narrative shared checks, limitations or next checks',()=>{
+ const s=Evidence.schemaFor(Evidence.build(fixture()));
+ assert.deepEqual(s.properties.order.items,{type:'string',enum:['m1']});
+ assert.deepEqual(s.properties.sharedChecks.items,{type:'string'});
+ assert.deepEqual(s.properties.cases.items.properties.limitations.items,{type:'string'});
+ assert.deepEqual(s.properties.cases.items.properties.nextChecks.items,{type:'string'});
+});

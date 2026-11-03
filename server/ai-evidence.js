@@ -122,7 +122,9 @@ const schema={type:'object',additionalProperties:false,properties:{summary:{type
     hypotheses:{type:'array',items:{type:'object',additionalProperties:false,properties:{explanation:{type:'string'},support:references,against:references,check:{type:'string'}},required:['explanation','support','against','check']}},
     nextChecks:{...strings,minItems:1,description:'En till tre konkreta kontroller; även säsongsfall ska ha en uppföljning. Varje punkt ska vara en kort, icke-tom text.'},limitations:strings},required:['caseId','summary','evidenceIds','hypotheses','nextChecks','limitations']}}},required:['summary','order','sharedChecks','cases']};
 function schemaFor(input){
-  const output=structuredClone(schema), ids=input.cases.map(c=>c.caseId);
+  // JSON cloning intentionally separates reused schema fragments: adding the
+  // order enum must never constrain narrative lists such as limitations.
+  const output=JSON.parse(JSON.stringify(schema)), ids=input.cases.map(c=>c.caseId);
   output.properties.order.items={type:'string',enum:ids};
   output.properties.cases.items.properties.caseId={type:'string',enum:ids};
   // Keep the provider grammar small. Exact selected-case evidence membership is
