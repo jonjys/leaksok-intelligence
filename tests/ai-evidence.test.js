@@ -87,3 +87,8 @@ test('Provider enum casing is canonicalised without accepting unknown or cross-c
  const e=Evidence.build(fixture()),r=result(e);r.order=['M1'];r.cases[0].caseId='M1';r.cases[0].evidenceIds=['M1:E1'];r.cases[0].hypotheses[0].support=['M1:E1'];
  assert.equal(Evidence.clean(r,e).cases[0].evidenceIds[0],'m1:e1');r.cases[0].evidenceIds=['M2:E1'];assert.throws(()=>Evidence.clean(r,e),{code:'AI_EVIDENCE_MEMBERSHIP'});
 });
+
+test('Every case including a seasonal one requires at least one follow-up check',()=>{
+ const input=Evidence.build(fixture()),s=Evidence.schemaFor(input);assert.equal(s.properties.cases.items.properties.nextChecks.minItems,1);
+ const r=result(input);r.cases[0].nextChecks=[];assert.throws(()=>Evidence.clean(r,input),{code:'AI_CASE_CHECKS_EMPTY'});
+});
