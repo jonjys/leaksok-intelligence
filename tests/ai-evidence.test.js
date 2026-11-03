@@ -74,3 +74,13 @@ test('LEAK and BURST route into customer-side checks without inventing a main-li
  for(const flag of ['leak','burst','afterMeterText']){const f=fixture();f.cases[0].codes[flag]=true;assert.equal(Evidence.build(f).cases[0].serverCategory,'customer_side');}
 });
 module.exports={fixture,result};
+
+test('Provider schema restricts each case to its own actual evidence IDs',()=>{
+ const f=fixture();f.mode='triage';f.cases.push({...structuredClone(f.cases[0]),caseId:'m2'});const input=Evidence.build(f),s=Evidence.schemaFor(input);
+ assert.deepEqual(s.properties.order.items.enum,['m1','m2']);
+ for(const [i,c]of input.cases.entries()){
+  const p=s.properties.cases.items.anyOf[i].properties;assert.deepEqual(p.caseId.enum,[c.caseId]);
+  for(const refs of [p.evidenceIds,p.hypotheses.items.properties.support,p.hypotheses.items.properties.against])assert.deepEqual(refs.items.enum,c.evidence.map(e=>e.id));
+ }
+ const r=result(input);r.cases[0].evidenceIds=input.cases[0].evidence.map(e=>e.id);assert.doesNotThrow(()=>Evidence.clean(r,input));
+});
