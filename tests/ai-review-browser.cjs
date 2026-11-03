@@ -4,7 +4,7 @@ const { chromium } = require('playwright');
 const kit = require('./browser-kit.cjs');
 const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports');
 const Evidence = require('../server/ai-evidence');
-const responseFor = input => ({summary:'<img src=x onerror=alert(1)> är text.',order:input.cases.map(c=>c.caseId).reverse(),sharedChecks:['Kontrollera driftlogg.'],cases:input.cases.map(c=>({caseId:c.caseId,summary:'En förändring att undersöka.',evidenceIds:[c.evidence[0].id],hypotheses:[{explanation:'En hypotes.',support:[c.evidence[0].id],against:[],check:'Kontrollera på plats.'}],nextChecks:['Jämför fler avläsningar.'],limitations:['Ingen bekräftad läcka.']}))});
+const responseFor = input => ({summary:'<img src=x onerror=alert(1)> är text.',order:input.cases.map(c=>c.caseId).reverse(),sharedChecks:['Kontrollera driftlogg.'],cases:input.cases.map(c=>({caseId:c.caseId,summary:'En förändring att undersöka.',evidenceIds:[c.evidence[0].id],hypotheses:[{explanation:'En hypotes.',support:[input.cases.length>1?input.cases.find(other=>other.caseId!==c.caseId).evidence[0].id:c.evidence[0].id],against:[],check:'Kontrollera på plats.'}],nextChecks:['Jämför fler avläsningar.'],limitations:['Ingen bekräftad läcka.']}))});
 (async () => {
   const server = await kit.startServer(4186), browser = await chromium.launch();
   try {
@@ -70,6 +70,8 @@ const responseFor = input => ({summary:'<img src=x onerror=alert(1)> är text.',
     await page.locator('#selectionBar [data-sel="ai"]').click();await page.waitForFunction(()=>!document.getElementById('aiRun').disabled);
     await page.locator('#aiAccessCode').fill('a-long-synthetic-test-code-123456');await page.locator('#aiRun').click();
     await page.waitForFunction(()=>document.querySelectorAll('#aiResult .ai-case').length===2);
+    await page.locator('#aiResult .ai-case').first().locator('.ai-hypothesis .ai-ref').first().click();
+    assert.equal(await page.locator('#ai-m1\\:e1').evaluate(el=>el.closest('details').open),true,'Cross-case reference opens the actual selected source case');
     assert.equal(sent.at(-1).body.mode,'triage');assert.equal(sent.at(-1).body.cases.length,2);
     assert.match(await page.locator('#aiResult .ai-case h3').first().textContent(),/LÅGNIVÅVÄGEN 3/,'Local addresses map correctly after AI changes the proposed case order');
     assert.deepEqual(errors, []);

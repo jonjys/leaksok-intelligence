@@ -35,10 +35,10 @@ test('Anonymous groups stay hypotheses about shared influence, never pipeline to
  const f=fixture();f.mode='triage';f.cases.push({...structuredClone(f.cases[0]),caseId:'m2'});f.cases.forEach(c=>c.areaGroup={key:'g1',meters:5,addresses:3,basis:'address'});
  const e=Evidence.build(f);assert.equal(e.cases.length,2);assert.match(e.cases[0].evidence.find(e=>e.title==='Gemensam områdessignal').detail,/3 separata adresser.*inte ledningstopologi/);
 });
-test('Claude cannot fabricate evidence IDs, borrow another case reference or omit/duplicate ranking entries',()=>{
+test('Claude cannot fabricate evidence IDs, reference nonexistent evidence or omit/duplicate ranking entries',()=>{
  const f=fixture();f.mode='triage';f.cases.push({...structuredClone(f.cases[0]),caseId:'m2'});const e=Evidence.build(f);
  assert.doesNotThrow(()=>Evidence.clean(result(e),e));
- for(const mutate of [r=>r.cases[0].evidenceIds=['made-up'],r=>r.cases[0].hypotheses[0].support=['m2:e1'],r=>r.order=['m1','m1'],r=>r.cases.pop()]){const r=result(e);mutate(r);assert.throws(()=>Evidence.clean(r,e));}
+ for(const mutate of [r=>r.cases[0].evidenceIds=['made-up'],r=>r.cases[0].hypotheses[0].support=['m2:e99'],r=>r.order=['m1','m1'],r=>r.cases.pop()]){const r=result(e);mutate(r);assert.throws(()=>Evidence.clean(r,e));}
 });
 test('Selected neighbours have anonymous proximity evidence, while invalid pair identities cannot pass',()=>{
  const f=fixture();f.mode='triage';f.cases.push({...structuredClone(f.cases[0]),caseId:'m2'});f.relations=[{a:'m1',b:'m2',distanceMeters:35,independentAddress:true}];
@@ -75,15 +75,15 @@ test('LEAK and BURST route into customer-side checks without inventing a main-li
 });
 module.exports={fixture,result};
 
-test('Provider schema stays compact while server enforces exact own-case evidence',()=>{
+test('Provider schema stays compact while server enforces exact selected evidence',()=>{
  const f=fixture();f.mode='triage';f.cases.push({...structuredClone(f.cases[0]),caseId:'m2'});const input=Evidence.build(f),s=Evidence.schemaFor(input);
  assert.deepEqual(s.properties.order.items.enum,['m1','m2']);assert.deepEqual(s.properties.cases.items.properties.caseId.enum,['m1','m2']);
  assert.ok(JSON.stringify(s).length<2000);
  const r=result(input);r.cases[0].evidenceIds=input.cases[0].evidence.map(e=>e.id);assert.doesNotThrow(()=>Evidence.clean(r,input));
- r.cases[0].evidenceIds=['m2:e1'];assert.throws(()=>Evidence.clean(r,input));
+ r.cases[0].evidenceIds=['m2:e1'];assert.equal(Evidence.clean(r,input).cases[0].evidenceIds[0],'m2:e1');r.cases[0].evidenceIds=['m2:e99'];assert.throws(()=>Evidence.clean(r,input));
 });
 
-test('Provider enum casing is canonicalised without accepting unknown or cross-case references',()=>{
+test('Provider enum casing is canonicalised without accepting unknown references',()=>{
  const e=Evidence.build(fixture()),r=result(e);r.order=['M1'];r.cases[0].caseId='M1';r.cases[0].evidenceIds=['M1:E1'];r.cases[0].hypotheses[0].support=['M1:E1'];
  assert.equal(Evidence.clean(r,e).cases[0].evidenceIds[0],'m1:e1');r.cases[0].evidenceIds=['M2:E1'];assert.throws(()=>Evidence.clean(r,e),{code:'AI_EVIDENCE_MEMBERSHIP'});
 });

@@ -79,7 +79,7 @@
       const item=data.review.cases.find(c=>c.caseId===id),facts=data.evidence.cases.find(c=>c.caseId===id),local=active.links.get(id);
       const article=node('article',null,root,'ai-case');node('h3',`${rank+1}. ${local?.address||id}`,article);node('p',item.summary,article);
       const refs=(ids,parent,prefix)=>{const row=node('p',prefix,parent,'ai-reference-row');if(!ids.length){node('span',' Inga specifika belägg i underlaget.',row);return;}
-        for(const ref of ids){const fact=facts.evidence.find(e=>e.id===ref);const b=node('button',ref.replace(`${id}:`,'').toUpperCase(),row,'ai-ref');b.type='button';b.title=fact.title;b.addEventListener('click',()=>{article.querySelector('.ai-evidence').open=true;document.getElementById(`ai-${ref}`).scrollIntoView({block:'nearest',behavior:'smooth'});});}};
+        for(const ref of ids){const owner=data.evidence.cases.find(c=>c.evidence.some(e=>e.id===ref)),fact=owner.evidence.find(e=>e.id===ref);const b=node('button',(owner.caseId===id?ref.replace(`${id}:`,''):ref).toUpperCase(),row,'ai-ref');b.type='button';b.title=`${active.links.get(owner.caseId).address} · ${fact.title}`;b.addEventListener('click',()=>{const target=document.getElementById(`ai-${ref}`);target.closest('.ai-evidence').open=true;target.scrollIntoView({block:'nearest',behavior:'smooth'});});}};
       refs(item.evidenceIds,article,'Bygger på: ');
       for(const h of item.hypotheses){const box=node('section',null,article,'ai-hypothesis');node('h4',h.explanation,box);refs(h.support,box,'Stöd: ');refs(h.against,box,'Motbelägg: ');node('p',`Skilj orsakerna åt: ${h.check}`,box);}
       node('h4','Nästa kontroller',article);const ol=node('ol',null,article);item.nextChecks.forEach(s=>node('li',s,ol));
