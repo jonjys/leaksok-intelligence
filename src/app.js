@@ -149,6 +149,7 @@
   function showProfile() {
     if (state.importing || folderImport?.isBusy()) { toast("Vänta tills importen är klar innan du låser arbetsytan."); return; }
     folderImport?.pause();
+    window.LeakAI?.lock();
     const config = profileConfig();
     els.profileTitle.textContent = config ? "Öppna LeakSök" : "Skapa lokal profil";
     els.profileHelp.textContent = config ? "Ange din kod. Historik och beslut ligger kvar på denna enhet." : "Välj namn och en kod med minst fyra tecken för din lokala arbetsyta.";
@@ -604,7 +605,7 @@
         <h4>Beslut</h4><p>${m.label ? esc(Engine.LABELS[m.label.type] || m.label.type) + (m.label.at ? ` · ${esc(String(m.label.at).slice(0, 10))}` : "") : "Automatisk bedömning"}</p>
         <button type="button" class="secondary" data-act="menu">Ändra beslut</button>
         <label class="stack">Kommentar<textarea data-comment rows="3" placeholder="Följer med i arbetslistan och Excel">${esc(comment)}</textarea></label>
-        <div class="detail-actions"><button type="button" class="secondary" data-act="chart">Stor graf</button><button type="button" class="secondary" data-act="worklist">Lägg i arbetslista</button></div>
+        <div class="detail-actions"><button type="button" class="secondary" data-act="chart">Stor graf</button><button type="button" class="secondary" data-act="ai"${m.series.length ? "" : " disabled"}>Claude-bedömning</button><button type="button" class="secondary" data-act="worklist">Lägg i arbetslista</button></div>
       </section>
     </div>`;
   }
@@ -713,6 +714,7 @@
     els.focusChart.hidden = state.chartHidden || !m;
     $("showFocusChart").hidden = !m || !state.chartHidden;
     $("correctMapAddress").disabled = !m;
+    $("focusAI").disabled = !m?.series?.length;
     document.body.classList.toggle("has-focus", !els.focus.hidden);
     if (els.focus.hidden) { mapRenderVersion++; lastMapKey = ""; return; }
     if (m) {
@@ -1187,6 +1189,12 @@
 
   document.addEventListener("click", (event) => {
     const t = event.target;
+    const aiButton = t.closest('[data-act="ai"], #focusAI');
+    if (aiButton) {
+      const id = aiButton.closest('[data-detail]')?.dataset.detail || aiButton.closest('#chartDialogDetail')?.dataset.id || state.focusId;
+      window.LeakAI?.open(state.byId.get(id));
+      return;
+    }
     if (!t.closest("#contextMenu") && !els.menu.hidden && !t.closest("[data-act='menu']") && !t.closest("#focusMenu") && !t.closest("[data-sel='move']")) closeMenu();
     document.querySelectorAll("details.menu[open]").forEach((d) => { if (!d.contains(t)) d.open = false; });
     const areaButton = t.closest("[data-area-signal]");

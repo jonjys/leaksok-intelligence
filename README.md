@@ -2,7 +2,7 @@
 
 Morgonverktyg för Kamstrup Leak Detector-exporter: importera senaste 24-timmarsexporten, se vad som förändrats, varför det är relevant och vilka mätare som ska kontrolleras, och ta med en arbetslista i Excel ut i fält.
 
-Import och analys körs lokalt i webbläsaren. Historik, beslut och kommentarer sparas i IndexedDB på denna enhet. Namn och kod öppnar arbetsytan; det är inte kryptering eller ett serverkonto. Inga mätardata skickas till någon språkmodell eller adressökning. Kartan hämtar hela det publika adressunderlaget från Botkyrkas webbkarta genom `/api/addresses` och matchar mätarnas adresser lokalt. Pluppen visar adressen. Gatunamn och fullständigt husnummer måste matcha, inklusive 9C. Nummer 9, 9B eller enbart gatan får aldrig ersätta 9C. Gamla ungefärliga reservträffar ignoreras. Tidigare sparade exakta adressträffar behålls om kommunens register saknar adressen.
+Import och analys körs lokalt i webbläsaren. Historik, beslut och kommentarer sparas i IndexedDB på denna enhet. Namn och kod öppnar arbetsytan; det är inte kryptering eller ett serverkonto. Den vanliga analysen skickar inga mätardata till en språkmodell eller adressökning. Den valfria Claude-bedömningen skickar ett begränsat underlag först efter ett uttryckligt knapptryck; se nedan. Kartan hämtar hela det publika adressunderlaget från Botkyrkas webbkarta genom `/api/addresses` och matchar mätarnas adresser lokalt. Pluppen visar adressen. Gatunamn och fullständigt husnummer måste matcha, inklusive 9C. Nummer 9, 9B eller enbart gatan får aldrig ersätta 9C. Gamla ungefärliga reservträffar ignoreras. Tidigare sparade exakta adressträffar behålls om kommunens register saknar adressen.
 
 Kartan använder bara adressen för placering. Gatunamn, hela husnumret och eventuell bokstav måste matcha; Excel-GPS och exportens visningsinställningar behövs inte. Markerade mätare ligger kvar över kategoriflikar, sökningar, områdesfilter och sidbyten. Svart ring betyder markerad; större ring med adressetikett betyder vald. Statusfärgen är samma i listan och kartans färgförklaring; normal är neutralgrå. **Visa markerade** anpassar kartan till markeringen, medan **Visa alla** även tar med listans träffar. En saknad adress visas som saknad, aldrig på en annan husadress. Kartans meny **⋯** innehåller ventil, läckpunkt, min position och rättning av kartadress.
 
@@ -88,6 +88,25 @@ Tillverkarkällor: [flowIQ 2200, svensk produktinformation](https://www.kamstrup
 - Säsongsbedömning kräver minst ett års historik i appen. Historiklängd i appen är inte mätarens installationsålder.
 - Lagring är lokal per webbläsare; använd *Mer → Säkerhetskopiera hela arbetsytan* regelbundet.
 
+## Valfri Claude-bedömning
+
+Välj en mätare → **Claude**, eller öppna grafens underlag → **Claude-bedömning**. Dialogen visar exakt JSON-underlag före sändning. Endast de senaste högst 180 faktiska avläsningsdagarna, totalantal dagar, exportdatum, kodflaggor, antal separata adresser i områdessignal, minimiflöde med datum och lokal poäng/underlagsstyrka ingår. Adress, serienummer, GPS, egna kommentarer och hela Excel-filer skickas inte. Servern avvisar extra fält och räknar datatäckningen själv.
+
+Claude Sonnet 5.5 ger observationer, möjliga förklaringar, nästa kontroller och osäkerheter. Svaret ändrar aldrig status, poäng, sortering, manuella beslut eller historik. Ingen schemalagd massanalys sker. Ett oförändrat underlag återanvänder svaret i den öppna arbetsytan; serverinstansen cachar upp till 32 svar i tio minuter. AI-resultat och åtkomstkod lagras bara i minnet och rensas vid låsning/omladdning.
+
+Konfigurera hemliga servervariabler i samma Vercel-projekt, i de miljöer där AI ska användas, och gör en ny deployment:
+
+| Variabel | Innehåll |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | Anthropic-nyckeln, aldrig i webbkoden |
+| `LEAKSOK_AI_ACCESS_CODE` | En separat stark åtkomstkod med minst 24 tecken, som användaren också anger i Claude-dialogen |
+
+Den lokala profilkoden är inte serverautentisering. Saknas någon av servervariablerna är betalda anrop avstängda. API-nyckeln lämnar aldrig servern; åtkomstkoden kontrolleras där med konstantlång hashjämförelse. Skicka aldrig API-nyckeln som åtkomstkod. Inga fria användarprompter, verktyg, modellval eller godtyckliga upstream-URL:er accepteras. Endast anrop från samma ursprung tillåts i webbläsaren.
+
+Varje anrop begränsas till 24 kB indata, 180 avläsningsdagar, 1 600 genererade token och 45 sekunder. Ingen automatisk återförsökning sker. En varm serverinstans tillåter en samtidig körning, minst tio sekunder mellan nya anrop och högst tjugo anrop per timme. **Detta är inte ett globalt kostnadstak:** flera instanser eller nya deploymenter har egna räknare. Sätt ett hårt utgiftstak i Anthropic-arbetsytan för gemensamt kostnadsskydd. En avbruten webbläsarförfrågan kan redan ha kostat token hos Anthropic.
+
+Källor: [Anthropic-autentisering](https://platform.claude.com/docs/en/manage-claude/authentication), [strukturerade svar](https://platform.claude.com/docs/en/build-with-claude/structured-outputs), [Sonnet 5.5](https://platform.claude.com/docs/en/models/sonnet-5-5/overview). Anrop går direkt till Anthropic så att den konfigurerade nyckelns krediter används; ingen separat AI Gateway-kredit krävs.
+
 ## Utveckling och verifiering
 
 ### Kamstrups mätare av intresse
@@ -100,10 +119,11 @@ Filer som importerades innan kolumnen stöddes behöver importeras igen, normalt
 
 Kamstrups beskrivning: [Meters of interest ranking, release 1.5.1](https://kamstrup-delivery.sitecorecontenthub.cloud/api/public/content/59293-downloadOriginal?v=e110f267). Rangen är leverantörens rekommendation, inte en riskprocent eller en uppgift om var läckan sitter.
 
-Frontend utan byggsteg och en Vercel Node-funktion för det offentliga adressregistret. En statisk server (`python3 -m http.server 4173`) räcker för import/analys och redan cachade kartpunkter. För nya adresspunkter behövs `/api/addresses`, exempelvis genom `vercel dev` eller Vercel-deployen. Ingen Anthropic-nyckel behövs för analys, kartadresser eller sortering.
+Frontend utan byggsteg och Vercel Node-funktioner för det offentliga adressregistret och den valfria Claude-bedömningen. En statisk server (`python3 -m http.server 4173`) räcker för import/analys och redan cachade kartpunkter. För nya adresspunkter behövs `/api/addresses`, exempelvis genom `vercel dev` eller Vercel-deployen. Ingen Anthropic-nyckel behövs för analys, kartadresser eller sortering.
 
 ```bash
 node --test tests/*.test.js          # motor, import, Excel, grafer, lagring (kör i flera tidszoner i CI)
+node tests/ai-review-browser.cjs     # Chromium: explicit AI-sändning, fel kod, anonymiserat underlag, cache och låsning
 node tests/browser-smoke.cjs         # Chromium: 3 000 mätare × 30 exporter, beslut, omladdning, desktop/mobil
 node tests/download-browser.cjs      # Chromium: exakt exporturval över sidor, arbetslista, XLSX-granskning
 node tests/legacy-browser.cjs        # Chromium: gammal profil, XLSX-datum, ett års historik

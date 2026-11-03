@@ -1,5 +1,6 @@
 {
   "functions": {
-    "api/addresses.js": { "maxDuration": 60 }
+    "api/addresses.js": { "maxDuration": 60 },
+    "api/ai-review.js": { "maxDuration": 60 }
   }
 }
