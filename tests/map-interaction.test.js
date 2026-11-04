@@ -10,7 +10,7 @@ const addressSource = fs.readFileSync(path.join(__dirname, '../src/address-index
 const mapSource = fs.readFileSync(path.join(__dirname, '../src/map.js'), 'utf8');
 
 function element() {
-  return { hidden: false, dataset: {}, classList: { toggle() {} }, querySelectorAll: () => [], addEventListener() {}, appendChild() {}, scrollIntoView() {} };
+  return { hidden: false, dataset: {}, classList: { toggle() {} }, querySelectorAll: () => [], addEventListener() {}, appendChild() {}, insertAdjacentHTML() {}, scrollIntoView() {} };
 }
 function appHarness() {
   const meters = Array.from({ length: 61 }, (_, i) => ({ id: String(i), address: `FALKVÄGEN ${i + 1} TUMBA 14730`, category: 'suspect_auto', series: [], latest: { value: 50 }, status: 'Misstänk' }));
@@ -18,7 +18,7 @@ function appHarness() {
   const nodes = new Map();
   const els = Object.fromEntries(['focus', 'focusChart', 'focusTitle', 'focusMeta', 'rows'].map(k => [k, element()]));
   const updates = [], charts = [];
-  const context = { state, els, LIST: { suspect: { label: 'Misstänk' } }, $: id => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); }, document: { body: element(), createElement: () => ({ dataset: {}, setAttribute() {} }) }, window: { matchMedia: () => ({ matches: false }) }, localStorage: { setItem() {} }, VIEW_KEY: 'view', clearTimeout() {}, focusTimer: 1, focusRequest: 0, mapRenderVersion: 0, MeterView, lastMapKey: '', Engine: { fmtDate: () => '', fmtPct: () => '' }, num: String, esc: String, shortAddress: m => m.address, openChart() {}, Chart: { render: (el, m) => charts.push(m.id) }, ensureMap: () => ({ invalidate() {}, update: options => { updates.push(options); } }), requestAnimationFrame: fn => fn() };
+  const context = { comparisonHtml: () => "", state, els, LIST: { suspect: { label: 'Misstänk' } }, $: id => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); }, document: { body: element(), createElement: () => ({ dataset: {}, setAttribute() {} }) }, window: { matchMedia: () => ({ matches: false }) }, localStorage: { setItem() {} }, VIEW_KEY: 'view', clearTimeout() {}, focusTimer: 1, focusRequest: 0, mapRenderVersion: 0, MeterView, lastMapKey: '', Engine: { fmtDate: () => '', fmtPct: () => '' }, num: String, esc: String, shortAddress: m => m.address, openChart() {}, Chart: { render: (el, m) => charts.push(m.id) }, ensureMap: () => ({ invalidate() {}, update: options => { updates.push(options); } }), requestAnimationFrame: fn => fn() };
   context.render = () => context.renderFocus();
   vm.createContext(context);
   vm.runInContext(appSource.slice(appSource.indexOf('  function renderFocus()'), appSource.indexOf('  function openChart(id)')) + appSource.slice(appSource.indexOf('  function setList(key)'), appSource.indexOf('  // Window resize')), context);
@@ -352,3 +352,4 @@ test('Repeated map updates keep a stable coordinate revision even when the cache
   await view.update({ meters: [meter], focusId: meter.id });
   assert.equal(JSON.stringify([...api.coordinates([meter])]), before, 'No needless reanalysis loop on cached addresses');
 });
+

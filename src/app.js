@@ -221,7 +221,7 @@
     const warnings = [], errors = [], accepted = [];
     let added = 0, duplicates = 0, updated = 0;
     const next = [...state.files];
-    const signature = (rows) => rows.map((r) => `${r.id}|${r.readAt?.getTime?.() ?? ""}|${r.current}`).join(";");
+    const signature = LeakComparison.fingerprint;
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -236,13 +236,8 @@
             duplicates++;
             const existing = next[duplicateIndex];
             let changed = false;
-            const rows = existing.rows.map((row, index) => {
-              const patch = Object.fromEntries(Object.entries(parsed.rows[index]).filter(([key, value]) => value !== undefined && !["source", "exportDate"].includes(key)));
-              const merged = { ...row, ...patch };
-              if (JSON.stringify(merged) === JSON.stringify(row)) return row;
-              changed = true;
-              return merged;
-            });
+            const rows = LeakComparison.mergeRows(existing.rows, parsed.rows);
+            changed = JSON.stringify(rows) !== JSON.stringify(existing.rows);
             // Copy, do not mutate: failed analysis can still roll back safely.
             if (changed) { next[duplicateIndex] = { ...existing, rows }; updated++; }
             accepted.push(file.name);
@@ -549,6 +544,13 @@
     return metric ? `<span class="sort-metric" title="${esc(metric[1])}">${esc(metric[0])}</span>` : "";
   }
 
+  function comparisonHtml(m, compact = false) {
+    const result = LeakComparison.windows(m.series, state.latestExport);
+    if (!result) return "";
+    const rows = result.periods.map(p => `<div class="comparison-cell${p.reliable ? "" : " is-preliminary"}"><span>Mot tidigare ${p.days} dagar</span><b>${p.reference == null ? "Saknas" : `${num(p.reference)} → ${num(result.current.level)}`}</b><small>${p.delta == null ? "Inga jämförbara värden" : `${Engine.fmtSigned(p.delta)} · ${p.percent == null ? "ingen procent" : esc(Engine.fmtPct(p.percent / 100))}`}</small><span class="comparison-quality">${p.n}/${p.days} dagar · ${p.reliable ? "jämförbart" : "preliminärt"}</span></div>`).join("");
+    return `<section class="comparison-panel${compact ? " is-compact" : ""}" aria-label="Jämförelse av brusnivå"><div class="comparison-heading"><b>Nivåjämförelse</b><span>Senaste ${result.current.n}/3 dagar · median ${num(result.current.level)}</span></div><div class="comparison-grid">${rows}</div><p>Median mot skilda perioder före de senaste tre dagarna. ${result.ageDays >= 2 ? "Äldre avläsning. " : ""}Preliminärt vid glest underlag. Visar nivåskillnad, inte läcksannolikhet.</p></section>`;
+  }
+
   function comparisonRows(m) {
     const rows = [];
     const c = m.changePrev;
@@ -592,6 +594,7 @@
     const qualityOpen = m.confidence === "tunt" || !m.latest || m.latest.ageDays >= Engine.RULES.oldDays || m.history.conflicts > 0 || m.codes.dry;
     return `<div class="detail">
       <section class="detail-analysis">
+        ${comparisonHtml(m)}
         <div class="next-step"><h4>Nästa steg</h4><p>${esc(m.action)}</p></div>
         ${m.areaSignal ? `<h4>Möjlig gemensam källa i området</h4>${areaSignalHtml(m.areaSignal, true)}` : ""}
         ${caseEvidenceHtml(m)}
@@ -721,6 +724,7 @@
     if (m) {
       const change = m.changePrev;
       $("meterSummary").innerHTML = `<div class="meter-reading"><div><span class="sub">Senaste brusvärde</span><strong>${num(m.latest?.value)}</strong></div><span class="pill cat-${esc(m.category)}" style="background:${MeterView.statuses[m.category]?.color || MeterView.statuses.normal.color}">${esc(m.status)}</span></div><p class="meter-change" title="Sedan föregående avläsning">${change ? `${Engine.fmtSigned(change.delta)} (${change.pct == null ? "ingen procent" : esc(Engine.fmtPct(change.pct))}) <span>sedan ${esc(Engine.fmtDate(change.fromDate))}</span>` : "Ingen tidigare avläsning"}</p><dl><div><dt>Analyspoäng</dt><dd>${m.priority}<small>/100</small></dd></div><div><dt>Underlag</dt><dd>${esc(m.confidence)}</dd></div></dl><p class="meter-next">${esc(m.action)}</p><button type="button" class="secondary" data-focus-enlarge="${esc(m.id)}">Visa graf &amp; underlag ↗</button>`;
+      $("meterSummary").insertAdjacentHTML("beforeend", comparisonHtml(m, true));
       els.focusTitle.textContent = m.address;
       $("focusCopy").dataset.copy = m.id;
       $("focusCopy").hidden = false;
@@ -1445,4 +1449,5 @@
   if (window.indexedDB && window.LeakStorage) showProfile();
   reanalyze(true);
 }());
+
 

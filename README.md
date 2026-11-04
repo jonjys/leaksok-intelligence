@@ -168,3 +168,10 @@ Glest utspridda liknande värden får inte beskrivas som kontinuerligt stabil ni
 Grafen anger antal importerade avläsningsdagar och antal kalenderdagar i den valda perioden. Grå områden heter ”saknas i importen”. Medianen är tydligt märkt som en beräkning och löper inte genom dataluckor. Detsamma gäller minigrafen. **Visa importspårning** i detaljvyn redovisar exportrader, återexporter, saknade/odaterade rader, konflikter samt de högst 30 senaste avläsningsdagarnas värden och första/senaste export. Excel-underlaget använder samma osäkra bedömning.
 
 Ett anonymiserat regressionsexempel återskapar 306 dagsexporter med endast 9 olika avläsningsdagar och median 384. Det ger Glest underlag, behåller senaste värdet 394 och de faktiska datumen, och skapar inga mätpunkter för luckorna. Ett separat webbläsartest kontrollerar status, graf, importspårning och mobilvisning (`node tests/sparse-history-browser.cjs`). Detta bevisar inte att användarens nuvarande fullständiga Excel-arkiv har granskats; bara en äldre exempelfil fanns tillgänglig vid felsökningen.
+
+
+### Signal desk och nivåjämförelser
+
+Arbetsytan har en mörk instrumentrad, grön navigation och en gemensam läsyta för lista, karta och mätarhistorik. Detaljvyn visar senaste tre kalenderdagarnas median mot skilda referensfönster på 7, 30 och 90 dagar före dessa tre dagar. Dagar utan avläsning fylls inte ut. Jämförelsen märks preliminär om de senaste tre dagarna inte är kompletta, referensen har färre än hälften av dagarna (minst tre krävs), eller senaste avläsningen är minst två dagar äldre än senaste exporten. Procent saknas vid nollreferens. Dessa beskrivande jämförelser ändrar inte läckklassning eller manuella beslut.
+
+Återimport av samma avläsningar känns igen även när raderna sorterats om i Kamstrup. Kompletterad metadata kopplas via mätar-ID, avläsningstid och värde. Dubbletten ger inte fler avläsningsdagar. `tests/comparison-browser.cjs` verifierar även detta via en XLSX-fil och kontrollerar dator- och mobilvyn.
