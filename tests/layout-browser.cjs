@@ -89,15 +89,16 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal(laptop.scrollY, 0, "Scrolling the list leaves the map and page in place");
     assert.ok(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight), "Laptop workspace fits the viewport after marking meters");
 
-    // Navigation overlays the workspace on hover and keyboard focus.
+    // Navigation keeps labels visible and never shifts or covers the work area.
     const listBeforeHover = await page.locator(".table-wrap").boundingBox();
     await page.locator("#rail").hover();
     await page.waitForTimeout(200);
-    assert.ok((await page.locator("#rail").boundingBox()).width >= 200);
+    assert.ok((await page.locator("#rail").boundingBox()).width >= 140);
+    assert.equal(await page.locator('#rail [data-list="dispatch"] span').isVisible(), true);
     assert.deepEqual(await page.locator(".table-wrap").boundingBox(), listBeforeHover, "Navigation opens without moving the list");
     await page.locator("#search").hover();
     await page.waitForTimeout(200);
-    assert.ok((await page.locator("#rail").boundingBox()).width <= 56);
+    assert.ok((await page.locator("#rail").boundingBox()).width <= 180);
 
     // Right-click sort links act immediately, including with several rows marked.
     await page.locator("#rows tr.row").first().locator(".addr").click({ button: "right" });
@@ -199,4 +200,5 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     server.close();
   }
 })().catch((e) => { console.error(e); process.exitCode = 1; });
+
 

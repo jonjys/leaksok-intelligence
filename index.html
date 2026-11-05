@@ -7,15 +7,15 @@
   <meta name="description" content="Jämför Kamstrup-exporter, hitta nya förändringar och planera kontroller med karta, historik och arbetslista.">
   <meta name="theme-color" content="#102b3a">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="./src/styles.css">
-  <link rel="stylesheet" href="./src/workspace.css">
+  <link rel="stylesheet" href="./src/styles.css?v=20261105-studio3">
+  <link rel="stylesheet" href="./src/workspace.css?v=20261105-studio3">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body data-view="list">
   <header class="topbar">
     <div class="brand">
-      <h1>LeakSök</h1>
+      <h1>LeakSök<span class="brand-caption">SIGNAL STUDIO</span></h1>
     </div>
     <div class="top-actions">
       <div class="view-toggle" role="group" aria-label="Arbetsyta">
@@ -55,6 +55,7 @@
         </details>
       </section>
 
+      <div class="analysis-mode" role="group" aria-label="Snabbsortering"><button type="button" data-quick-sort="excelP" aria-pressed="true">P · E/F − 1 <span>Avvikelse från genomsnitt</span></button><button type="button" data-quick-sort="suspicion" aria-pressed="false">Prioritet <span>Samlad analys</span></button><p>Beräknas automatiskt vid import</p></div>
       <section class="toolbar" aria-label="Sök och filter">
         <input id="search" type="search" placeholder="Sök adress eller serienummer" aria-label="Sök">
         <select id="sort" class="sr-only" tabindex="-1" aria-hidden="true"></select>
@@ -129,7 +130,7 @@
               <th class="c-check"><input type="checkbox" id="checkPage" aria-label="Markera alla på sidan"></th>
               <th><button type="button" data-sort="priority">Status</button></th>
               <th><button type="button" data-sort="address">Adress</button></th>
-              <th><button type="button" data-sort="value">Nivå</button></th>
+              <th><button type="button" data-sort="value">Nivå / P</button></th>
               <th>Underlag</th>
               <th class="c-spark"><button type="button" data-sort="lastRead">60 dagar</button></th>
               <th class="c-menu"><span class="sr-only">Åtgärder</span></th>
@@ -238,24 +239,24 @@
     </form>
   </dialog>
 
-  <script src="./src/storage.js"></script>
-  <script src="./src/folder-import.js"></script>
-  <script src="./src/backup.js"></script>
-  <script src="./src/parse.js"></script>
-  <script src="./src/history.js"></script>
-  <script src="./src/area-signals.js"></script>
-  <script src="./src/case-learning.js"></script>
-  <script src="./src/engine.js"></script>
-  <script src="./src/xlsx-writer.js"></script>
-  <script src="./src/field-export.js"></script>
-  <script src="./src/chart.js"></script>
-  <script src="./src/meter-view.js"></script>
-  <script src="./src/address-index.js"></script>
-  <script src="./src/map.js"></script>
-  <script src="./src/worklist.js"></script>
-  <script src="./src/ai-review.js"></script>
-  <script src="./src/comparison.js"></script>
-  <script src="./src/app.js"></script>
+  <script src="./src/storage.js?v=20261105-studio3"></script>
+  <script src="./src/folder-import.js?v=20261105-studio3"></script>
+  <script src="./src/backup.js?v=20261105-studio3"></script>
+  <script src="./src/parse.js?v=20261105-studio3"></script>
+  <script src="./src/history.js?v=20261105-studio3"></script>
+  <script src="./src/area-signals.js?v=20261105-studio3"></script>
+  <script src="./src/case-learning.js?v=20261105-studio3"></script>
+  <script src="./src/engine.js?v=20261105-studio3"></script>
+  <script src="./src/xlsx-writer.js?v=20261105-studio3"></script>
+  <script src="./src/field-export.js?v=20261105-studio3"></script>
+  <script src="./src/chart.js?v=20261105-studio3"></script>
+  <script src="./src/meter-view.js?v=20261105-studio3"></script>
+  <script src="./src/address-index.js?v=20261105-studio3"></script>
+  <script src="./src/map.js?v=20261105-studio3"></script>
+  <script src="./src/worklist.js?v=20261105-studio3"></script>
+  <script src="./src/ai-review.js?v=20261105-studio3"></script>
+  <script src="./src/comparison.js?v=20261105-studio3"></script>
+  <script src="./src/app.js?v=20261105-studio3"></script>
 </body>
 </html>
 

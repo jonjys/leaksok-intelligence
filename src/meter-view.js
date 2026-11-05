@@ -31,6 +31,7 @@
     { key: "neighbors", label: "Störst områdessignal", group: "Analys" },
     { key: "confidence", label: "Starkast underlag", group: "Analys" },
     { key: "signalDate", label: "Nyaste signal", group: "Analys" },
+    { key: "excelP", label: "P · E/F − 1", group: "Förändring" },
     { key: "change", label: "Förändring %", group: "Förändring" },
     { key: "changeAbs", label: "Förändring i nivå", group: "Förändring" },
     { key: "baseline", label: "Mot jämförelsenivå", group: "Förändring" },
@@ -49,6 +50,7 @@
     confidence: "Starkast analysunderlag först: starkt, medel, tunt. Ett starkt underlag betyder inte att en läcka är konstaterad.",
     signalDate: "Senaste början på en uppåtgående signal först. För en trend används trendperiodens början. En gammal avläsning i en ny export räknas inte som en ny signal.",
     maxValue: "Högsta avlästa värde i den importerade historiken först. Gamla toppar är inte automatiskt aktiva varningar.",
+    excelP: "P = E/F − 1: senaste värde E delat med genomsnitt F från samma exportrad, minus 1. Högst P först. F = 0 eller saknat värde ger ingen procent. P är en nivåavvikelse, inte sannolikhet för läcka.",
     change: "Största procentuella ökning sedan föregående avläsning först. Referensvärde 0 ger ingen beräknad procent.",
     changeAbs: "Största ökning i exportens nivåvärden sedan föregående avläsning först.",
     baseline: "Största procentuella ökning mot mätarens jämförelsenivå först. Listan visar samma jämförelse.",
@@ -62,6 +64,7 @@
     const selectors = {
       suspicion: (m) => m.latest ? m.priority : null,
       priority: (m) => m.sortRank,
+      excelP: (m) => m.excel?.P,
       change: (m) => m.changePrev?.pct,
       changeAbs: (m) => m.changePrev?.delta,
       baseline: (m) => m.finding?.pct,
@@ -99,3 +102,4 @@
   }
   return { statuses, comparator, mapRevision, ascendingSorts, sortHelp, sortOptions };
 }));
+

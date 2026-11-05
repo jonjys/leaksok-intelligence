@@ -31,6 +31,32 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports');
     assert.equal(await page.evaluate(() => state.byId.get('90000002').series.length), readings);
     assert.equal(await page.evaluate(() => state.byId.get('90000002').codes.leak), true);
     assert.equal(await page.evaluate(() => state.byId.get('90000001').codes.leak), false);
+    // The Excel P formula is calculated from E and F, independently of the history median.
+    assert.equal(await page.locator('#sort').inputValue(), 'excelP');
+    await page.locator('[data-quick-sort="suspicion"]').click();
+    assert.equal(await page.locator('#sort').inputValue(), 'suspicion');
+    await page.locator('[data-quick-sort="excelP"]').click();
+    const exact = [last.rows[0],
+      ['p-double', 'FORMELTEST 1 TUMBA 14730', 'TUMBA', '2026-11-05 04:00', 20, 10, 20, '', '', ''],
+      ['p-down', 'FORMELTEST 2 TUMBA 14730', 'TUMBA', '2026-11-05 04:00', 5, 10, 5, '', '', ''],
+      ['p-zero', 'FORMELTEST 3 TUMBA 14730', 'TUMBA', '2026-11-05 04:00', 20, 0, 20, '', '', '']];
+    const bytes = await page.evaluate(rows => {
+      const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), 'Mätare');
+      return Array.from(new Uint8Array(XLSX.write(book, { type: 'array', bookType: 'xlsx' })));
+    }, exact);
+    await kit.importFiles(page, [{ name: 'Filtrerade mätare 2026-11-05 06-30.xlsx', buffer: Buffer.from(bytes) }]);
+    await page.locator('#search').fill('FORMELTEST');
+    await page.waitForFunction(() => state.visible.length === 3);
+    assert.deepEqual(await page.evaluate(() => state.visible.map(m => m.id)), ['p-double', 'p-down', 'p-zero']);
+    assert.equal(await page.locator('#rows tr[data-id="p-double"] .excel-p strong').innerText(), '+100 %');
+    assert.equal(await page.locator('#rows tr[data-id="p-down"] .excel-p strong').innerText(), '−50 %');
+    assert.match(await page.locator('#rows tr[data-id="p-zero"] .excel-p').innerText(), /F = 0/);
+    await page.locator('#search').fill('');
+    await page.evaluate(() => LeakApp.setFocus('90000002', { scroll: false }));
+    const card = page.locator('#rows tr.row').first();
+    const badge = await card.locator('.c-status .pill').boundingBox();
+    const value = await card.locator('.c-latest .val').boundingBox();
+    assert.ok(value.y >= badge.y + badge.height - 1, 'Value and status remain on separate readable lines');
     fs.mkdirSync('test-results', { recursive: true });
     await page.screenshot({ path: 'test-results/signal-desk-desktop.png' });
     await page.setViewportSize({ width: 390, height: 844 });

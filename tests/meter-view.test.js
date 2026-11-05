@@ -109,3 +109,11 @@ test('A new one-reading signal has a date, while a trend retains the start of it
   ];
   assert.deepEqual(order(rows, 'signalDate'), ['new-signal', 'older-shift', 'trend', 'quiet']);
 });
+
+
+
+test('P sorting uses E/F ratio, preserves negatives, and puts missing values last both ways', () => {
+  const rows = [{ id: 'double', excel: { P: 1 } }, { id: 'half', excel: { P: -0.5 } }, { id: 'same', excel: { P: 0 } }, { id: 'zero-reference', excel: { P: null } }];
+  assert.deepEqual(order(rows, 'excelP'), ['double', 'same', 'half', 'zero-reference']);
+  assert.deepEqual(order(rows, 'excelP', true), ['half', 'same', 'double', 'zero-reference']);
+});

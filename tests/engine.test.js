@@ -331,3 +331,14 @@ test("Kamstrups snitt F dämpar bara när egen historik före ökningen aldrig n
   assert.equal(seen.category, "suspect_auto");
   assert.doesNotMatch(seen.summary, /Kamstrups snitt/);
 });
+
+
+
+test('P is the Excel formula E/F-1, including doubling, decrease and missing denominator', () => {
+  assert.equal(analyze([20], { average: [10] }).excel.P, 1);
+  assert.equal(Engine.fmtPct(analyze([20], { average: [10] }).excel.P), '+100 %');
+  assert.equal(analyze([5], { average: [10] }).excel.P, -0.5);
+  assert.equal(analyze([0], { average: [10] }).excel.P, -1);
+  assert.equal(analyze([20], { average: [0] }).excel.P, null);
+  assert.equal(analyze([20]).excel.P, null);
+});

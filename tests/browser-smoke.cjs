@@ -30,6 +30,8 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal(await page.evaluate(() => state.meters.length), 3000);
     assert.equal(await page.evaluate(() => state.files.length), 30);
 
+    await kit.chooseSort(page, 'suspicion');
+
     // Quiet/customer groups start hidden and have no separate navigation tabs.
     assert.equal(await page.locator('#rail [data-list="customer_side"]').count(), 0);
     assert.equal(await page.evaluate(() => state.visible.some(m => m.category === "customer_side")), false);
@@ -319,3 +321,4 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     server.close();
   }
 })().catch((e) => { console.error(e); process.exitCode = 1; });
+

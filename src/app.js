@@ -56,7 +56,7 @@
   const state = {
     files: [], labels: loadLabelBackup(), tripList: [], profileId: null, profileName: null,
     areaSignals: [], coordinatesKey: "", prepared: null, cache: new Map(), meters: [], byId: new Map(), latestExport: null,
-    list: "all", search: "", sort: "suspicion", sortReverse: false, area: "all", excluded: new Set(DEFAULT_HIDDEN),
+    list: "all", search: "", sort: "excelP", sortReverse: false, area: "all", excluded: new Set(DEFAULT_HIDDEN),
     page: 1, pageSize: 50, marked: new Set(), focusId: "", chartHidden: false, expanded: new Set(),
     view: readView(), importing: false, historyDirty: false, storageError: "", visible: [],
   };
@@ -457,7 +457,7 @@
     const time = exportAt ? `${Engine.fmtDate(exportAt, true)} ${String(exportAt.getHours()).padStart(2, "0")}:${String(exportAt.getMinutes()).padStart(2, "0")}` : "okänt";
     els.brief.innerHTML = `
       <div class="brief-row">
-        <div class="brief-heading"><h2>${esc(LIST[state.list]?.label || "Alla mätare")}</h2><p class="brief-date${ageHours > 30 ? " is-old" : ""}">${ageHours > 30 ? "Äldre export" : "Export"} <b>${esc(time)}</b><span title="Avlästa under senaste exportdygnet"> · ${report.fresh.toLocaleString("sv-SE")}/${report.total.toLocaleString("sv-SE")} avlästa</span></p></div>
+        <div class="brief-heading"><span class="workspace-kicker">SIGNAL STUDIO · 05.11</span><h2>${esc(LIST[state.list]?.label || "Alla mätare")}</h2><p class="brief-date${ageHours > 30 ? " is-old" : ""}">${ageHours > 30 ? "Äldre export" : "Export"} <b>${esc(time)}</b><span title="Avlästa under senaste exportdygnet"> · ${report.fresh.toLocaleString("sv-SE")}/${report.total.toLocaleString("sv-SE")} avlästa</span></p></div>
         <div class="brief-stats">
           <button type="button" data-list="today"><b>${report.newToday.length}</b> nya signaler</button>
           <button type="button" data-list="dispatch"><b>${report.dispatch}</b> åk ut</button>
@@ -478,6 +478,7 @@
     els.area.value = state.area;
     els.search.value !== state.search && document.activeElement !== els.search && (els.search.value = state.search);
     els.sort.value = state.sort;
+    document.querySelectorAll('[data-quick-sort]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.quickSort === state.sort)));
     els.pageSize.value = String(state.pageSize);
     const shown = DEFAULT_HIDDEN.length - state.excluded.size;
     els.groupFilterCount.textContent = shown ? `(${shown} visas)` : "";
@@ -523,15 +524,23 @@
       <td class="c-check"><input type="checkbox" data-mark ${marked ? "checked" : ""} aria-label="Markera ${esc(m.address)}"></td>
       <td class="c-status"><span class="pill cat-${esc(m.category)}">${esc(m.status)}</span>${sortMetricHtml(m)}<span class="conf">underlag ${esc(m.confidence)}</span></td>
       <td class="c-addr"><span class="addr-line"><button type="button" class="addr" data-act="focus">${esc(shortAddress(m))}</button>${copyButton(m)}</span><span class="sub">${esc(m.serial || m.id)} · ${esc(districtOf(m))}</span>${tags.length ? `<span class="tags">${tags.join("")}</span>` : ""}</td>
-      <td class="c-latest">${changeHtml(m)}</td>
+      <td class="c-latest">${changeHtml(m)}${excelPHtml(m, true)}</td>
       <td class="c-reason"><p class="summary">${esc(m.summary)}</p><p class="action">${esc(m.action)}</p></td>
       <td class="c-spark" data-act="chart" title="Öppna graf">${Chart.sparkline(m, { width: state.sparkWidth || 120 })}</td>
       <td class="c-menu"><button type="button" class="row-info" data-act="expand" aria-expanded="${expanded}" aria-label="${expanded ? "Dölj" : "Visa"} underlag" title="${expanded ? "Dölj" : "Visa"} underlag">i</button><button type="button" class="icon" data-act="menu" aria-label="Åtgärder för ${esc(m.address)}">⋯</button></td>
     </tr>${expanded ? `<tr class="detail-row" data-detail="${esc(m.id)}"><td colspan="7">${detailHtml(m)}</td></tr>` : ""}`;
   }
 
+  function excelPHtml(m, compact = false) {
+    const { E, F, P } = m.excel;
+    const valid = Number.isFinite(P);
+    const values = `E ${num(E)} / F ${num(F)} − 1`;
+    return `<div class="excel-p${compact ? " compact" : ""}" data-state="${valid ? P > 0 ? "up" : P < 0 ? "down" : "flat" : "missing"}"><div><span>P · E/F − 1</span><strong>${valid ? esc(Engine.fmtPct(P)) : "–"}</strong></div><small>${valid ? esc(values) : F === 0 ? "F = 0 · procent saknas" : "E eller F saknas"}</small>${compact ? "" : '<p>Senaste värdet mot genomsnittet i samma exportrad. Nivåavvikelse, inte läcksannolikhet.</p>'}</div>`;
+  }
+
   function sortMetricHtml(m) {
     const metrics = {
+      excelP: m.excel.P != null ? [Engine.fmtPct(m.excel.P), "P = E/F − 1 · samma exportrad"] : null,
       suspicion: m.latest ? [`${m.priority} p`, "Analyspoäng 0–100 · rangordning, inte sannolikhet för läcka"] : null,
       priority: m.latest ? [`${m.priority} p`, "Analyspoäng inom arbetsordningen"] : null,
       kamstrup: m.excel.interestRank > 0 ? [`#${m.excel.interestRank}`, "Kamstrups rang i senaste exporten"] : null,
@@ -595,6 +604,7 @@
     return `<div class="detail">
       <section class="detail-analysis">
         ${comparisonHtml(m)}
+        ${excelPHtml(m)}
         <div class="next-step"><h4>Nästa steg</h4><p>${esc(m.action)}</p></div>
         ${m.areaSignal ? `<h4>Möjlig gemensam källa i området</h4>${areaSignalHtml(m.areaSignal, true)}` : ""}
         ${caseEvidenceHtml(m)}
@@ -724,6 +734,7 @@
     if (m) {
       const change = m.changePrev;
       $("meterSummary").innerHTML = `<div class="meter-reading"><div><span class="sub">Senaste brusvärde</span><strong>${num(m.latest?.value)}</strong></div><span class="pill cat-${esc(m.category)}" style="background:${MeterView.statuses[m.category]?.color || MeterView.statuses.normal.color}">${esc(m.status)}</span></div><p class="meter-change" title="Sedan föregående avläsning">${change ? `${Engine.fmtSigned(change.delta)} (${change.pct == null ? "ingen procent" : esc(Engine.fmtPct(change.pct))}) <span>sedan ${esc(Engine.fmtDate(change.fromDate))}</span>` : "Ingen tidigare avläsning"}</p><dl><div><dt>Analyspoäng</dt><dd>${m.priority}<small>/100</small></dd></div><div><dt>Underlag</dt><dd>${esc(m.confidence)}</dd></div></dl><p class="meter-next">${esc(m.action)}</p><button type="button" class="secondary" data-focus-enlarge="${esc(m.id)}">Visa graf &amp; underlag ↗</button>`;
+      $("meterSummary").insertAdjacentHTML("afterbegin", excelPHtml(m));
       $("meterSummary").insertAdjacentHTML("beforeend", comparisonHtml(m, true));
       els.focusTitle.textContent = m.address;
       $("focusCopy").dataset.copy = m.id;
@@ -1385,6 +1396,7 @@
     render();
   }
   els.sort.addEventListener("change", () => chooseSort(els.sort.value));
+  document.querySelectorAll('[data-quick-sort]').forEach(button => button.addEventListener('click', () => chooseSort(button.dataset.quickSort)));
   $("sortOptions").addEventListener("click", event => {
     const button = event.target.closest("[data-sort-option]");
     if (button) { chooseSort(button.dataset.sortOption); $("sortMenu").querySelector("summary").focus({ preventScroll: true }); }
@@ -1415,6 +1427,7 @@
     state.sortReverse = state.sort === b.dataset.sort ? !state.sortReverse : false;
     state.sort = b.dataset.sort;
     els.sort.value = state.sort;
+    document.querySelectorAll('[data-quick-sort]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.quickSort === state.sort)));
     state.page = 1;
     render();
   });
