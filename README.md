@@ -92,7 +92,7 @@ Tillverkarkällor: [flowIQ 2200, svensk produktinformation](https://www.kamstrup
 
 **Åk ut** visar manuellt beslutade och väl underbyggda fältförslag. Motorn kräver en färsk, upprepad förändring, jämförbar historik och kontroll av störfaktorer. En tydlig ökning som hållit i sig med tillräcklig täckning, eller har oberoende stöd, kan passera även med färre än 70 rangordningspoäng. Saknade avläsningar, DRY och en ensam topp räcker inte för ett automatiskt fältförslag. En återkommande normal säsongssignal bedöms separat. LEAK/BURST och färskt daterat kontinuerligt minimiflöde ligger fortsatt under **Efter mätare**. Manuella beslut överordnas.
 
-Om **Åk ut** är tomt visas **Kontrollera först** automatiskt när färska kontrollförslag finns. Högst tolv prioriterade fall visas med en förklaring, till exempel bekräfta ökningen med nästa avläsning eller jämför hela kurvan i Kamstrup. De räknas inte som beslut att åka ut.
+Om **Åk ut** är tomt visas **Kontrollera först** automatiskt när färska kontrollförslag finns. Högst fem prioriterade fall visas med en förklaring, till exempel bekräfta ökningen med nästa avläsning eller jämför hela kurvan i Kamstrup. De räknas inte som beslut att åka ut.
 
 1. Välj **Granska idag** och **Aktivera AI** en gång på den här webbläsaren. Ange värdet i serverns `LEAKSOK_AI_ACCESS_CODE`. Det är appens åtkomstkod, separat från både din lokala kod och Anthropic-nyckeln. En signerad HttpOnly-session gäller i 30 dagar. Logga ut från AI i dialogen; rotera serverkoden för att ogiltigförklara tidigare sessioner.
 2. Välj **Kör dagens granskning** eller slå på **Granska automatiskt efter import**. Det automatiska läget kräver att sidan är öppen och upplåst och att dagens export finns, enligt svensk kalenderdag. Arbetsytan körs inte när webbläsaren är stängd; Excel-historiken finns här på enheten.
@@ -170,3 +170,4 @@ Arbetsytan har en mörk instrumentrad, grön navigation och en gemensam läsyta 
 P beräknas automatiskt som E/F−1 från samma senaste exportrad och visas per mätare, i vald mätare och i underlaget. E=20 och F=10 ger +100 %. F=0 eller saknat E/F visar ingen procent. P och appens historiska förändringsmått är separata mått. Välj Mot snitt (P) för högst P först; Mest misstänkt är standard. En hög P på en gammal avläsning är inte en ny läcka; datum och status följer mätaren.
 
 Utgåvan har en synlig sidomeny, blå datavy och en tydlig P-yta. Lokala script och stilmallar har ett gemensamt versionssuffix; HTML återvalideras så att nya releaser hämtar rätt resurser efter omladdning.
+

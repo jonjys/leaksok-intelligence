@@ -16,7 +16,7 @@ const responseFor = input => ({
     caseId: c.caseId, summary: 'En förändring att undersöka.', evidenceIds: [c.evidence[0].id],
     hypotheses: [{ explanation: 'En hypotes.', support: [(input.cases.find(other => other.caseId !== c.caseId) || c).evidence[0].id],
       against: [], check: 'Kontrollera på plats.' }],
-    nextChecks: ['Jämför fler avläsningar.'], limitations: ['Ingen bekräftad läcka.'],
+    nextChecks: ['Jämför fler avläsningar.', 'Kontrollera grannmätaren.'], limitations: ['Ingen bekräftad läcka.'],
   })),
 });
 
@@ -82,6 +82,8 @@ const responseFor = input => ({
     assert.match(await page.locator('#rows tr.row').first().textContent(), /KONTROLLERA FÖRST/);
     assert.match(await page.locator('#rows .field-cue').first().textContent(), /nästa avläsning/);
     await page.locator('#search').fill('');
+    await page.locator('.field-lanes [data-field-lane="check"]').click();
+    assert.equal(await page.locator('#rows .field-cue').count(), 5);
     await page.locator('#rail [data-list="all"]').click();
     await page.evaluate(() => LeakApp.setFocus('90000002', { scroll: false }));
     const original = await page.evaluate(() => JSON.stringify([state.byId.get('90000002').category, state.byId.get('90000002').priority, state.labels]));
@@ -130,7 +132,15 @@ const responseFor = input => ({
     await page.waitForFunction(() => document.querySelectorAll('#aiResult .ai-case').length === 12);
     assert.equal(wire.at(-1).body.mode, 'selection');
     assert.equal(wire.at(-1).body.cases.length, 12);
+    assert.equal(await page.locator('#aiResult > .ai-case').count(), 5, 'Show just five controls by default');
+    assert.equal(await page.locator('#aiResult .ai-more').getAttribute('open'), null);
+    assert.match(await page.locator('#aiResult .ai-more > summary').textContent(), /Visa 7 till/);
+    assert.equal(await page.locator('.ai-next p').first().textContent(), 'Jämför fler avläsningar.');
+    const secondCheck = page.locator('.ai-reasoning ol li').first();
+    assert.equal(await secondCheck.isVisible(), false);
     await page.locator('.ai-case .ai-reasoning > summary').first().click();
+    assert.equal(await secondCheck.textContent(), 'Kontrollera grannmätaren.');
+    assert.equal(await secondCheck.isVisible(), true);
     await page.locator('.ai-case .ai-hypothesis .ai-ref').first().click();
     assert.equal(await page.locator('#ai-m1\\:e1').evaluate(el => el.closest('details').open), true);
     await close(page);
@@ -181,3 +191,4 @@ const responseFor = input => ({
     console.log('AI browser PASS: 0 ready with prechecks, one activation, V2 detail, 12 marked, 24-case daily, cross-tab reservation, auto-import, reload and logout.');
   } finally { await browser.close(); server.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
+

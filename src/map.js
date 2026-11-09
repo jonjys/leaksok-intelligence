@@ -110,13 +110,30 @@
     function placeFocusLabel() {
       const marker = markerById.get(current.focusId)?.marker;
       const tip = marker?.getTooltip?.();
-      if (!tip || !map.latLngToContainerPoint) return;
+      const label = tip?.getElement();
+      if (!label || !map.latLngToContainerPoint) return;
       const point = map.latLngToContainerPoint(marker.getLatLng());
-      const height = tip.getElement()?.offsetHeight || 140;
-      const direction = point.y < height + 16 ? "bottom" : "top";
-      if (tip.options.direction !== direction) {
+      const size = map.getSize();
+      const height = label.offsetHeight, width = label.offsetWidth;
+      const room = { top: point.y, bottom: size.y - point.y, left: point.x, right: size.x - point.x };
+      const margin = 16;
+      const direction = room.top >= height + margin ? "top"
+        : room.bottom >= height + margin ? "bottom"
+        : room.right >= width + margin ? "right"
+        : room.left >= width + margin ? "left"
+        : room.top >= room.bottom ? "top" : "bottom";
+      const inset = (p, span, content) => {
+        const edge = Math.min(content / 2 + 6, span / 2);
+        return Math.round(Math.max(edge, Math.min(p, span - edge)) - p);
+      };
+      const side = direction === "left" || direction === "right";
+      // If the label fits only by coming closer to the pin, prefer keeping
+      // its text inside the map. Leaflet adds a 6 px gap for the arrow.
+      const offset = side ? [direction === "right" ? 8 : -8, inset(point.y, size.y, height)]
+        : [inset(point.x, size.x, width), direction === "bottom" ? Math.min(8, room.bottom - height - 8) : Math.max(-8, height + 8 - room.top)];
+      if (tip.options.direction !== direction || !L.point(tip.options.offset).equals(L.point(offset))) {
         tip.options.direction = direction;
-        tip.options.offset = [0, direction === "bottom" ? 8 : -8];
+        tip.options.offset = offset;
         tip.update();
       }
     }
@@ -430,4 +447,5 @@
   root.LeakMap = { resolvePositions, create, navigationUrl, coordinates, markFor: (id) => marks[id] || null, addressForMap, parseAddress, exactHit, cachedPosition, correctAddress,
     correctionFor: meter => corrections[norm(meter?.address)] || "" };
 }(typeof globalThis !== "undefined" ? globalThis : this));
+
 

@@ -440,12 +440,13 @@
     const button = (l) => `<button type="button" data-list="${l.key}" aria-label="${esc(l.label)} (${counts[l.key]})" aria-pressed="${state.list === l.key}" title="${esc(l.hint || l.label)}"><i class="rail-icon" aria-hidden="true">${icons[l.key] || "○"}</i><span>${esc(l.label)}</span><b>${counts[l.key].toLocaleString("sv-SE")}</b></button>`;
     const main = PRIMARY_LISTS.map(key => LIST[key]);
     const more = LISTS.filter(l => !PRIMARY_LISTS.includes(l.key));
-    const moreOpen = more.some((l) => l.key === state.list) || !!els.rail.querySelector(".rail-more[open]");
+    const activeMore = more.find((l) => l.key === state.list);
+    const moreOpen = (activeMore && !matchMedia("(max-width: 760px)").matches) || !!els.rail.querySelector(".rail-more[open]");
     const option = (l) => `<option value="${l.key}"${state.list === l.key ? " selected" : ""}>${esc(l.label)} (${counts[l.key]})</option>`;
     els.rail.innerHTML = `
       <div class="rail-lists">${main.map(button).join("")}</div>
       <details class="rail-more"${moreOpen ? " open" : ""}><summary aria-label="Fler listor"><i class="rail-icon" aria-hidden="true">⋯</i><span>Fler listor</span></summary><div class="rail-lists">${more.map(button).join("")}</div></details>
-      <label class="rail-select"><span class="sr-only">Lista</span><select id="listSelect">${main.map(option).join("")}<optgroup label="Fler listor">${more.map(option).join("")}</optgroup></select></label>`;
+      <label class="rail-select"><span class="sr-only">Lista</span><select id="listSelect">${main.map(option).join("")}${activeMore ? option(activeMore) : ""}</select></label>`;
   }
 
   function areaSignalHtml(signal, detailed = false) {
@@ -480,7 +481,11 @@
       </div>`;
     if (state.list === "dispatch") {
       const { ready, check } = state.fieldCounts, lane = state.fieldLaneEffective;
-      els.brief.insertAdjacentHTML("beforeend", `<div class="field-overview"><div><b>${ready ? `${ready} redo för fältkontroll` : "Inga redo för fältkontroll i urvalet"}</b><p>${check ? "Kontrollera först visar fallen som behöver en avstämning före fältbesök." : "Inga kontrollförslag matchar nuvarande sökning och filter."}</p></div><div class="field-lanes" role="group" aria-label="Fältberedskap"><button type="button" data-field-lane="ready" aria-pressed="${lane === "ready"}">Åk ut <b>${ready}</b></button><button type="button" data-field-lane="check" aria-pressed="${lane === "check"}">Kontrollera först <b>${check}</b></button></div></div>`);
+      let note = "Inga kontrollförslag matchar nuvarande sökning och filter.";
+      if (check) note = lane === "check"
+        ? `Visar ${Math.min(check, ReviewPlan.FIELD_PREVIEW)} av ${check} förslag. Granska underlaget innan du åker ut.`
+        : "Kontrollera först visar vilka uppgifter som saknas inför fältbesök.";
+      els.brief.insertAdjacentHTML("beforeend", `<div class="field-overview"><div><b>${ready ? `${ready} redo för fältkontroll` : "Inga redo för fältkontroll i urvalet"}</b><p>${note}</p></div><div class="field-lanes" role="group" aria-label="Fältberedskap"><button type="button" data-field-lane="ready" aria-pressed="${lane === "ready"}">Åk ut <b>${ready}</b></button><button type="button" data-field-lane="check" aria-pressed="${lane === "check"}">Kontrollera först <b>${check}</b></button></div></div>`);
     }
     if (state.areaSignals.length) {
       els.brief.insertAdjacentHTML("beforeend", `<details class="area-signals"${areaOpen ? " open" : ""}><summary>${state.areaSignals.length} områdessignal${state.areaSignals.length > 1 ? "er" : ""}</summary><div class="area-signal-list">${state.areaSignals.map((signal) => areaSignalHtml(signal)).join("")}</div></details>`);
@@ -1255,6 +1260,7 @@
     if (fieldButton) { setList("dispatch", fieldButton.dataset.fieldLane); return; }
     const listButton = t.closest("[data-list]");
     if (listButton) {
+      if (matchMedia("(max-width: 760px)").matches) listButton.closest(".rail-more")?.removeAttribute("open");
       if (event.detail) els.rail.classList.add("is-dismissed");
       setList(listButton.dataset.list); return;
     }
@@ -1487,5 +1493,6 @@
   if (window.indexedDB && window.LeakStorage) showProfile();
   reanalyze(true);
 }());
+
 
 

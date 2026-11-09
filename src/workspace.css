@@ -213,6 +213,13 @@ dialog::backdrop { background:#11244370; backdrop-filter:blur(4px); }
 .ai-rank { display:inline-grid; place-items:center; width:23px; height:23px; flex:none; border-radius:7px; background:#eaf0ff; color:#254faa; font-size:11px; font-weight:700; }
 .ai-reasoning > summary, .ai-more > summary { cursor:pointer; font-size:12px; font-weight:700; color:#2759b7; padding:6px 0; }
 .ai-more { margin-top:14px; padding:5px 10px; border-radius:9px; border:1px solid var(--line); background:#f7f9fd; }
+.ai-case.ai-case-compact { margin:4px 0; padding:11px 12px; border:1px solid #dbe5f4; border-radius:11px; background:var(--surface); }
+#aiResult .ai-case-compact h3 { margin:0; }
+.ai-case-compact .ai-case-summary { font-size:13px; color:#405672; }
+.ai-next { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:2px 9px; align-items:baseline; margin:8px 0 3px; padding:6px 9px; border-radius:6px; background:#edf3ff; color:#214272; font-size:12px; }
+.ai-next p { overflow-wrap:anywhere; }
+.ai-case-compact .ai-case-actions { margin:4px 0 0; }
+.ai-case-compact .ai-case-actions button { padding:5px 8px; }
 @media (min-width:761px) {
   .topbar { min-height:62px; }
   .rail,.rail:not(.is-dismissed):hover,.rail:not(.is-dismissed):focus-within { top:80px; }
@@ -221,8 +228,19 @@ dialog::backdrop { background:#11244370; backdrop-filter:blur(4px); }
 }
 @media (max-width:760px) {
   .daily-tile { width:100%; }
+  .rail { position:relative; grid-template-columns:minmax(0,1fr) auto; align-items:center; }
+  .rail-select { grid-area:1/1; min-width:0; }
+  .rail-more { display:block; grid-area:1/2; }
+  .rail-more > summary { align-items:center; gap:6px; min-height:40px; padding:7px 10px; border:1px solid var(--line-strong); border-radius:9px; background:var(--surface); font-size:12px; color:#345072; }
+  .rail-more[open] > .rail-lists { display:grid; position:absolute; z-index:12; inset:calc(100% + 6px) 0 auto; max-height:min(22rem, 55vh); padding:6px; border:1px solid var(--line); border-radius:10px; background:var(--surface); box-shadow:0 12px 32px #172c4c22; }
+  .rail-more button span { flex:1; }
+  .map-label { padding:4px 6px; }
+  .map-meter-tip { line-height:1.28; }
+  .map-meter-tip > b { padding-bottom:3px; }
   .brief-heading .brief-stats { justify-content:flex-start; }
   .brief-stats button { padding:4px 6px; }
   .field-overview { padding:8px; }
   .ai-dialog { padding:12px; }
+  .ai-next { grid-template-columns:minmax(0,1fr); }
 }
+

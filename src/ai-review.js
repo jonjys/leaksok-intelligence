@@ -103,17 +103,27 @@
     let more;
     for(const [rank,id] of data.review.order.entries()){
       const item=data.review.cases.find(c=>c.caseId===id),facts=data.evidence.cases.find(c=>c.caseId===id),local=active.links.get(id);
-      if(compact&&rank===6){more=node('details',null,container,'ai-more');node('summary',`Visa ${data.review.order.length-6} till granskade mätare`,more);}
-      const article=node('article',null,more||container,'ai-case');
+      if(compact&&rank===ReviewPlan.FIELD_PREVIEW){more=node('details',null,container,'ai-more');node('summary',`Visa ${data.review.order.length-ReviewPlan.FIELD_PREVIEW} till granskade mätare`,more);}
+      const article=node('article',null,more||container,compact?'ai-case ai-case-compact':'ai-case');
       const head=node('div',null,article,'ai-case-head');
       node('span',String(rank+1),head,'ai-rank');
       node('h3',local?.address||id,head);
       const status=root.LeakMeterView?.statuses[local?.category||facts.serverCategory]?.label;
       if(status)node('span',status,head,`pill cat-${local?.category||facts.serverCategory}`);
-      node('p',item.summary,article);
-      node('h4','Nästa kontroll',article);const ol=node('ol',null,article);item.nextChecks.forEach(s=>node('li',s,ol));
+      node('p',item.summary,article,'ai-case-summary');
+      if(compact&&item.nextChecks.length){
+        const next=node('div',null,article,'ai-next');
+        node('b','Börja här',next);node('p',item.nextChecks[0],next);
+      }else if(item.nextChecks.length){
+        node('h4','Nästa kontroll',article);const ol=node('ol',null,article);item.nextChecks.forEach(s=>node('li',s,ol));
+      }
       const full=compact?node('details',null,article,'ai-reasoning'):article;
-      if(compact)node('summary','Motivering och belägg',full);
+      if(compact){
+        node('summary',item.nextChecks.length>1?'Fler kontroller och belägg':'Motivering och belägg',full);
+        if(item.nextChecks.length>1){
+          const ol=node('ol',null,full);ol.start=2;item.nextChecks.slice(1).forEach(s=>node('li',s,ol));
+        }
+      }
       const refs=(ids,parent,prefix)=>{const row=node('p',prefix,parent,'ai-reference-row');if(!ids.length){node('span',' Inga specifika belägg i underlaget.',row);return;}
         for(const ref of ids){const source=data.evidence.cases.find(c=>c.evidence.some(e=>e.id===ref));if(!source)continue;
           const fact=source.evidence.find(e=>e.id===ref),b=node('button',(source.caseId===id?ref.replace(`${id}:`,''):ref).toUpperCase(),row,'ai-ref');
@@ -423,3 +433,4 @@
   }
   root.LeakAI = { open, openDaily, payload, packet, lock, onWorkspace, clearDaily, refreshBadge };
 }(window));
+

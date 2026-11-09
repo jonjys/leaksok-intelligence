@@ -215,6 +215,13 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     // Phone: cards, list picker, no horizontal page overflow.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator("#listSelect").selectOption("suspect");
+    assert.equal(await page.locator('#listSelect option').count(), 4);
+    const mobileMore = page.locator('#rail .rail-more');
+    await mobileMore.locator('summary').click();
+    await mobileMore.locator('[data-list="confirmed"]').click();
+    assert.equal(await page.locator('#listSelect').inputValue(), 'confirmed');
+    assert.equal(await mobileMore.getAttribute('open'), null);
+    await page.locator('#listSelect').selectOption('suspect');
     const phoneFocus = await page.locator('#rows tr.row').first().getAttribute('data-id');
     await page.locator("#rows tr.row").first().locator(".addr").click();
     await page.waitForFunction(id => state.focusId === id && document.querySelector('#focusChart').__chart?.id === id, phoneFocus);
@@ -322,4 +329,5 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     server.close();
   }
 })().catch((e) => { console.error(e); process.exitCode = 1; });
+
 

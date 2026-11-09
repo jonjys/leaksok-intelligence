@@ -7,7 +7,7 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function () {
   const MAX_CASES = 24;
   const MAX_RELATIONS = 36;
-  const FIELD_PREVIEW = 12;
+  const FIELD_PREVIEW = 5;
   const stockholm = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit" });
   const dayKey = (date = new Date()) => stockholm.format(date);
   const hasHistory = m => !!(m?.latest && m.series?.length);
@@ -51,3 +51,4 @@
   }
   return { MAX_CASES, MAX_RELATIONS, FIELD_PREVIEW, dayKey, fieldCheck, fieldOrder, shortlist };
 }));
+
