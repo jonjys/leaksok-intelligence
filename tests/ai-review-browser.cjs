@@ -118,6 +118,7 @@ const responseFor = input => ({
     await close(page);
 
     await page.reload(); await kit.unlock(page, null);
+    await page.waitForFunction(() => state.meters.length === 42);
     await page.evaluate(() => {
       state.marked = new Set(state.meters.slice(0,12).map(m => m.id));
       LeakApp.render();
