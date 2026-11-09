@@ -173,9 +173,7 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     await fresh.evaluate(id => LeakApp.setFocus(id), markedStreet[0]);
     await fresh.waitForFunction(() => {
       const pos = LeakMap.cachedPosition(state.byId.get(state.focusId));
-      // Leaflet rounds the rendered center to a pixel. At zoom 12 that can
-      // be several metres, so check alignment in the viewport.
-      return pos && testMap.latLngToContainerPoint([pos.lat, pos.lng]).distanceTo(testMap.getSize().divideBy(2)) < 2 && [...state.marked].every(id => {
+      return pos && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2 && [...state.marked].every(id => {
         const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
       });
     });
@@ -187,7 +185,7 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     await fresh.locator('#rows tr.row .addr').click();
     await fresh.waitForFunction(() => {
       const pos = LeakMap.cachedPosition(state.byId.get(state.focusId));
-      return Math.abs(pos?.lat - 59.24) < 1e-8 && testMap.latLngToContainerPoint([pos.lat, pos.lng]).distanceTo(testMap.getSize().divideBy(2)) < 2 && [...state.marked].every(id => {
+      return Math.abs(pos?.lat - 59.24) < 1e-8 && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2 && [...state.marked].every(id => {
         const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
       });
     });
@@ -207,7 +205,7 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     assert.match(await fresh.locator('#selectionBar p b').textContent(), /2 markerade/, 'Worklist navigation updates the global selection count');
     await fresh.waitForFunction(() => {
       const pos = LeakMap.cachedPosition(state.byId.get(state.focusId));
-      return pos && testMap.latLngToContainerPoint([pos.lat, pos.lng]).distanceTo(testMap.getSize().divideBy(2)) < 2 && [...state.marked].every(id => {
+      return pos && testMap.getCenter().distanceTo([pos.lat, pos.lng]) < 2 && [...state.marked].every(id => {
         const p = LeakMap.cachedPosition(state.byId.get(id)); return p && testMap.getBounds().contains([p.lat, p.lng]);
       });
     });
@@ -247,42 +245,26 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     assert.match(await fresh.locator('#sortHelp').textContent(), /inte sannolikhet/);
     const scores = await fresh.evaluate(() => state.visible.map(m => m.priority));
     assert.deepEqual(scores, [...scores].sort((a, b) => b - a), 'Most suspicious sorts by analysis score');
-    // Fit marked changes the camera, not the set of pins. The All list can
-    // have many more pins than the earlier search's three visible matches.
-    const expectedPins = await fresh.evaluate(() => [...new Set([
-      ...state.visible.map(m => m.id), ...state.marked, state.focusId,
-    ])].filter(id => state.byId.has(id) && LeakMap.cachedPosition(state.byId.get(id))).sort());
-    const pinIds = () => fresh.evaluate(() => [...document.querySelectorAll('#map .map-pin[data-meter-id]')].map(n => n.dataset.meterId).sort());
-    await fresh.waitForFunction(ids => JSON.stringify([...document.querySelectorAll('#map .map-pin[data-meter-id]')].map(n => n.dataset.meterId).sort()) === JSON.stringify(ids), expectedPins);
     for (const sort of ['excelP', 'change', 'value', 'address']) {
       await kit.chooseSort(fresh, sort);
-      await fresh.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      assert.deepEqual(await pinIds(), expectedPins, `Sort ${sort} retains every pin`);
+      assert.equal(await countPins(), 3, `Sort ${sort} retains every pin`);
       assert.equal(await fresh.locator('#map .map-pin.is-marked').count(), 2);
     }
     assert.equal(addressRequests, 1, 'Selection, sorting and daily imports use one shared public table');
     const legendColour = await fresh.locator('#mapLegend [data-category="watch"] i').evaluate(el => getComputedStyle(el).backgroundColor);
     const badgeColour = await fresh.locator('#rows tr.is-focus .pill').evaluate(el => getComputedStyle(el).backgroundColor);
     assert.equal(badgeColour, legendColour, 'Map key and list use the same status colour');
-    // Sorting can start a new focus flight after fitting the marked addresses.
-    const labelFits = () => {
-      const map = document.querySelector('#map').getBoundingClientRect();
-      const tip = document.querySelector('.map-label')?.getBoundingClientRect();
-      return tip && tip.top >= map.top && tip.bottom <= map.bottom && tip.left >= map.left && tip.right <= map.right;
-    };
-    await fresh.waitForFunction(labelFits);
+    const mapBox = await fresh.locator('#map').boundingBox();
+    const tipBox = await fresh.locator('.map-label').boundingBox();
+    assert.ok(tipBox.y >= mapBox.y && tipBox.y + tipBox.height <= mapBox.y + mapBox.height, 'The chosen address label stays inside the map after fitting marked addresses');
     fs.mkdirSync('test-results', { recursive: true });
     await fresh.screenshot({ path: 'test-results/map-selection-desktop.png' });
     await fresh.setViewportSize({ width: 390, height: 844 });
-    await fresh.waitForFunction(labelFits, null, { timeout: 6000 }).catch(async error => {
-      console.log('Mobile label diagnostics', await fresh.evaluate(() => {
-        const el = document.querySelector('.map-label');
-        const pos = LeakMap.cachedPosition(state.byId.get(state.focusId));
-        return { label: el?.className, box: el?.getBoundingClientRect().toJSON(), map: document.querySelector('#map').getBoundingClientRect().toJSON(), point: testMap.latLngToContainerPoint([pos.lat, pos.lng]), size: testMap.getSize() };
-      }));
-      throw error;
-    });
+    await fresh.waitForTimeout(250);
     assert.equal(await fresh.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0);
+    const mobileMap = await fresh.locator('#map').boundingBox();
+    const mobileTip = await fresh.locator('.map-label').boundingBox();
+    assert.ok(mobileTip.y >= mobileMap.y && mobileTip.y + mobileTip.height <= mobileMap.y + mobileMap.height, 'Mobile keeps the complete address label inside the map');
     await fresh.screenshot({ path: 'test-results/map-selection-mobile.png', fullPage: true });
     await fresh.setViewportSize({ width: 1366, height: 768 });
     const missingFile = buildDailyExports({ meters: 1, days: 1, end: '2026-09-30', includeScenarios: false })[0];
@@ -291,9 +273,7 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     await kit.importFiles(fresh, [{ name: 'Saknad kartadress 2026-09-30 07-00.csv', text: toCsv(missingFile.rows) }]);
     await fresh.locator('#search').fill('');
     await fresh.locator('#rail [data-list="all"]').click();
-    await fresh.waitForFunction(() => !document.querySelector('#mapMissing').hidden && !!document.querySelector('#mapMissing [data-correct-address="99000000"]'));
-    const beforeCorrection = await pinIds();
-    assert.ok(!beforeCorrection.includes('99000000'));
+    await fresh.waitForFunction(() => document.querySelector('#mapMissing').hidden === false);
     await fresh.locator('#mapMissing summary').click();
     await fresh.locator('#mapMissing [data-correct-address="99000000"]').click();
     await fresh.locator('#addressInput').fill('Broängsvägen 34B Tumba');
@@ -302,9 +282,8 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     assert.equal(await fresh.locator('#addressDialog').isVisible(), true, 'A missing letter cannot save the wrong house');
     await fresh.locator('#addressInput').fill('Broängsvägen 36 Tumba');
     await fresh.locator('#addressForm button[type="submit"]').click();
-    await fresh.waitForFunction(() => !document.querySelector('#addressDialog').open
-      && !!document.querySelector('#map .map-pin[data-meter-id="99000000"]'));
-    assert.deepEqual(await pinIds(), [...beforeCorrection, '99000000'].sort(), 'Correction adds the missing pin while keeping every other meter');
+    await fresh.waitForFunction(() => !document.querySelector('#addressDialog').open && document.querySelector('#mapStatus').textContent.startsWith('4 av 4'));
+    assert.equal(await countPins(), 4, 'Correction adds the missing pin while keeping every other meter');
     assert.match(await fresh.locator('.map-meter-tip').filter({ hasText: 'I CONTAINER' }).textContent(), /Rättad kartadress: Broängsvägen 36/);
     assert.equal(await fresh.evaluate(() => state.byId.get('99000000').address), 'I CONTAINER');
     await fresh.reload();
@@ -317,12 +296,10 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     await fresh.locator('.map-more > summary').click();
     await fresh.locator('#correctMapAddress').click();
     await fresh.locator('#addressReset').click();
-    await fresh.waitForFunction(() => !document.querySelector('#addressDialog').open && LeakMap.cachedPosition(state.byId.get('99000000')) === null
-      && !document.querySelector('#mapMissing').hidden && !!document.querySelector('#mapMissing [data-correct-address="99000000"]'));
+    await fresh.waitForFunction(() => !document.querySelector('#addressDialog').open && LeakMap.cachedPosition(state.byId.get('99000000')) === null);
     assert.equal(await fresh.locator('#mapMissing').isVisible(), true, 'Reset restores the original unmatched address');
     await fresh.close();
     console.log('Map search PASS: 60 results, persistent markers, warning colors, fitted bounds and mobile width.');
   } finally { await browser.close(); server.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
-
 

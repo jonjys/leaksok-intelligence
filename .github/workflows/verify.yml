@@ -1,0 +1,54 @@
+name: Verify LeakSok
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        timezone: [UTC, Europe/Stockholm, America/New_York]
+    env:
+      TZ: ${{ matrix.timezone }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Syntax and regression suite
+        run: |
+          for f in src/*.js api/*.js; do node --check "$f" || exit 1; done
+          node --test tests/*.test.js
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --no-save --package-lock=false playwright@1.58.2
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/ai-review-browser.cjs
+      - run: node tests/map-search-browser.cjs
+      - run: node tests/sparse-history-browser.cjs
+      - run: node tests/browser-smoke.cjs
+      - run: node tests/download-browser.cjs
+      - run: node tests/legacy-browser.cjs
+      - run: node tests/layout-browser.cjs
+      - run: node tests/comparison-browser.cjs
+      - run: node tests/import-source-browser.cjs
+      - run: node tests/case-learning-browser.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-mobile-evidence
+          path: test-results/
+
+
+

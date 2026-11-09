@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LeakSök · Från signal till åtgärd</title>
+  <meta name="description" content="Jämför Kamstrup-exporter, hitta nya förändringar och planera kontroller med karta, historik och arbetslista.">
+  <meta name="theme-color" content="#102b3a">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="./src/styles.css?v=20261109-field1">
+  <link rel="stylesheet" href="./src/workspace.css?v=20261109-field1">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body data-view="list">
+  <header class="topbar">
+    <div class="brand">
+      <h1>LeakSök<span class="brand-caption">FÄLTÖVERSIKT</span></h1>
+    </div>
+    <div class="top-actions">
+      <div class="view-toggle" role="group" aria-label="Arbetsyta">
+        <button type="button" data-view="list" aria-pressed="true">Lista</button>
+        <button type="button" data-view="map" aria-pressed="false">Karta</button>
+      </div>
+      <button type="button" id="openWorklist" class="secondary">Arbetslista <b id="worklistCount">0</b></button>
+      <button type="button" id="pickFiles" class="primary">＋ Importera</button>
+      <details class="menu" id="infoMenu">
+        <summary aria-label="Info och verktyg">Mer</summary>
+        <div class="menu-panel" role="menu">
+          <button type="button" id="folderButton" class="source-button" role="menuitem">Anslut exportmapp</button>
+          <button type="button" data-info="rules" role="menuitem">Om analysen</button>
+          <button type="button" data-info="backup" role="menuitem">Säkerhetskopiera hela arbetsytan</button>
+          <button type="button" data-info="restore" role="menuitem">Återställ säkerhetskopia…</button>
+          <button type="button" data-info="lock" role="menuitem" id="profileButton">Lås</button>
+          <button type="button" data-info="clear" role="menuitem" class="danger-text">Rensa importerade filer…</button>
+        </div>
+      </details>
+    </div>
+    <input id="fileInput" type="file" multiple accept=".xlsx,.xls,.csv" hidden>
+    <input id="backupInput" type="file" accept=".json,application/json" hidden>
+  </header>
+
+  <div class="layout">
+    <nav class="rail" id="rail" aria-label="Listor"></nav>
+
+    <main class="work" id="dropzone">
+      <section id="brief" class="brief" aria-label="Morgonöversikt"></section>
+      <div id="sourceLine" class="source-line" role="status" aria-live="polite" hidden></div>
+
+      <section class="import-line" id="importLine" hidden>
+        <p id="importStatus" role="status" aria-live="polite"></p>
+        <details id="importLog" class="import-log" hidden>
+          <summary id="importLogSummary">Importlogg</summary>
+          <ul id="importLogEntries"></ul>
+        </details>
+      </section>
+
+      <section class="toolbar" aria-label="Sök och filter">
+        <input id="search" type="search" placeholder="Sök adress eller serienummer" aria-label="Sök">
+        <select id="sort" class="sr-only" tabindex="-1" aria-hidden="true"></select>
+        <div class="sort-control">
+          <details class="menu sort-menu" id="sortMenu">
+            <summary aria-label="Välj sortering"><span class="sort-caption">Sortera</span><b id="sortLabel">Mest misstänkt</b></summary>
+            <div id="sortOptions" class="menu-panel" role="menu" aria-label="Sorteringsalternativ"></div>
+          </details>
+          <button type="button" class="secondary sort-direction" id="sortDirection" aria-label="Byt sorteringsriktning · fallande" aria-pressed="false">↓</button>
+        </div>
+        <details class="menu sort-info" id="sortInfo"><summary aria-label="Om vald sortering" title="Om sorteringen">i</summary><div class="menu-panel"><p id="sortHelp" class="sort-help"></p></div></details>
+        <label class="field"><span>Område</span><select id="areaFilter"><option value="all">Alla</option></select></label>
+        <details class="menu" id="groupFilter">
+          <summary>Filter <span id="groupFilterCount"></span></summary>
+          <div class="menu-panel">
+            <p class="hint">Dolda i arbetslistorna tills du väljer att visa dem.</p>
+            <label><input type="checkbox" value="customer_side"> Efter mätare</label>
+            <label><input type="checkbox" value="noise"> Störning / tillfällig</label>
+            <label><input type="checkbox" value="seasonal"> Säsong</label>
+            <label><input type="checkbox" value="ignored"> Ignorerade</label>
+          </div>
+        </details>
+      </section>
+
+      <div class="workspace">
+      <section class="selection-bar" id="selectionBar" aria-label="Markering"></section>
+
+      <section class="focus" id="focus" hidden aria-label="Vald mätare">
+        <div class="focus-head">
+          <div><b id="focusTitle"></b><button type="button" class="copy-addr" id="focusCopy" title="Kopiera adress" aria-label="Kopiera adress"></button><span id="focusMeta"></span></div>
+          <div class="focus-actions">
+            <button type="button" class="secondary" id="showFocusChart" data-chart-action="show" hidden>Visa graf</button>
+            <button type="button" class="secondary" id="focusNavigate">Kör hit</button>
+            <button type="button" class="secondary" id="focusMenu">Flytta till…</button>
+            <button type="button" class="secondary" id="focusAI">AI-granska</button>
+            <button type="button" class="secondary" id="focusClose" aria-label="Stäng vald mätare">×</button>
+          </div>
+        </div>
+        <div class="focus-grid">
+          <aside class="meter-panel" aria-label="Vald mätare">
+            <div class="meter-panel-title">Brus över tid</div>
+            <div class="focus-chart" id="focusChart"></div>
+            <section id="meterSummary" class="meter-summary"></section>
+          </aside>
+          <div class="focus-map">
+            <div class="map-tools" role="toolbar" aria-label="Karta">
+              <button type="button" data-map-style="street" aria-pressed="true">Karta</button>
+              <button type="button" data-map-style="satellite" aria-pressed="false">Satellit</button>
+              <button type="button" data-map-tool="select" aria-pressed="false" title="Dra en ruta för att markera flera">Välj ruta</button>
+              <button type="button" id="showMarkedOnMap" data-map-action="marked" disabled>Visa markerade (0)</button>
+              <button type="button" data-map-action="results">Visa alla</button>
+              <details class="menu map-more"><summary aria-label="Fler kartverktyg">⋯</summary><div class="menu-panel">
+                <button type="button" data-map-tool="valve" aria-pressed="false">Ventil</button>
+                <button type="button" data-map-tool="leak" aria-pressed="false">Läckpunkt</button>
+                <button type="button" data-map-action="locate">Min position</button>
+                <button type="button" id="correctMapAddress">Rätta kartadress</button>
+              </div></details>
+            </div>
+            <div id="mapLegend" class="map-legend" aria-label="Kartans statusfärger"></div>
+            <div id="map" class="map" aria-label="Karta"></div>
+            <p id="mapStatus" class="map-status" role="status" aria-live="polite"></p>
+            <div id="mapMissing" class="map-missing" hidden></div>
+
+          </div>
+        </div>
+      </section>
+
+      <section class="table-wrap" tabindex="0" aria-label="Mätarlista">
+        <table class="meters">
+          <thead>
+            <tr>
+              <th class="c-check"><input type="checkbox" id="checkPage" aria-label="Markera alla på sidan"></th>
+              <th><button type="button" data-sort="suspicion">Status</button></th>
+              <th><button type="button" data-sort="address">Adress</button></th>
+              <th><button type="button" data-sort="value">Brusvärde</button></th>
+              <th>Underlag</th>
+              <th class="c-spark">60 dagar</th>
+              <th class="c-menu"><span class="sr-only">Åtgärder</span></th>
+            </tr>
+          </thead>
+          <tbody id="rows"><tr><td colspan="7" class="empty">Importera Kamstrup-exporter för att starta.</td></tr></tbody>
+        </table>
+      </section>
+
+      <section class="pager" id="pager" aria-label="Sidor">
+        <label class="field"><span>Visa</span>
+          <select id="pageSize"><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option></select>
+        </label>
+        <span id="pageInfo" aria-live="polite"></span>
+        <button type="button" class="secondary" id="prevPage">Förra</button>
+        <button type="button" class="secondary" id="nextPage">Nästa</button>
+      </section>
+      </div>
+    </main>
+  </div>
+
+  <div id="contextMenu" class="context-menu" role="menu" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <dialog id="chartDialog" class="wide-dialog" aria-labelledby="chartDialogTitle">
+    <div class="dialog-head">
+      <div><h2 class="title-line"><span id="chartDialogTitle"></span><button type="button" class="copy-addr" id="chartCopy" title="Kopiera adress" aria-label="Kopiera adress"></button></h2><p id="chartDialogMeta"></p></div>
+      <button type="button" class="secondary" data-close>Stäng</button>
+    </div>
+    <div class="chart-large" id="chartDialogChart"></div>
+    <div id="chartDialogDetail"></div>
+  </dialog>
+
+  <dialog id="decisionDialog" class="form-dialog" aria-labelledby="decisionTitle">
+    <form id="decisionForm" method="dialog">
+      <div class="dialog-head">
+        <div><h2 id="decisionTitle">Beslut</h2><p id="decisionTarget"></p></div>
+        <button type="button" class="secondary" data-close>Avbryt</button>
+      </div>
+      <div id="decisionFields"></div>
+      <label class="stack">Kommentar<textarea id="decisionComment" rows="3" placeholder="Valfritt"></textarea></label>
+      <p id="decisionError" class="form-error" role="alert"></p>
+      <button type="submit" class="primary" id="decisionSave">Spara</button>
+    </form>
+  </dialog>
+
+  <dialog id="worklistDialog" class="wide-dialog" aria-labelledby="worklistTitle"></dialog>
+  <dialog id="exportDialog" class="form-dialog" aria-labelledby="exportTitle"></dialog>
+  <dialog id="rulesDialog" class="wide-dialog" aria-labelledby="rulesTitle"></dialog>
+  <dialog id="sourceDialog" class="form-dialog" aria-labelledby="sourceTitle">
+    <div class="dialog-head"><div><p class="eyebrow">Din datakälla</p><h2 id="sourceTitle">Automatisk mappimport</h2></div><button type="button" class="secondary" data-close>Stäng</button></div>
+    <p class="source-help">Spara Kamstrups Excel-exporter i samma mapp. LeakSök läser nya och ändrade filer varje minut medan appen är öppen och upplåst. Historiken och dina beslut behålls.</p>
+    <p id="sourceStatus" class="source-status" role="status"></p>
+    <div class="source-actions">
+      <button type="button" class="primary" id="sourceConnect">Välj exportmapp</button>
+      <button type="button" class="primary" id="sourceResume" hidden>Tillåt läsning</button>
+      <button type="button" class="secondary" id="sourceCheck" hidden>Kontrollera nu</button>
+      <button type="button" class="link" id="sourceDisconnect" hidden>Koppla från</button>
+    </div>
+    <p class="small source-footnote">Mappen läses bara. Appen hämtar inte exporter från Kamstrup. På mobil och i webbläsare utan mappstöd kan du importera flera filer samtidigt.</p>
+  </dialog>
+  <dialog id="restoreDialog" class="form-dialog" aria-labelledby="restoreTitle">
+    <div class="dialog-head"><h2 id="restoreTitle">Återställ arbetsyta</h2><button type="button" class="secondary" data-close>Avbryt</button></div>
+    <p id="restoreSummary"></p>
+    <p class="small source-help">Historiken läggs ihop med din befintliga arbetsyta. Nyare beslut och kommentarer behålls. Mappanslutningen ändras inte.</p>
+    <p id="restoreError" class="form-error" role="alert"></p>
+    <button type="button" id="restoreApply" class="primary">Lägg till i arbetsytan</button>
+  </dialog>
+
+  <dialog id="addressDialog" class="form-dialog" aria-labelledby="addressTitle">
+    <form id="addressForm">
+      <div class="dialog-head"><h2 id="addressTitle">Rätta kartadress</h2><button type="button" class="secondary" data-close>Avbryt</button></div>
+      <p id="addressOriginal"></p>
+      <label class="stack">Gata, husnummer och ort<input id="addressInput" list="addressSuggestions" autocomplete="off" required></label>
+      <datalist id="addressSuggestions"></datalist>
+      <p class="small">Välj adressen där mätaren hör hemma. Kartadressen sparas för kommande importer på denna enhet.</p>
+      <p id="addressError" class="form-error" role="alert"></p>
+      <div class="button-row"><button type="submit" class="primary">Spara kartadress</button><button type="button" class="secondary" id="addressReset">Använd Excel-adressen</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="aiDialog" class="form-dialog ai-dialog" aria-labelledby="aiTitle">
+    <div class="dialog-head"><div><span class="workspace-kicker">KONTROLLPLAN</span><h2 id="aiTitle">Dagens granskning</h2><p id="aiMeter"></p></div><button type="button" class="secondary" data-close>Stäng</button></div>
+    <p id="aiScope" class="ai-notice"></p>
+    <div id="aiDailySettings" class="ai-settings" hidden>
+      <label class="ai-auto"><input type="checkbox" id="aiAuto"><span><b>Granska automatiskt efter import</b><small>En granskning per dag när arbetsytan är öppen och dagens export finns.</small></span></label>
+    </div>
+    <form id="aiLoginForm" class="ai-login" hidden>
+      <label class="stack">Åtkomstkod för LeakSök AI<input id="aiAccessCode" type="password" autocomplete="current-password" required minlength="24" maxlength="512" placeholder="Åtkomstkoden till appens AI"></label>
+      <p class="small">Aktivera en gång på den här enheten. Du förblir ansluten i 30 dagar.</p>
+      <button type="submit" id="aiLogin" class="primary">Aktivera AI</button>
+    </form>
+    <div class="ai-actions">
+      <button type="button" id="aiRun" class="primary" hidden>Granska</button>
+      <button type="button" id="aiDisconnect" class="secondary" hidden>Logga ut från AI</button>
+    </div>
+    <p id="aiStatus" role="status" aria-live="polite"></p>
+    <details class="ai-data" id="aiData" hidden><summary>Visa anonymiserat underlag</summary><pre id="aiPayload"></pre></details>
+    <section id="aiResult" aria-label="AI:s kontrollförslag"></section>
+    <button type="button" id="aiExport" class="secondary" hidden>Exportera kontrollplan</button>
+  </dialog>
+
+  <dialog id="profileDialog" class="form-dialog profile-dialog">
+    <form id="profileForm">
+      <p class="eyebrow">Din lokala arbetsyta</p>
+      <h2 id="profileTitle">Öppna LeakSök</h2>
+      <p class="small" id="profileHelp">Namn och kod öppnar din lokala arbetsyta på den här enheten.</p>
+      <label class="stack">Namn<input id="profileName" autocomplete="username" required></label>
+      <label class="stack">Kod<input id="profileCode" type="password" inputmode="numeric" autocomplete="current-password" minlength="4" required></label>
+      <p id="profileStatus" class="form-error" role="status"></p>
+      <button type="submit" class="primary">Öppna</button>
+    </form>
+  </dialog>
+
+  <script src="./src/storage.js?v=20261109-field1"></script>
+  <script src="./src/folder-import.js?v=20261109-field1"></script>
+  <script src="./src/backup.js?v=20261109-field1"></script>
+  <script src="./src/parse.js?v=20261109-field1"></script>
+  <script src="./src/history.js?v=20261109-field1"></script>
+  <script src="./src/area-signals.js?v=20261109-field1"></script>
+  <script src="./src/case-learning.js?v=20261109-field1"></script>
+  <script src="./src/engine.js?v=20261109-field1"></script>
+  <script src="./src/xlsx-writer.js?v=20261109-field1"></script>
+  <script src="./src/field-export.js?v=20261109-field1"></script>
+  <script src="./src/chart.js?v=20261109-field1"></script>
+  <script src="./src/meter-view.js?v=20261109-field1"></script>
+  <script src="./src/address-index.js?v=20261109-field1"></script>
+  <script src="./src/map.js?v=20261109-field1"></script>
+  <script src="./src/worklist.js?v=20261109-field1"></script>
+  <script src="./src/review-plan.js?v=20261109-field1"></script>
+  <script src="./src/ai-review.js?v=20261109-field1"></script>
+  <script src="./src/comparison.js?v=20261109-field1"></script>
+  <script src="./src/app.js?v=20261109-field1"></script>
+</body>
+</html>
+
