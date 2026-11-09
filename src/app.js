@@ -3,6 +3,7 @@
 (function () {
   const Engine = window.LeakEngine;
   const MeterView = window.LeakMeterView;
+  const ReviewPlan = window.LeakReviewPlan;
   const History = window.LeakHistory;
   const Parse = window.LeakParse;
   const Chart = window.LeakChart;
@@ -37,6 +38,7 @@
     { key: "hidden", label: "Dolda", test: () => true, more: true },
   ];
   const LIST = Object.fromEntries(LISTS.map((l) => [l.key, l]));
+  const PRIMARY_LISTS = ["today", "dispatch", "suspect", "all"];
 
   const DEFAULT_HIDDEN = ["customer_side", "noise", "seasonal", "ignored"];
   const DECISIONS = [
@@ -56,7 +58,8 @@
   const state = {
     files: [], labels: loadLabelBackup(), tripList: [], profileId: null, profileName: null,
     areaSignals: [], coordinatesKey: "", prepared: null, cache: new Map(), meters: [], byId: new Map(), latestExport: null,
-    list: "all", search: "", sort: "excelP", sortReverse: false, area: "all", excluded: new Set(DEFAULT_HIDDEN),
+    list: "all", fieldLane: null, fieldLaneEffective: "ready", fieldCounts: { ready: 0, check: 0 },
+    search: "", sort: "suspicion", sortReverse: false, area: "all", excluded: new Set(DEFAULT_HIDDEN),
     page: 1, pageSize: 50, marked: new Set(), focusId: "", chartHidden: false, expanded: new Set(),
     view: readView(), importing: false, historyDirty: false, storageError: "", visible: [],
   };
@@ -82,11 +85,9 @@
   const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const norm = (v) => String(v || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
   const num = Engine.fmtNum;
-  // One catalogue feeds the toolbar and the row menu. Keep the native select as
-  // the value control, with the grouped menu providing the visible interface.
+  // One set of five choices feeds the toolbar and the row menu.
   els.sort.innerHTML = MeterView.sortOptions.map(o => `<option value="${o.key}">${esc(o.label)}</option>`).join("");
-  $("sortOptions").innerHTML = [...new Set(MeterView.sortOptions.map(o => o.group))].map(group =>
-    `<div class="sort-group" role="group" aria-label="${esc(group)}"><span class="sort-group-label">${esc(group)}</span>${MeterView.sortOptions.filter(o => o.group === group).map(o => `<button type="button" role="menuitemradio" aria-checked="false" data-sort-option="${o.key}"><span>${esc(o.label)}</span><i aria-hidden="true">✓</i></button>`).join("")}</div>`).join("");
+  $("sortOptions").innerHTML = MeterView.sortOptions.map(o => `<button type="button" role="menuitemradio" aria-checked="false" data-sort-option="${o.key}"><span>${esc(o.label)}</span><i aria-hidden="true">✓</i></button>`).join("");
 
   // ---------------- storage ----------------
   function loadLabelBackup() {
@@ -198,6 +199,7 @@
     }
     reanalyze(true);
     if (state.files.length) setImportStatus(`${state.files.length} exporter i historiken · ${state.meters.length.toLocaleString("sv-SE")} mätare.`);
+    window.LeakAI?.onWorkspace();
     await folderImport.open(state.profileId);
   });
 
@@ -219,7 +221,7 @@
     state.importing = true;
     els.pickFiles.disabled = true;
     const warnings = [], errors = [], accepted = [];
-    let added = 0, duplicates = 0, updated = 0;
+    let added = 0, duplicates = 0, updated = 0, reviewAfter = false;
     const next = [...state.files];
     const signature = LeakComparison.fingerprint;
     try {
@@ -270,11 +272,13 @@
       setImportStatus(`${outcome} · ${state.meters.length.toLocaleString("sv-SE")} mätare. ${saved ? "Sparat på denna enhet." : state.storageError}`);
       renderImportLog(warnings, errors);
       renderSource();
+      reviewAfter = saved && Boolean(added || updated);
       return { saved, accepted: saved ? accepted : [], added, updated, duplicates, errors };
     } finally {
       state.importing = false;
       els.pickFiles.disabled = false;
       els.fileInput.value = "";
+      if (reviewAfter) window.LeakAI?.onWorkspace();
     }
   }
   function setImportStatus(text) { els.importLine.hidden = !text; els.importStatus.textContent = text; }
@@ -392,13 +396,20 @@
 
   function visibleRows() {
     const terms = state.search.split(/[\n,;]+/).map(norm).filter(Boolean);
-    const rows = state.meters.filter((m) => {
-      if (!inList(m, state.list)) return false;
+    const scoped = state.meters.filter((m) => {
       if (state.area !== "all" && districtOf(m) !== state.area) return false;
       if (terms.length && !terms.some((t) => norm(`${m.address} ${m.serial} ${m.id} ${m.area}`).includes(t))) return false;
       return true;
     });
-    return rows.sort(MeterView.comparator(state.sort, state.sortReverse, districtOf));
+    const order = MeterView.comparator(state.sort, state.sortReverse, districtOf);
+    if (state.list !== "dispatch") return scoped.filter(m => inList(m, state.list)).sort(order);
+    const ready = scoped.filter(m => inList(m, "dispatch"));
+    const check = scoped.filter(m => inList(m, "suspect") && ReviewPlan.fieldCheck(m));
+    state.fieldCounts = { ready: ready.length, check: check.length };
+    state.fieldLaneEffective = state.fieldLane || (!ready.length && check.length ? "check" : "ready");
+    if (state.fieldLaneEffective === "ready") return ready.sort(order);
+    const short = check.sort(ReviewPlan.fieldOrder).slice(0, ReviewPlan.FIELD_PREVIEW);
+    return state.sort === "suspicion" ? (state.sortReverse ? short.reverse() : short) : short.sort(order);
   }
 
   // ---------------- render ----------------
@@ -427,12 +438,14 @@
     for (const m of state.meters) for (const l of LISTS) if (inList(m, l.key)) counts[l.key]++;
     const icons = { today: "✦", all: "◉", dispatch: "!", suspect: "?", watch: "◎", confirmed: "●", repaired: "✓", stable_high: "↔", learning: "◷", stale_contact: "○", hidden: "⊘" };
     const button = (l) => `<button type="button" data-list="${l.key}" aria-label="${esc(l.label)} (${counts[l.key]})" aria-pressed="${state.list === l.key}" title="${esc(l.hint || l.label)}"><i class="rail-icon" aria-hidden="true">${icons[l.key] || "○"}</i><span>${esc(l.label)}</span><b>${counts[l.key].toLocaleString("sv-SE")}</b></button>`;
-    const more = LISTS.filter((l) => l.more && !l.group);
+    const main = PRIMARY_LISTS.map(key => LIST[key]);
+    const more = LISTS.filter(l => !PRIMARY_LISTS.includes(l.key));
     const moreOpen = more.some((l) => l.key === state.list) || !!els.rail.querySelector(".rail-more[open]");
+    const option = (l) => `<option value="${l.key}"${state.list === l.key ? " selected" : ""}>${esc(l.label)} (${counts[l.key]})</option>`;
     els.rail.innerHTML = `
-      <div class="rail-lists">${LISTS.filter((l) => !l.more && !l.group).map(button).join("")}</div>
-      <details class="rail-more"${moreOpen ? " open" : ""}><summary aria-label="Fler listor"><i class="rail-icon" aria-hidden="true">⋯</i><span>Fler listor</span><b>${more.reduce((s, l) => s + (l.key === "hidden" ? 0 : counts[l.key]), 0).toLocaleString("sv-SE")}</b></summary><div class="rail-lists">${more.map(button).join("")}</div></details>
-      <label class="rail-select"><span class="sr-only">Lista</span><select id="listSelect">${LISTS.filter((l) => !l.group).map((l) => `<option value="${l.key}"${state.list === l.key ? " selected" : ""}>${esc(l.label)} (${counts[l.key]})</option>`).join("")}</select></label>`;
+      <div class="rail-lists">${main.map(button).join("")}</div>
+      <details class="rail-more"${moreOpen ? " open" : ""}><summary aria-label="Fler listor"><i class="rail-icon" aria-hidden="true">⋯</i><span>Fler listor</span></summary><div class="rail-lists">${more.map(button).join("")}</div></details>
+      <label class="rail-select"><span class="sr-only">Lista</span><select id="listSelect">${main.map(option).join("")}<optgroup label="Fler listor">${more.map(option).join("")}</optgroup></select></label>`;
   }
 
   function areaSignalHtml(signal, detailed = false) {
@@ -455,19 +468,24 @@
     const exportAt = state.latestExport;
     const ageHours = exportAt ? (Date.now() - exportAt.getTime()) / 3600000 : Infinity;
     const time = exportAt ? `${Engine.fmtDate(exportAt, true)} ${String(exportAt.getHours()).padStart(2, "0")}:${String(exportAt.getMinutes()).padStart(2, "0")}` : "okänt";
+    const fieldChecks = state.meters.filter(m => inList(m, "suspect") && ReviewPlan.fieldCheck(m)).length;
     els.brief.innerHTML = `
       <div class="brief-row">
-        <div class="brief-heading"><span class="workspace-kicker">SIGNAL STUDIO · 05.11</span><h2>${esc(LIST[state.list]?.label || "Alla mätare")}</h2><p class="brief-date${ageHours > 30 ? " is-old" : ""}">${ageHours > 30 ? "Äldre export" : "Export"} <b>${esc(time)}</b><span title="Avlästa under senaste exportdygnet"> · ${report.fresh.toLocaleString("sv-SE")}/${report.total.toLocaleString("sv-SE")} avlästa</span></p></div>
-        <div class="brief-stats">
-          <button type="button" data-list="today"><b>${report.newToday.length}</b> nya signaler</button>
+        <div class="brief-heading"><span class="workspace-kicker">FÄLTÖVERSIKT</span><h2>${esc(LIST[state.list]?.label || "Alla mätare")}</h2><p class="brief-date${ageHours > 30 ? " is-old" : ""}">${ageHours > 30 ? "Äldre export" : "Export"} <b>${esc(time)}</b><span title="Avlästa under senaste exportdygnet"> · ${report.fresh.toLocaleString("sv-SE")}/${report.total.toLocaleString("sv-SE")} avlästa</span></p>
+          <div class="brief-stats"><button type="button" data-list="today"><b>${report.newToday.length}</b> nya signaler</button>
           <button type="button" data-list="dispatch"><b>${report.dispatch}</b> åk ut</button>
-          <button type="button" data-list="suspect"><b>${report.suspect}</b> misstänk</button>
-          <button type="button" data-list="stale_contact" title="Utan färsk avläsning"><b>${report.stale}</b> ej färska</button>
+          <button type="button" data-field-lane="check"><b>${fieldChecks}</b> att kontrollera</button></div>
         </div>
+        <div class="daily-tile"><div><b>Dagens granskning</b><small id="dailyStatusLine">Prioriterar hela beståndet</small></div><button type="button" class="primary" id="dailyButton">Granska idag</button></div>
       </div>`;
+    if (state.list === "dispatch") {
+      const { ready, check } = state.fieldCounts, lane = state.fieldLaneEffective;
+      els.brief.insertAdjacentHTML("beforeend", `<div class="field-overview"><div><b>${ready ? `${ready} redo för fältkontroll` : "Inga redo för fältkontroll i urvalet"}</b><p>${check ? "Kontrollera först visar fallen som behöver en avstämning före fältbesök." : "Inga kontrollförslag matchar nuvarande sökning och filter."}</p></div><div class="field-lanes" role="group" aria-label="Fältberedskap"><button type="button" data-field-lane="ready" aria-pressed="${lane === "ready"}">Åk ut <b>${ready}</b></button><button type="button" data-field-lane="check" aria-pressed="${lane === "check"}">Kontrollera först <b>${check}</b></button></div></div>`);
+    }
     if (state.areaSignals.length) {
       els.brief.insertAdjacentHTML("beforeend", `<details class="area-signals"${areaOpen ? " open" : ""}><summary>${state.areaSignals.length} områdessignal${state.areaSignals.length > 1 ? "er" : ""}</summary><div class="area-signal-list">${state.areaSignals.map((signal) => areaSignalHtml(signal)).join("")}</div></details>`);
     }
+    window.LeakAI?.refreshBadge();
   }
 
   function renderAreas() {
@@ -478,7 +496,6 @@
     els.area.value = state.area;
     els.search.value !== state.search && document.activeElement !== els.search && (els.search.value = state.search);
     els.sort.value = state.sort;
-    document.querySelectorAll('[data-quick-sort]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.quickSort === state.sort)));
     els.pageSize.value = String(state.pageSize);
     const shown = DEFAULT_HIDDEN.length - state.excluded.size;
     els.groupFilterCount.textContent = shown ? `(${shown} visas)` : "";
@@ -510,6 +527,7 @@
   function rowHtml(m) {
     const marked = state.marked.has(m.id);
     const expanded = state.expanded.has(m.id);
+    const field = state.list === "dispatch" ? m.field : null;
     const tags = [];
     if (m.excel.interestRank) tags.push(`<span class="tag" title="Kamstrups mätare av intresse i exporten ${esc(Engine.fmtDate(m.excel.exportDate, true))}">Kamstrup · rang ${m.excel.interestRank}</span>`);
     if (m.learnedLeakMatch) tags.push(`<span class="tag area-tag">Likt tidigare ${esc(m.learnedLeakMatch.lineType)}-läcka</span>`);
@@ -522,9 +540,9 @@
     if (state.tripList.some((e) => e.id === m.id)) tags.push(`<span class="tag">I arbetslista</span>`);
     return `<tr data-id="${esc(m.id)}" data-category="${esc(m.category)}" style="--meter-color:${MeterView.statuses[m.category]?.color || MeterView.statuses.normal.color}" class="row${marked ? " is-marked" : ""}${state.focusId === m.id ? " is-focus" : ""}">
       <td class="c-check"><input type="checkbox" data-mark ${marked ? "checked" : ""} aria-label="Markera ${esc(m.address)}"></td>
-      <td class="c-status"><span class="pill cat-${esc(m.category)}">${esc(m.status)}</span>${sortMetricHtml(m)}<span class="conf">underlag ${esc(m.confidence)}</span></td>
+      <td class="c-status"><span class="pill cat-${esc(m.category)}">${esc(field?.state === "check" ? "KONTROLLERA FÖRST" : m.status)}</span>${state.sort === "excelP" ? "" : sortMetricHtml(m)}<span class="conf">underlag ${esc(m.confidence)}</span></td>
       <td class="c-addr"><span class="addr-line"><button type="button" class="addr" data-act="focus">${esc(shortAddress(m))}</button>${copyButton(m)}</span><span class="sub">${esc(m.serial || m.id)} · ${esc(districtOf(m))}</span>${tags.length ? `<span class="tags">${tags.join("")}</span>` : ""}</td>
-      <td class="c-latest">${changeHtml(m)}${excelPHtml(m, true)}</td>
+      <td class="c-latest">${changeHtml(m)}${state.sort === "excelP" ? excelPHtml(m, true) : ""}${field ? `<span class="field-cue">${esc(field.reason)}</span>` : ""}</td>
       <td class="c-reason"><p class="summary">${esc(m.summary)}</p><p class="action">${esc(m.action)}</p></td>
       <td class="c-spark" data-act="chart" title="Öppna graf">${Chart.sparkline(m, { width: state.sparkWidth || 120 })}</td>
       <td class="c-menu"><button type="button" class="row-info" data-act="expand" aria-expanded="${expanded}" aria-label="${expanded ? "Dölj" : "Visa"} underlag" title="${expanded ? "Dölj" : "Visa"} underlag">i</button><button type="button" class="icon" data-act="menu" aria-label="Åtgärder för ${esc(m.address)}">⋯</button></td>
@@ -535,7 +553,7 @@
     const { E, F, P } = m.excel;
     const valid = Number.isFinite(P);
     const values = `E ${num(E)} / F ${num(F)} − 1`;
-    return `<div class="excel-p${compact ? " compact" : ""}" data-state="${valid ? P > 0 ? "up" : P < 0 ? "down" : "flat" : "missing"}"><div><span>P · E/F − 1</span><strong>${valid ? esc(Engine.fmtPct(P)) : "–"}</strong></div><small>${valid ? esc(values) : F === 0 ? "F = 0 · procent saknas" : "E eller F saknas"}</small>${compact ? "" : '<p>Senaste värdet mot genomsnittet i samma exportrad. Nivåavvikelse, inte läcksannolikhet.</p>'}</div>`;
+    return `<div class="excel-p${compact ? " compact" : ""}" data-state="${valid ? P > 0 ? "up" : P < 0 ? "down" : "flat" : "missing"}"><div><span>${compact ? "Mot snitt (P)" : "P · E/F − 1"}</span><strong>${valid ? esc(Engine.fmtPct(P)) : "–"}</strong></div><small>${valid ? esc(values) : F === 0 ? "F = 0 · procent saknas" : "E eller F saknas"}</small>${compact ? "" : '<p>Senaste värdet mot genomsnittet i samma exportrad. Nivåavvikelse, inte läcksannolikhet.</p>'}</div>`;
   }
 
   function sortMetricHtml(m) {
@@ -636,7 +654,9 @@
     if (!state.files.length) {
       els.rows.innerHTML = `<tr><td colspan="7" class="empty">Importera Kamstrup-exporter för att starta.</td></tr>`;
     } else if (!page.length) {
-      els.rows.innerHTML = `<tr><td colspan="7" class="empty">Inga mätare i ${esc(LIST[state.list].label)} med nuvarande sökning och filter.</td></tr>`;
+      const empty = state.list === "dispatch" ? (state.fieldLaneEffective === "check" ? "Inga fall att kontrollera i det här urvalet." : "Inga redo för fältkontroll. Byt till Kontrollera först för att se möjliga nästa steg.")
+        : `Inga mätare i ${esc(LIST[state.list].label)} med nuvarande sökning och filter.`;
+      els.rows.innerHTML = `<tr><td colspan="7" class="empty">${empty}</td></tr>`;
     } else {
       els.rows.innerHTML = page.map(rowHtml).join("");
     }
@@ -655,13 +675,15 @@
     const visibleIds = new Set(state.visible.map((m) => m.id));
     const outside = [...state.marked].filter((id) => !visibleIds.has(id)).length;
     const allMarked = total > 0 && state.visible.every((m) => state.marked.has(m.id));
+    const resultCount = state.list === "dispatch" && state.fieldLaneEffective === "check"
+      ? `${total} av ${state.fieldCounts.check} kontrollförslag` : `${total.toLocaleString("sv-SE")} träffar`;
     els.selection.classList.toggle("has-marked", marked > 0);
     els.selection.innerHTML = !state.files.length ? "" : `
-      <p><b>${marked ? `${marked.toLocaleString("sv-SE")} markerade` : `${total.toLocaleString("sv-SE")} träffar`}</b>${outside ? ` <span class="muted" title="Markerade mätare utanför filtret finns kvar på kartan">· ${outside} utanför filtret</span>` : ""}</p>
+      <p><b>${marked ? `${marked.toLocaleString("sv-SE")} markerade` : resultCount}</b>${outside ? ` <span class="muted" title="Markerade mätare utanför filtret finns kvar på kartan">· ${outside} utanför filtret</span>` : ""}</p>
       <div class="sel-actions">
         ${marked ? `<button type="button" class="secondary" data-sel="move">Beslut</button>
         <button type="button" class="primary" data-sel="excel">Excel</button>` : ""}
-        ${marked ? `<button type="button" class="secondary" data-sel="ai"${marked>8?' disabled title="Markera högst åtta mätare per kontrollplan"':''}>AI-plan</button>` : ""}
+        ${marked ? `<button type="button" class="secondary" data-sel="ai">AI-plan</button>` : ""}
         <details class="menu selection-menu"${menuOpen ? " open" : ""}><summary aria-label="${marked ? "Fler markeringsverktyg" : "Markera mätare"}">${marked ? "⋯" : "Markera"}</summary>
           <div class="menu-panel">
             <button type="button" data-sel="page" ${pageCount ? "" : "disabled"}>Markera sidan (${pageCount})</button>
@@ -678,7 +700,7 @@
   function renderSortControls() {
     const ascending = MeterView.ascendingSorts.has(state.sort) !== state.sortReverse;
     $("sortHelp").textContent = MeterView.sortHelp[state.sort] || "";
-    $("sortLabel").textContent = MeterView.sortOptions.find(o => o.key === state.sort)?.label || "Arbetsordning";
+    $("sortLabel").textContent = MeterView.sortOptions.find(o => o.key === state.sort)?.label || "Mest misstänkt";
     $("sortOptions").querySelectorAll("[data-sort-option]").forEach(b => b.setAttribute("aria-checked", String(b.dataset.sortOption === state.sort)));
     const directionButton = $("sortDirection");
     directionButton.textContent = ascending ? "↑" : "↓";
@@ -1190,6 +1212,7 @@
     state.historyDirty = true;
     if (!await persist(true)) { state.files = previous; state.historyDirty = previousDirty; renderSource(); return; }
     reanalyze(true);
+    await window.LeakAI?.clearDaily(state.profileId);
     setImportStatus("");
     renderImportLog([], []);
     toast("Importerade filer rensade och mappimport frånkopplad. Beslut och kommentarer finns kvar.");
@@ -1205,11 +1228,12 @@
 
   document.addEventListener("click", (event) => {
     const t = event.target;
+    if (t.closest("#dailyButton")) { window.LeakAI?.openDaily(); return; }
     const aiButton = t.closest('[data-act="ai"], #focusAI, [data-sel="ai"]');
     if (aiButton) {
       const id = aiButton.closest('[data-detail]')?.dataset.detail || aiButton.closest('#chartDialogDetail')?.dataset.id || state.focusId;
-      const meters=aiButton.dataset.sel==='ai'?[...state.marked].map(id=>state.byId.get(id)):[state.byId.get(id)];
-      if(meters.length>8||meters.some(m=>!m?.series?.length)){toast('Välj högst åtta mätare som har avläsningar.');return;}
+      const meters=(aiButton.dataset.sel==='ai'?[...state.marked].map(id=>state.byId.get(id)):[state.byId.get(id)]).filter(Boolean);
+      if(!meters.some(m=>m.series.length)){toast('Välj en mätare med avläsningar.');return;}
       window.LeakAI?.open(meters,{histories:state.prepared?.histories,latestExport:state.latestExport});
       return;
     }
@@ -1227,6 +1251,8 @@
       toast(`${signal.count} mätare i området markerade. Tidigare markeringar finns kvar.`);
       return;
     }
+    const fieldButton = t.closest("[data-field-lane]");
+    if (fieldButton) { setList("dispatch", fieldButton.dataset.fieldLane); return; }
     const listButton = t.closest("[data-list]");
     if (listButton) {
       if (event.detail) els.rail.classList.add("is-dismissed");
@@ -1256,10 +1282,11 @@
   $("rail").addEventListener("change", (e) => { if (e.target.id === "listSelect") setList(e.target.value); });
   els.rail.addEventListener("pointerleave", () => els.rail.classList.remove("is-dismissed"));
 
-  function setList(key) {
+  function setList(key, lane = null) {
     if (!LIST[key]) return;
     clearTimeout(focusTimer);
     state.list = key;
+    state.fieldLane = key === "dispatch" ? lane : null;
     state.view = "map";
     try { localStorage.setItem(VIEW_KEY, state.view); } catch { /* optional */ }
     state.page = 1;
@@ -1396,7 +1423,6 @@
     render();
   }
   els.sort.addEventListener("change", () => chooseSort(els.sort.value));
-  document.querySelectorAll('[data-quick-sort]').forEach(button => button.addEventListener('click', () => chooseSort(button.dataset.quickSort)));
   $("sortOptions").addEventListener("click", event => {
     const button = event.target.closest("[data-sort-option]");
     if (button) { chooseSort(button.dataset.sortOption); $("sortMenu").querySelector("summary").focus({ preventScroll: true }); }
@@ -1423,11 +1449,10 @@
   });
   document.addEventListener("click", (event) => {
     const b = event.target.closest("[data-sort]");
-    if (!b) return;
+    if (!b || !MeterView.sortOptions.some(o => o.key === b.dataset.sort)) return;
     state.sortReverse = state.sort === b.dataset.sort ? !state.sortReverse : false;
     state.sort = b.dataset.sort;
     els.sort.value = state.sort;
-    document.querySelectorAll('[data-quick-sort]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.quickSort === state.sort)));
     state.page = 1;
     render();
   });
@@ -1456,7 +1481,7 @@
     if (event.key === "Escape" && !els.menu.hidden) closeMenu();
   });
 
-  window.LeakApp = { state, reanalyze, render, applyDecision, setHidden, openChart, setFocus, worklist, handleFiles, folderImport };
+  window.LeakApp = { state, reanalyze, render, applyDecision, setHidden, openChart, setFocus, worklist, handleFiles, folderImport, addToWorklist };
 
   // ---------------- start ----------------
   if (window.indexedDB && window.LeakStorage) showProfile();

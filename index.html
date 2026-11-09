@@ -7,15 +7,15 @@
   <meta name="description" content="Jämför Kamstrup-exporter, hitta nya förändringar och planera kontroller med karta, historik och arbetslista.">
   <meta name="theme-color" content="#102b3a">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="./src/styles.css?v=20261105-studio3">
-  <link rel="stylesheet" href="./src/workspace.css?v=20261105-studio3">
+  <link rel="stylesheet" href="./src/styles.css?v=20261109-field1">
+  <link rel="stylesheet" href="./src/workspace.css?v=20261109-field1">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body data-view="list">
   <header class="topbar">
     <div class="brand">
-      <h1>LeakSök<span class="brand-caption">SIGNAL STUDIO</span></h1>
+      <h1>LeakSök<span class="brand-caption">FÄLTÖVERSIKT</span></h1>
     </div>
     <div class="top-actions">
       <div class="view-toggle" role="group" aria-label="Arbetsyta">
@@ -55,7 +55,6 @@
         </details>
       </section>
 
-      <div class="analysis-mode" role="group" aria-label="Snabbsortering"><button type="button" data-quick-sort="excelP" aria-pressed="true">P · E/F − 1 <span>Avvikelse från genomsnitt</span></button><button type="button" data-quick-sort="suspicion" aria-pressed="false">Prioritet <span>Samlad analys</span></button><p>Beräknas automatiskt vid import</p></div>
       <section class="toolbar" aria-label="Sök och filter">
         <input id="search" type="search" placeholder="Sök adress eller serienummer" aria-label="Sök">
         <select id="sort" class="sr-only" tabindex="-1" aria-hidden="true"></select>
@@ -90,7 +89,7 @@
             <button type="button" class="secondary" id="showFocusChart" data-chart-action="show" hidden>Visa graf</button>
             <button type="button" class="secondary" id="focusNavigate">Kör hit</button>
             <button type="button" class="secondary" id="focusMenu">Flytta till…</button>
-            <button type="button" class="secondary" id="focusAI">Claude</button>
+            <button type="button" class="secondary" id="focusAI">AI-granska</button>
             <button type="button" class="secondary" id="focusClose" aria-label="Stäng vald mätare">×</button>
           </div>
         </div>
@@ -128,11 +127,11 @@
           <thead>
             <tr>
               <th class="c-check"><input type="checkbox" id="checkPage" aria-label="Markera alla på sidan"></th>
-              <th><button type="button" data-sort="priority">Status</button></th>
+              <th><button type="button" data-sort="suspicion">Status</button></th>
               <th><button type="button" data-sort="address">Adress</button></th>
-              <th><button type="button" data-sort="value">Nivå / P</button></th>
+              <th><button type="button" data-sort="value">Brusvärde</button></th>
               <th>Underlag</th>
-              <th class="c-spark"><button type="button" data-sort="lastRead">60 dagar</button></th>
+              <th class="c-spark">60 dagar</th>
               <th class="c-menu"><span class="sr-only">Åtgärder</span></th>
             </tr>
           </thead>
@@ -213,17 +212,23 @@
   </dialog>
 
   <dialog id="aiDialog" class="form-dialog ai-dialog" aria-labelledby="aiTitle">
-    <div class="dialog-head"><div><h2 id="aiTitle">Claude-bedömning</h2><p id="aiMeter"></p></div><button type="button" class="secondary" data-close>Stäng</button></div>
-    <p class="ai-notice">Extra förslag att kontrollera i fält. Appens poäng och dina beslut påverkas inte.</p>
-    <p id="aiScope" class="small"></p>
-    <details class="ai-data"><summary>Visa underlaget som skickas till servern</summary><pre id="aiPayload"></pre></details>
-    <form id="aiForm">
-      <label class="stack">Åtkomstkod för Claude<input id="aiAccessCode" type="password" autocomplete="off" required minlength="24" placeholder="Separat från din lokala profilkod"></label>
-      <p class="small">Koden hålls i minnet tills arbetsytan låses eller sidan laddas om. Underlaget skickas först när du trycker nedan.</p>
-      <button type="submit" id="aiRun" class="primary">Skicka underlag &amp; bedöm</button>
+    <div class="dialog-head"><div><span class="workspace-kicker">KONTROLLPLAN</span><h2 id="aiTitle">Dagens granskning</h2><p id="aiMeter"></p></div><button type="button" class="secondary" data-close>Stäng</button></div>
+    <p id="aiScope" class="ai-notice"></p>
+    <div id="aiDailySettings" class="ai-settings" hidden>
+      <label class="ai-auto"><input type="checkbox" id="aiAuto"><span><b>Granska automatiskt efter import</b><small>En granskning per dag när arbetsytan är öppen och dagens export finns.</small></span></label>
+    </div>
+    <form id="aiLoginForm" class="ai-login" hidden>
+      <label class="stack">Åtkomstkod för LeakSök AI<input id="aiAccessCode" type="password" autocomplete="current-password" required minlength="24" maxlength="512" placeholder="Åtkomstkoden till appens AI"></label>
+      <p class="small">Aktivera en gång på den här enheten. Du förblir ansluten i 30 dagar.</p>
+      <button type="submit" id="aiLogin" class="primary">Aktivera AI</button>
     </form>
+    <div class="ai-actions">
+      <button type="button" id="aiRun" class="primary" hidden>Granska</button>
+      <button type="button" id="aiDisconnect" class="secondary" hidden>Logga ut från AI</button>
+    </div>
     <p id="aiStatus" role="status" aria-live="polite"></p>
-    <section id="aiResult" aria-label="Claudes förslag" aria-live="polite"></section>
+    <details class="ai-data" id="aiData" hidden><summary>Visa anonymiserat underlag</summary><pre id="aiPayload"></pre></details>
+    <section id="aiResult" aria-label="AI:s kontrollförslag"></section>
     <button type="button" id="aiExport" class="secondary" hidden>Exportera kontrollplan</button>
   </dialog>
 
@@ -239,24 +244,25 @@
     </form>
   </dialog>
 
-  <script src="./src/storage.js?v=20261105-studio3"></script>
-  <script src="./src/folder-import.js?v=20261105-studio3"></script>
-  <script src="./src/backup.js?v=20261105-studio3"></script>
-  <script src="./src/parse.js?v=20261105-studio3"></script>
-  <script src="./src/history.js?v=20261105-studio3"></script>
-  <script src="./src/area-signals.js?v=20261105-studio3"></script>
-  <script src="./src/case-learning.js?v=20261105-studio3"></script>
-  <script src="./src/engine.js?v=20261105-studio3"></script>
-  <script src="./src/xlsx-writer.js?v=20261105-studio3"></script>
-  <script src="./src/field-export.js?v=20261105-studio3"></script>
-  <script src="./src/chart.js?v=20261105-studio3"></script>
-  <script src="./src/meter-view.js?v=20261105-studio3"></script>
-  <script src="./src/address-index.js?v=20261105-studio3"></script>
-  <script src="./src/map.js?v=20261105-studio3"></script>
-  <script src="./src/worklist.js?v=20261105-studio3"></script>
-  <script src="./src/ai-review.js?v=20261105-studio3"></script>
-  <script src="./src/comparison.js?v=20261105-studio3"></script>
-  <script src="./src/app.js?v=20261105-studio3"></script>
+  <script src="./src/storage.js?v=20261109-field1"></script>
+  <script src="./src/folder-import.js?v=20261109-field1"></script>
+  <script src="./src/backup.js?v=20261109-field1"></script>
+  <script src="./src/parse.js?v=20261109-field1"></script>
+  <script src="./src/history.js?v=20261109-field1"></script>
+  <script src="./src/area-signals.js?v=20261109-field1"></script>
+  <script src="./src/case-learning.js?v=20261109-field1"></script>
+  <script src="./src/engine.js?v=20261109-field1"></script>
+  <script src="./src/xlsx-writer.js?v=20261109-field1"></script>
+  <script src="./src/field-export.js?v=20261109-field1"></script>
+  <script src="./src/chart.js?v=20261109-field1"></script>
+  <script src="./src/meter-view.js?v=20261109-field1"></script>
+  <script src="./src/address-index.js?v=20261109-field1"></script>
+  <script src="./src/map.js?v=20261109-field1"></script>
+  <script src="./src/worklist.js?v=20261109-field1"></script>
+  <script src="./src/review-plan.js?v=20261109-field1"></script>
+  <script src="./src/ai-review.js?v=20261109-field1"></script>
+  <script src="./src/comparison.js?v=20261109-field1"></script>
+  <script src="./src/app.js?v=20261109-field1"></script>
 </body>
 </html>
 

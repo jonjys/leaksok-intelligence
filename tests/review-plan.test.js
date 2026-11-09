@@ -1,0 +1,31 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const Plan = require('../src/review-plan');
+
+const meter = (i, overrides = {}) => ({ id: String(i), address: `TESTVÄGEN ${i} TUMBA`,
+  category: 'suspect_auto', priority: i % 70, latest: { ageDays: 0 }, series: [{}], codes: {},
+  field: { state: 'check', blockers: [{ key: 'repeat' }] }, ...overrides });
+
+test('Daily shortlist searches the whole stock, keeps independent locations and reserves customer-side checks', () => {
+  const all = Array.from({ length: 3170 }, (_, i) => meter(i, {
+    ...(i < 100 ? { address: 'SAMMA ADRESS', areaSignal: { id: 'cluster' }, priority: 100 } : {}),
+  }));
+  all[3169] = meter(3169, { category: 'dispatch', field: { state: 'ready' } });
+  all[3168] = meter(3168, { category: 'customer_side', codes: { burst: true }, field: null });
+  all[3167] = meter(3167, { latest: { ageDays: 10 }, priority: 1000 });
+  all[3166] = meter(3166, { label: { hidden: true }, priority: 1000 });
+  const plan = Plan.shortlist(all);
+  assert.equal(plan.examined, 3170); assert.equal(plan.candidates, 3168);
+  assert.equal(plan.meters.length, 24);
+  assert.equal(plan.meters[0].id, '3169');
+  assert.equal(plan.meters.filter(m => m.address === 'SAMMA ADRESS').length, 1);
+  assert.ok(plan.meters.some(m => m.id === '3168'));
+  assert.ok(plan.meters.every(m => !['3166','3167'].includes(m.id)));
+});
+
+test('Selection has no eight-meter ceiling; an empty daily shortlist needs no AI call', () => {
+  const marked = Array.from({ length: 14 }, (_, i) => meter(i));
+  assert.equal(Plan.shortlist(marked, 'selection').meters.length, 14);
+  assert.equal(Plan.shortlist([meter(1, { category: 'stable_high', field: null })]).meters.length, 0);
+  assert.equal(Plan.dayKey(new Date('2026-11-09T23:30:00Z')), '2026-11-10');
+});

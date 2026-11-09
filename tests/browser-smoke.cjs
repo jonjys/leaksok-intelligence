@@ -32,8 +32,8 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
 
     await kit.chooseSort(page, 'suspicion');
 
-    // Quiet/customer groups start hidden and have no separate navigation tabs.
-    assert.equal(await page.locator('#rail [data-list="customer_side"]').count(), 0);
+    // Quiet/customer groups start hidden from the main list and are filed under Fler listor.
+    assert.equal(await page.locator('#rail .rail-more [data-list="customer_side"]').count(), 1);
     assert.equal(await page.evaluate(() => state.visible.some(m => m.category === "customer_side")), false);
     await page.locator("#groupFilter summary").click();
     await page.locator('#groupFilter input[value="customer_side"]').check();
@@ -135,7 +135,8 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal((await meter("90000003")).category, "watch");
 
     // Nollställ defines the moment from which readings count.
-    await list("suspect");
+    await list("all");
+    await page.locator("#search").fill("90000006");
     await row("90000006").click({ button: "right" });
     await page.locator("#contextMenu .menu-decisions summary").click();
     await page.locator('#contextMenu [data-decision="reset_baseline"]').click();

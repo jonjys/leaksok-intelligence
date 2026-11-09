@@ -21,7 +21,7 @@ function appHarness() {
   const context = { comparisonHtml: () => "", excelPHtml: () => "", state, els, LIST: { suspect: { label: 'Misstänk' } }, $: id => { if (!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); }, document: { body: element(), createElement: () => ({ dataset: {}, setAttribute() {} }) }, window: { matchMedia: () => ({ matches: false }) }, localStorage: { setItem() {} }, VIEW_KEY: 'view', clearTimeout() {}, focusTimer: 1, focusRequest: 0, mapRenderVersion: 0, MeterView, lastMapKey: '', Engine: { fmtDate: () => '', fmtPct: () => '' }, num: String, esc: String, shortAddress: m => m.address, openChart() {}, Chart: { render: (el, m) => charts.push(m.id) }, ensureMap: () => ({ invalidate() {}, update: options => { updates.push(options); } }), requestAnimationFrame: fn => fn() };
   context.render = () => context.renderFocus();
   vm.createContext(context);
-  vm.runInContext(appSource.slice(appSource.indexOf('  function renderFocus()'), appSource.indexOf('  function openChart(id)')) + appSource.slice(appSource.indexOf('  function setList(key)'), appSource.indexOf('  // Window resize')), context);
+  vm.runInContext(appSource.slice(appSource.indexOf('  function renderFocus()'), appSource.indexOf('  function openChart(id)')) + appSource.slice(appSource.indexOf('  function setList('), appSource.indexOf('  // Window resize')), context);
   return { context, state, els, updates, charts, meters };
 }
 

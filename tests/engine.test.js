@@ -65,6 +65,23 @@ test("3. stor ensam topp 5 → 100 med en avläsning är oklar, inte falsklarm",
   assert.equal(m.category, "suspect_auto");
   assert.notEqual(m.category, "noise");
   assert.ok(m.observations.some((o) => /ännu oklart om den består/.test(o)));
+  assert.equal(m.field.state, "check");
+  assert.match(m.field.reason, /nästa avläsning/);
+});
+
+test("A fresh, clearly sustained relative rise can justify a field check below 70 ranking points", () => {
+  const samples = [...flat(8, 24), ...flat(18, 9)];
+  const m = analyze(samples);
+  assert.ok(m.priority < 70);
+  assert.equal(m.category, "dispatch");
+  assert.equal(m.field.state, "ready");
+  assert.match(m.field.reason, /bestående/);
+  const dry = analyze(samples, { info: samples.map(() => "DRY") });
+  assert.notEqual(dry.category, "dispatch");
+  assert.ok(dry.field.blockers.some(b => b.key === "dry"));
+  const leak = analyze(samples, { info: samples.map(() => "LEAK") });
+  assert.equal(leak.category, "customer_side");
+  assert.equal(leak.field, null);
 });
 
 test("4. observerad återgång 5 → 100 → 5 är tillfällig topp", () => {

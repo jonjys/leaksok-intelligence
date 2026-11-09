@@ -812,12 +812,10 @@ body.has-focus .c-status .prio { display: none; }
 #sortLabel { font-weight: 650; }
 .sort-direction { align-self: stretch; min-width: 32px; border-left: 0; border-radius: 0 7px 7px 0; }
 .sort-menu .menu-panel { width: 280px; right: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px; }
-.sort-group + .sort-group { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--line); }
-.sort-group-label { display: block; padding: 6px 10px 3px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; }
-.sort-group button { width: 100%; font-size: 13px; padding: 7px 10px; justify-content: space-between; }
-.sort-group button i { font-style: normal; visibility: hidden; color: var(--accent); }
-.sort-group button[aria-checked="true"] { background: var(--accent-soft); color: #07575f; font-weight: 650; }
-.sort-group button[aria-checked="true"] i { visibility: visible; }
+#sortOptions button { width: 100%; font-size: 13px; padding: 7px 10px; justify-content: space-between; }
+#sortOptions button i { font-style: normal; visibility: hidden; color: var(--accent); }
+#sortOptions button[aria-checked="true"] { background: var(--accent-soft); color: #07575f; font-weight: 650; }
+#sortOptions button[aria-checked="true"] i { visibility: visible; }
 .sort-info > summary, .map-key > summary { justify-content: center; width: 26px; min-height: 26px !important; padding: 0 !important; border-color: transparent !important; background: transparent !important; color: var(--muted); font-size: 12px; border-radius: 50% !important; }
 .sort-info > summary::after, .map-key > summary::after, .map-more > summary::after { display: none; }
 .sort-info > summary:hover, .map-key > summary:hover { background: var(--accent-soft) !important; }

@@ -17,9 +17,21 @@ fixtureAddresses.push(...[1, 3, 5].map(n => ['OMRÅDESTESTVÄGEN', String(n), '1
 const root = path.resolve(__dirname, '..');
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
-function startServer(port = 4173) {
-  const server = http.createServer((req, res) => {
+function startServer(port = 4173, handlers = {}) {
+  const server = http.createServer(async (req, res) => {
     const clean = req.url.split('?')[0];
+    if (handlers[clean]) {
+      try {
+        if (req.method === 'POST') {
+          const chunks = [];
+          for await (const chunk of req) chunks.push(chunk);
+          req.body = JSON.parse(Buffer.concat(chunks).toString());
+        }
+        res.status = status => { res.statusCode = status; return res; };
+        res.json = value => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); return res; };
+        return await handlers[clean](req, res);
+      } catch { if (!res.headersSent) res.writeHead(500); return res.end(); }
+    }
     const file = path.resolve(root, '.' + (clean === '/' ? '/index.html' : decodeURIComponent(clean)));
     if (!file.startsWith(root + path.sep)) { res.writeHead(403).end(); return; }
     try { res.writeHead(200, { 'Content-Type': mime[path.extname(file)] || 'text/plain' }); res.end(fs.readFileSync(file)); }

@@ -826,18 +826,13 @@
     // meter's own expected seasonal level, especially at low absolute values.
     const seasonalBand = season?.expected != null ? tolerance(season.expected, result.history.sigma || RULES.sigmaFloor) : null;
     const withinSeason = upFinding && season?.status === "verified" && season.expected != null && upFinding.now.level <= season.expected + seasonalBand;
+    const field = assessField(result, upFinding, { fresh, withinSeason, missedExports, referenceCoverage, levelCoverage, provisional: total(parts) });
     if (!latest && reset) category = "normal";
     else if (!latest || stale) category = "stale_contact";
     else if (codes.leak || codes.burst || codes.afterMeterText || codes.minimumFlowContinuous) category = "customer_side";
     else if (upFinding && withinSeason) category = "seasonal";
-    else if (upFinding) {
-      const per = upFinding.persistence;
-      const strongEnough = upFinding.pct == null ? upFinding.delta >= 20 : (upFinding.pct >= 1 && upFinding.delta >= 8) || (upFinding.pct >= 0.5 && upFinding.delta >= 20);
-      const persistent = per && (upFinding.type === "trend" ? per.n >= 10 : per.n >= 5 && per.days >= 5 && per.coverage >= 0.6);
-      const interferenceOk = !interference.any || (upFinding.pct ?? 0) >= 2;
-      const provisional = total(parts);
-      category = fresh && persistent && strongEnough && interferenceOk && coveredEnough(referenceCoverage) && coveredEnough(levelCoverage) && provisional >= 70 ? "dispatch" : "suspect_auto";
-    } else if (codes.acousticLeak && levelNow >= 25) category = "suspect_auto";
+    else if (upFinding) category = field.ready ? "dispatch" : "suspect_auto";
+    else if (codes.acousticLeak && levelNow >= 25) category = "suspect_auto";
     else if (excelSignal) category = "suspect_auto";
     else if (f.type === "single" && latest.value >= 100 && ageDays <= 1) category = "suspect_auto";
     else if (f.type === "transient" || f.withinPattern) category = "noise";
@@ -910,6 +905,11 @@
     result.missing = missing;
     result.confidence = confidenceOf(result, upFinding);
     result.priority = clamp(Math.round(total(parts)), 0, 100);
+    result.field = category === "dispatch"
+      ? { state: "ready", blockers: [], reason: label?.type === "manual_dispatch" ? "Ditt beslut att kontrollera på plats." : field.reason }
+      : category === "suspect_auto" && field.review
+        ? { state: "check", blockers: field.blockers, reason: field.blockers[0]?.text || "Jämför kurvan och aktuell drift.", corroboratable: !label?.type && field.corroboratable }
+        : null;
     result.action = actionFor(result);
     result.sortRank = CATEGORY[category].rank * 1000 + result.priority;
     // "Nytt i dag": a rise first seen or first confirmed in the latest export.
@@ -920,6 +920,39 @@
   }
 
   function total(parts) { return parts.reduce((sum, p) => sum + p.points, 0); }
+
+  // Separate readiness for a field check from a score used to sort a list.
+  // A sustained change or independent support can justify a visit without 70
+  // points; a single jump, stale reading or thin reference cannot.
+  function assessField(r, rise, context) {
+    const { fresh, withinSeason, missedExports, referenceCoverage, levelCoverage, provisional } = context;
+    const per = rise?.persistence;
+    const strong = rise && ((rise.pct >= 1 && rise.delta >= 8) || (rise.delta >= 20 && (rise.pct == null || rise.pct >= 0.5)));
+    const persistent = per && per.coverage >= RULES.stableMinCoverage
+      && (rise.type === "trend" ? per.n >= 10 && per.days >= RULES.trendMinSpanDays : per.n >= 5 && per.days >= 4);
+    const supported = per && per.coverage >= 0.75 && per.n >= 7 && per.days >= 6;
+    const blockers = [];
+    const need = (condition, key, text) => { if (!condition) blockers.push({ key, text }); };
+    need(fresh && !missedExports, "fresh", "Kontrollera att mätaren har en aktuell avläsning i den senaste exporten.");
+    need(!r.codes.dry, "dry", "Kontrollera DRY-koden och att mätaren är vattenfylld.");
+    need(!withinSeason, "season", "Jämför med mätarens normala årstidsnivå.");
+    if (!rise) {
+      need(false, "signal", r.kamstrupInterest ? "Granska Kamstrups förslag och hela bruskurvan." : "Jämför med hela kurvan och närliggande mätare.");
+    } else {
+      need(persistent, "repeat", rise.type === "new_signal" ? "Bekräfta ökningen med nästa avläsning." : "Följ nivån tills ökningen är upprepad och varaktig.");
+      need((rise.ref?.n || 0) >= 3 && coveredEnough(referenceCoverage) && coveredEnough(levelCoverage), "coverage", "Jämför hela kurvan i Kamstrup; det lokala underlaget är för glest.");
+      need(!r.intermittent && (!r.interference.any || (rise.pct ?? 0) >= 2), "drift", "Kontrollera kända pumpar, uppvärmning och spolning.");
+      need(strong, "size", "Jämför med grannmätare och följ om ökningen består.");
+      need(provisional >= 70 || supported || r.codes.acousticLeak, "support", "Följ fler avläsningar eller sök stöd i en oberoende grannsignal.");
+    }
+    return {
+      ready: blockers.length === 0,
+      review: !!(fresh && (rise || r.kamstrupInterest || r.codes.acousticLeak || r.latest?.value >= 100)),
+      corroboratable: blockers.length === 1 && blockers[0].key === "support",
+      blockers,
+      reason: r.codes.acousticLeak ? "Bestående ökning med stöd av Leak Detector-händelse." : "Tydlig bestående ökning jämfört med mätarens egen nivå.",
+    };
+  }
 
   function baselineDefinition(f) {
     if (f.type === "new_signal") return "Median av nuvarande nivå före senaste avläsningen";
@@ -1065,6 +1098,14 @@
         m.areaSignal = signal;
         m.observations.push(signal.summary);
         m.explanations.push(...signal.notes);
+        if (m.field?.corroboratable && signal.stage === "repeated" && signal.basis === "position" && signal.buildingCount >= 3) {
+          m.category = "dispatch";
+          m.categoryLabel = CATEGORY.dispatch.label;
+          m.status = CATEGORY.dispatch.status;
+          m.field = { state: "ready", blockers: [], reason: "Bestående ökning på flera separata närliggande adresser." };
+          m.action = actionFor(m);
+          m.sortRank = CATEGORY.dispatch.rank * 1000 + m.priority;
+        }
       }
     }
     const learning = CaseLearning.build(results, { coordinates: options.coordinates, labels, placeOf });

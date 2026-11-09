@@ -32,10 +32,8 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports');
     assert.equal(await page.evaluate(() => state.byId.get('90000002').codes.leak), true);
     assert.equal(await page.evaluate(() => state.byId.get('90000001').codes.leak), false);
     // The Excel P formula is calculated from E and F, independently of the history median.
-    assert.equal(await page.locator('#sort').inputValue(), 'excelP');
-    await page.locator('[data-quick-sort="suspicion"]').click();
     assert.equal(await page.locator('#sort').inputValue(), 'suspicion');
-    await page.locator('[data-quick-sort="excelP"]').click();
+    await kit.chooseSort(page, 'excelP');
     const exact = [last.rows[0],
       ['p-double', 'FORMELTEST 1 TUMBA 14730', 'TUMBA', '2026-11-05 04:00', 20, 10, 20, '', '', ''],
       ['p-down', 'FORMELTEST 2 TUMBA 14730', 'TUMBA', '2026-11-05 04:00', 5, 10, 5, '', '', ''],

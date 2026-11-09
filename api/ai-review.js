@@ -1,7 +1,8 @@
 /* Optional Claude second opinion. No meter identities, free-form prompts or
    client-selected models are accepted. Local analysis remains authoritative. */
-const { createHash, timingSafeEqual } = require('node:crypto');
+const { createHash } = require('node:crypto');
 const Evidence = require('../server/ai-evidence');
+const Session = require('../server/ai-session');
 const MODEL = 'claude-sonnet-5-5';
 const MAX_BYTES = 24000;
 const PROMPT = `Du är ett försiktigt stöd för svensk VA-drift. Bedöm endast det anonymiserade underlaget i JSON.
@@ -63,41 +64,45 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
   return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    const configured = !!env.ANTHROPIC_API_KEY && (env.LEAKSOK_AI_ACCESS_CODE || '').length >= 24;
-    if (req.method === 'GET') return res.status(200).json({ configured, hasApiKey: !!env.ANTHROPIC_API_KEY, model: MODEL,
-      needsAccessCode: (env.LEAKSOK_AI_ACCESS_CODE || '').length < 24, maxReadingDays: 1460, maxCases: 8, evidenceVersion: Evidence.VERSION });
+    const configured = Session.configured(env), authenticated = Session.sessionValid(req, env, now());
+    if (req.method === 'GET') return res.status(200).json({ configured, authenticated, hasApiKey: !!env.ANTHROPIC_API_KEY, model: MODEL,
+      needsAccessCode: !Session.accessConfigured(env), maxReadingDays: 1460, maxCases: Evidence.MAX_CASES, maxDetailedCases: 8,
+      evidenceVersion: Evidence.VERSION, planVersion: Evidence.PLAN_VERSION });
     if (req.method !== 'POST') { res.setHeader('Allow', 'GET, POST'); return res.status(405).end(); }
     if (!configured) return res.status(503).json({ error: 'Claude behöver serverns API-nyckel och LEAKSOK_AI_ACCESS_CODE (minst 24 tecken).' });
-    const credential = String(req.headers.authorization || '').replace(/^Bearer /, '');
-    if (credential.length > 512 || !timingSafeEqual(hash(credential), hash(env.LEAKSOK_AI_ACCESS_CODE))) return res.status(401).json({ error: 'Fel åtkomstkod för Claude.' });
-    if (req.headers.origin && req.headers.origin !== `https://${req.headers.host}` && !(env.NODE_ENV === 'test' && req.headers.origin === `http://${req.headers.host}`)) return res.status(403).json({ error: 'Anropet behöver komma från LeakSök.' });
+    const credential = /^Bearer (.{1,512})$/.exec(String(req.headers.authorization || ''))?.[1];
+    const legacy = Session.codeMatches(env, credential);
+    if (!authenticated && !legacy) return res.status(401).json({ error: 'Aktivera AI på den här enheten först.' });
+    if (!Session.sameOrigin(req, env, !legacy)) return res.status(403).json({ error: 'Anropet behöver komma från LeakSök.' });
     if (!String(req.headers['content-type'] || '').startsWith('application/json')) return res.status(415).json({ error: 'Underlaget behöver vara JSON.' });
     let input;
     try {
-      const limit = req.body?.version === 2 ? 700000 : MAX_BYTES;
+      const limit = req.body?.version === 3 ? 1900000 : req.body?.version === 2 ? 700000 : MAX_BYTES;
       if (Number(req.headers['content-length']) > limit || Buffer.byteLength(JSON.stringify(req.body) || '') > limit) return res.status(413).json({ error: 'För stort underlag.' });
-      input = req.body?.version === 2 ? Evidence.build(req.body) : validate(req.body);
+      input = [2,3].includes(req.body?.version) ? Evidence.build(req.body) : validate(req.body);
     } catch (error) { return res.status(400).json({ error: error.message }); }
     const key = hash(JSON.stringify(input)).toString('hex'), cached = cache.get(key);
-    if (cached && now() - cached.at < 600000) return res.status(200).json({ ...cached.result, cached: true });
+    if (cached && now() - cached.at < (input.mode === 'daily' ? 86400000 : 600000)) return res.status(200).json({ ...cached.result, cached: true });
     // These controls limit bursts in a warm function instance, not global spend.
     // A hard account budget belongs in the Anthropic workspace settings.
     if (now() - windowAt >= 3600000) { windowAt = now(); calls = 0; }
     if (busy || now() - lastCall < 10000 || calls >= 20) { res.setHeader('Retry-After', '10'); return res.status(429).json({ error: 'Vänta en stund före nästa Claude-bedömning.' }); }
     busy = true; calls++; lastCall = now();
+    const evidenceMode = input.version >= 2, compact = input.version === 3;
     let stage = 'request', stopReason = null, outputTokens = 0;
     try {
       const response = await fetcher('https://api.anthropic.com/v1/messages', {
-        method: 'POST', signal: AbortSignal.timeout(input.version === 2 ? 90000 : 45000),
+        method: 'POST', signal: AbortSignal.timeout(evidenceMode ? 90000 : 45000),
         headers: { Authorization: `Bearer ${env.ANTHROPIC_API_KEY}`, 'anthropic-version': '2026-10-21', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, max_tokens: input.version === 2 ? Math.min(12000, 4000 + input.cases.length * 1000) : 1600, thinking: { type: input.version === 2 ? 'adaptive' : 'between_tools' }, system: input.version === 2 ? Evidence.prompt : PROMPT,
+        body: JSON.stringify({ model: MODEL, max_tokens: compact ? Math.min(12000, 3200 + input.cases.length * 350)
+          : evidenceMode ? Math.min(12000, 4000 + input.cases.length * 1000) : 1600,
+          thinking: { type: evidenceMode ? 'adaptive' : 'between_tools' }, system: compact ? Evidence.planPrompt : evidenceMode ? Evidence.prompt : PROMPT,
           messages: [{ role: 'user', content: JSON.stringify(input) }],
-          output_config: { ...(input.version === 2 ? {effort:'medium'} : {}), format: { type: 'json_schema', schema: input.version === 2 ? Evidence.schemaFor(input) : outputSchema } } }),
+          output_config: { ...(evidenceMode ? {effort:compact?'low':'medium'} : {}), format: { type: 'json_schema', schema: evidenceMode ? Evidence.schemaFor(input) : outputSchema } } }),
       });
       if (!response.ok) {
-        const detail = await response.json().catch(() => ({}));
-        console.warn('ai-review-upstream', { status: response.status, type: detail.error?.type,
-          schemaError: response.status === 400 && detail.error?.type === 'invalid_request_error' ? String(detail.error.message).slice(0,600) : null });
+        const detail = response.json ? await response.json().catch(() => ({})) : {};
+        console.warn('ai-review-upstream', { status: response.status, type: detail.error?.type });
         return res.status(response.status === 429 ? 429 : 502).json({ error: response.status === 429 ? 'Anthropic begränsar anropen just nu. Försök senare.' : 'Claude-anropet kunde inte slutföras. Kontrollera serverns nyckel, modellåtkomst och Anthropic-saldo.' });
       }
       const data = await response.json();
@@ -106,9 +111,9 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
       stage = 'parse';
       const parsed = JSON.parse((data.content || []).filter(b => b.type === 'text').map(b => b.text).join(''));
       stage = 'validation';
-      const review = input.version === 2 ? Evidence.clean(parsed,input) : cleanResult(parsed);
+      const review = evidenceMode ? Evidence.clean(parsed,input) : cleanResult(parsed);
       const result = { review, model: data.model || MODEL, createdAt: new Date(now()).toISOString(),
-        ...(input.version === 2 ? { evidence: input, promptVersion: 'field-plan-2.0' } : {}),
+        ...(evidenceMode ? { evidence: input, promptVersion: compact ? 'daily-plan-3.0' : 'field-plan-2.0' } : {}),
         usage: { inputTokens: Number(data.usage?.input_tokens) || 0, outputTokens: Number(data.usage?.output_tokens) || 0 }, cached: false };
       if (cache.size >= 32) cache.delete(cache.keys().next().value);
       cache.set(key, { at: now(), result });
