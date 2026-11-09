@@ -94,7 +94,7 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
       LeakApp.render();
     });
     await page.locator('button[data-view="list"]').click();
-    await page.evaluate(() => LeakApp.setFocus(''));
+    await page.evaluate(() => { state.marked.clear(); LeakApp.setFocus(''); });
     await page.locator('#rail [data-list="suspect"]').click();
     await page.waitForFunction(() => state.view === 'map' && !state.focusId && document.querySelector('#mapStatus').textContent.startsWith('60 av 60')).catch(async error => {
       console.log('List diagnostics', await page.evaluate(() => ({ view: state.view, focus: state.focusId, n: state.visible.length, status: document.querySelector('#mapStatus').textContent, categories: state.meters.reduce((a,m) => {a[m.category] = (a[m.category] || 0) + 1; return a;}, {}) })));
@@ -229,11 +229,11 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     assert.equal(afterUpdate.marked, true);
     await fresh.locator('#search').fill('');
     await fresh.locator('#rail [data-list="all"]').click();
-    await kit.chooseSort(fresh, 'changeAbs');
-    let deltas = await fresh.evaluate(() => state.visible.map(m => m.changePrev?.delta).filter(v => v != null));
+    await kit.chooseSort(fresh, 'change');
+    let deltas = await fresh.evaluate(() => state.visible.map(m => m.changePrev?.pct).filter(v => v != null));
     assert.deepEqual(deltas, [...deltas].sort((a, b) => b - a));
     await fresh.locator('#sortDirection').click();
-    deltas = await fresh.evaluate(() => state.visible.map(m => m.changePrev?.delta).filter(v => v != null));
+    deltas = await fresh.evaluate(() => state.visible.map(m => m.changePrev?.pct).filter(v => v != null));
     assert.deepEqual(deltas, [...deltas].sort((a, b) => a - b));
     assert.equal(await fresh.locator('#sortDirection').getAttribute('aria-pressed'), 'true');
     await fresh.locator('#showMarkedOnMap').click();
@@ -245,7 +245,7 @@ const { buildDailyExports, toCsv } = require('./fixtures/synthetic-exports.js');
     assert.match(await fresh.locator('#sortHelp').textContent(), /inte sannolikhet/);
     const scores = await fresh.evaluate(() => state.visible.map(m => m.priority));
     assert.deepEqual(scores, [...scores].sort((a, b) => b - a), 'Most suspicious sorts by analysis score');
-    for (const sort of ['kamstrup', 'persistence', 'neighbors', 'confidence', 'signalDate', 'maxValue']) {
+    for (const sort of ['excelP', 'change', 'value', 'address']) {
       await kit.chooseSort(fresh, sort);
       assert.equal(await countPins(), 3, `Sort ${sort} retains every pin`);
       assert.equal(await fresh.locator('#map .map-pin.is-marked').count(), 2);

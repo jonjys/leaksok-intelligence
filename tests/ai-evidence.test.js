@@ -100,3 +100,20 @@ test('Case-ID enums never constrain narrative shared checks, limitations or next
  assert.deepEqual(s.properties.cases.items.properties.limitations.items,{type:'string'});
  assert.deepEqual(s.properties.cases.items.properties.nextChecks.items,{type:'string'});
 });
+
+test('A 24-case daily review sends compact evidence with the full local screening count', () => {
+  const f = fixture();
+  const body = { ...f, version: 3, mode: 'daily', examined: 3170, candidates: 420,
+    cases: Array.from({ length: 24 }, (_, i) => ({ ...structuredClone(f.cases[0]), caseId: 'm' + (i+1) })) };
+  const evidence = Evidence.build(body);
+  assert.equal(evidence.cases.length, 24);
+  assert.equal(evidence.examined, 3170);
+  assert.equal(evidence.candidates, 420);
+  assert.ok(evidence.cases.every(c => !c.readings && !c.evidence.some(e => e.title === 'Månadsmönster')));
+  assert.ok(evidence.cases.every(c => c.evidence.find(e => e.title === 'Senaste avläsningar').data.length <= 5));
+  assert.equal(Evidence.clean(result(evidence), evidence).order.length, 24);
+  assert.ok(Evidence.schemaFor(evidence).properties.order.items.enum.includes('m24'));
+  assert.throws(() => Evidence.build({ ...body, examined: 23 }));
+  assert.throws(() => Evidence.build({ ...body, cases: body.cases.concat({ ...body.cases[0], caseId: 'm25' }) }));
+  assert.throws(() => Evidence.build({ ...body, cases: [{ ...body.cases[0], address: 'PRIVATE' }, ...body.cases.slice(1)] }));
+});

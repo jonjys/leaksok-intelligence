@@ -107,16 +107,17 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal(await page.locator("#sort").inputValue(), "address");
     assert.equal(await page.locator("#contextMenu").isVisible(), false);
     assert.equal(await page.evaluate(() => state.marked.size), 2);
-    await kit.chooseSort(page, 'priority');
-    assert.equal(await page.locator('#sortLabel').textContent(), 'Arbetsordning');
+    await kit.chooseSort(page, 'suspicion');
+    assert.equal(await page.locator('#sortLabel').textContent(), 'Mest misstänkt');
+    assert.equal(await page.locator('#sortOptions [data-sort-option]').count(), 5);
     assert.equal(await page.locator('#sortMenu').getAttribute('open'), null, 'Choosing a sort closes the menu');
     assert.equal(await page.locator('#selectionBar [data-sort]').count(), 0, 'The marking bar has no duplicated sort controls');
     await page.locator('#sortMenu > summary').focus();
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('End');
     await page.keyboard.press('Enter');
-    assert.equal(await page.locator('#sortLabel').textContent(), 'Område', 'Keyboard can choose the last sorting option');
-    await kit.chooseSort(page, 'priority');
+    assert.equal(await page.locator('#sortLabel').textContent(), 'Adress', 'Keyboard can choose the last sorting option');
+    await kit.chooseSort(page, 'suspicion');
     await page.evaluate(() => document.querySelector(".table-wrap").scrollTop = 500);
 
     // Wide office screens: no max-width, table fills the width, panel bounded.

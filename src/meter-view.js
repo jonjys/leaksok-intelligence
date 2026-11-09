@@ -24,22 +24,11 @@
   const numeric = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
   const ascendingSorts = new Set(["address", "area", "kamstrup"]);
   const sortOptions = [
-    { key: "suspicion", label: "Mest misstänkt", group: "Analys" },
-    { key: "priority", label: "Arbetsordning", group: "Analys" },
-    { key: "kamstrup", label: "Kamstrups rang", group: "Analys" },
-    { key: "persistence", label: "Flest signaldagar", group: "Analys" },
-    { key: "neighbors", label: "Störst områdessignal", group: "Analys" },
-    { key: "confidence", label: "Starkast underlag", group: "Analys" },
-    { key: "signalDate", label: "Nyaste signal", group: "Analys" },
-    { key: "excelP", label: "P · E/F − 1", group: "Förändring" },
-    { key: "change", label: "Förändring %", group: "Förändring" },
-    { key: "changeAbs", label: "Förändring i nivå", group: "Förändring" },
-    { key: "baseline", label: "Mot jämförelsenivå", group: "Förändring" },
-    { key: "value", label: "Senaste brusvärde", group: "Värden och adress" },
-    { key: "maxValue", label: "Högsta historiska värde", group: "Värden och adress" },
-    { key: "lastRead", label: "Senast avläst", group: "Värden och adress" },
-    { key: "address", label: "Adress", group: "Värden och adress" },
-    { key: "area", label: "Område", group: "Värden och adress" },
+    { key: "suspicion", label: "Mest misstänkt" },
+    { key: "excelP", label: "Mot snitt (P)" },
+    { key: "change", label: "Förändring %" },
+    { key: "value", label: "Brusvärde" },
+    { key: "address", label: "Adress" },
   ];
   const sortHelp = {
     suspicion: "Mest misstänkt: analyspoäng 0–100 från förändring, varaktighet, aktualitet och grannsignaler. Poängen är en rangordning, inte sannolikhet för läcka. Visa underlag med i-knappen.",

@@ -8,7 +8,7 @@ Värdet att prova är ett tydligt arbetsflöde från exporterad signal till en m
 - Relativa förändringar mot egen nivå, historiska årstidsmönster och separata kundsidans LEAK/BURST-kontroller.
 - Adresskarta och lokalt markerade fall över filter och flikar.
 - Serverberäknade belägg från samma regelmotor, med månadsvärden, tidigare år och registrerade läck-/lagdatum.
-- Claude som tolkningsstöd för en mätare eller högst åtta valda fall, med validerade beläggshänvisningar och kontrollordning.
+- Claude som tolkningsstöd för en mätare eller en prioriterad kortlista på högst 24 fall, med validerade beläggshänvisningar och kontrollordning.
 - Export av kontrollplan med osäkerheter, tidsstämpel, modell, analysversion och fingeravtryck. Spara arbetsytans säkerhetskopia tillsammans med rapporten för reproduktion.
 
 ## Fältpilot och acceptans

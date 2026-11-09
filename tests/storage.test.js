@@ -76,3 +76,20 @@ test("mappanslutningen är profilspecifik och påverkas inte av full säkerhetsl
   await storage.clearImportSource("p"); assert.equal(await storage.loadImportSource("p"), null);
 });
 
+test("Dagsgranskningen reserveras en gång och sparas även för nästa omladdning", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  const run = { id: "first", day: "2026-11-09", exportKey: "first-export", startedAt: 1000 };
+  const a = await storage.reserveDailyReview("p", run);
+  const b = await storage.reserveDailyReview("p", { ...run, id: "other" });
+  assert.equal(a.kind, "start"); assert.equal(b.kind, "running");
+  await storage.finishDailyReview("p", run.id, null, "AI gick inte att nå");
+  assert.equal((await storage.reserveDailyReview("p", run)).kind, "retry");
+  const retry = { ...run, id: "retry", startedAt: 10000 };
+  assert.equal((await storage.reserveDailyReview("p", retry, true)).kind, "start");
+  await storage.finishDailyReview("p", retry.id, { day: run.day, exportKey: run.exportKey, result: { review: "klart" } });
+  const reloaded = load(fake);
+  assert.equal((await reloaded.reserveDailyReview("p", retry, true)).kind, "cached");
+  assert.equal((await reloaded.reserveDailyReview("p", { ...retry, exportKey: "second-export" }, true)).kind, "done");
+  assert.equal((await reloaded.reserveDailyReview("p", { ...retry, day: "2026-11-10", exportKey: "tomorrow" })).kind, "start");
+});
+
