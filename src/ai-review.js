@@ -29,7 +29,10 @@
         minimumFlow:m.excel.minimumFlow==null?null:{valueLph:m.excel.minimumFlow,date:dayString(m.excel.minimumFlowAt)},
         vendor:{average:m.excel.F??null,maximum:m.excel.G??null,interestRank:m.excel.interestRank||null,exportDate:dayString(m.excel.exportDate)},
         decision:{...r,type:['watch','suspect'].includes(l.type)?'interesting':l.type||'none',origin:l.type?r.origin:'none',resetAfter:knownDate(l.resetAfter)},incidents,
-        areaGroup:g?{key:groups.get(g.id),meters:g.count,addresses:g.buildingCount,basis:g.basis==='position'?'position':'address'}:null,
+        areaGroup:g?{key:groups.get(g.id),meters:g.count,addresses:g.buildingCount,basis:g.basis==='position'?'position':'address',
+          ...(g.stats?{trend:{medianDelta:g.stats.medianDelta,medianPct:g.stats.medianPct,
+            simultaneousDays:g.stats.simultaneousDays,support:g.stats.support,
+            risingAddresses:g.neighborhood.rising,nearbyAddresses:g.neighborhood.total,broad:!!g.broad}}:{})}:null,
         importQuality:Object.fromEntries(['exportRows','reexports','missingValues','undated','conflicts'].map(k=>[k,quality[k]||0])),
         interference:{districtHeating:!!m.interference?.districtHeating,largeSubstation:!!m.interference?.largeSubstation}};
     });
@@ -66,7 +69,7 @@
     return s?.profileId && !$('profileDialog').open ? s : null;
   };
   const contextOf = s => ({ histories: s.prepared?.histories, latestExport: s.latestExport });
-  const exportKey = s => s?.latestExport?.toISOString() || '';
+  const exportKey = s => `${s?.latestExport?.toISOString() || ''}|${ReviewPlan.ALGORITHM}`;
   const scopeText = (plan, daily = false) => `${number(plan.examined)} ${daily ? 'mätare granskade lokalt' : 'markerade'} · ${number(plan.candidates)} relevanta · ${number(plan.meters.length)} i AI-underlaget. Adresser, serienummer och kommentarer stannar här.`;
   function renderLegacy(data) {
     const result = $('aiResult'); result.replaceChildren();
@@ -205,7 +208,7 @@
   function draft(kind, meters, context) {
     const plan = ReviewPlan.shortlist(meters, kind);
     const links = new Map(plan.meters.map((m, i) => [`m${i+1}`, { id: m.id, address: m.address, category: m.category }]));
-    return { kind, plan, context, links, exportKey: context.latestExport?.toISOString() || '', data: null, result: null, message: '' };
+    return { kind, plan, context, links, exportKey: exportKey(context), data: null, result: null, message: '' };
   }
   function evidencePacket(snapshot) {
     const { plan, context } = snapshot;

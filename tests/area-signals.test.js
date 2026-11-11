@@ -58,6 +58,66 @@ test('area: small simultaneous rises can be visible before individual signal thr
   for(const m of r.meters)assert.notEqual(m.category,'dispatch');
 });
 
+test('area: 5–10 level units at quiet meters retain both the small delta and large own-reference percentage', () => {
+  const r = analyze([ {base:5,high:10}, {base:8,high:14}, {base:10,high:20} ]);
+  const a = r.areaSignals[0];
+  assert.equal(a.buildingCount, 3);
+  assert.equal(a.stats.medianDelta, 6);
+  assert.equal(a.stats.medianPct, 1);
+  assert.equal(a.stats.simultaneousDays, 2);
+  assert.deepEqual(a.neighborhood, {rising:3,total:3});
+  assert.ok(a.notes.some(n => /inte ljudenergi/.test(n)));
+});
+
+test('area: a middle dip is tolerated, a returned or unsupported signal is rejected', () => {
+  const values = [...Array(7).fill(8),13,14,8,14,14];
+  const r = analyze(specs(3,{values}));
+  assert.equal(r.areaSignals.length, 1);
+  assert.equal(r.areaSignals[0].stage, 'repeated');
+  assert.equal(r.areaSignals[0].stats.simultaneousDays, 4);
+  assert.equal(r.areaSignals[0].stats.support, 0.8);
+  assert.ok(r.areaSignals[0].members.every(m => m.readings === 4 && m.observedReadings === 5));
+  for (const tail of [[13,8,8,14,14],[13,14,14,14,8],[13,14,14,8,14]]) {
+    assert.equal(analyze(specs(3,{values:[...Array(7).fill(8),...tail]})).areaSignals.length, 0, JSON.stringify(tail));
+  }
+});
+
+test('area: modest repeated changes can form a group while individual categories remain normal', () => {
+  const r = analyze(specs(3,{values:[...Array(9).fill(35),40,40,40]}));
+  const a = r.areaSignals[0];
+  assert.ok(a?.subtle); assert.equal(a.stage, 'repeated');
+  assert.equal(a.stats.medianDelta,5); assert.ok(Math.abs(a.stats.medianPct - 5/35) < 1e-10);
+  assert.ok(r.meters.every(m=>m.category==='normal'));
+  assert.equal(analyze(specs(3,{values:[...Array(10).fill(35),40,40]})).areaSignals.length,0, 'Two days do not establish the weaker relative increase');
+  assert.equal(analyze(specs(3,{values:[...Array(9).fill(100),105,105,105]})).areaSignals.length,0, 'A tiny relative change is insufficient');
+});
+
+test('area: nearby stable addresses are counted without inventing more rising addresses', () => {
+  const r = analyze([...specs(3,{base:8,high:14}), ...specs(2,{base:8,high:8})]);
+  assert.deepEqual(r.areaSignals[0].neighborhood,{rising:3,total:5});
+  const coordinates = new Map(Array.from({length:5},(_,i)=>[String(i),{lat:59.2+i*.0002,lng:17.8}]));
+  const located = analyze([...specs(3,{base:8,high:14}), ...specs(2,{base:8,high:8})],{coordinates});
+  assert.equal(located.areaSignals[0].basis,'position');
+  assert.deepEqual(located.areaSignals[0].neighborhood,{rising:3,total:5});
+});
+
+test('area: variation is estimated before the event, not inflated by later event fluctuations', () => {
+  const values = [8,8,8,8,8,8,8,13,17,13,17,13];
+  const r = analyze(specs(3,{values}));
+  assert.equal(r.areaSignals.length,1); assert.equal(r.areaSignals[0].members[0].baseline,8);
+  const noisy = [5,35,5,35,5,35,5,40,40,40,40,40];
+  assert.equal(analyze(specs(3,{values:noisy})).areaSignals.length,0, 'A noisy reference must not become a small-change signal');
+});
+
+test('area: zero references remain finite and independent buildings determine support', () => {
+  const r = analyze(specs(3,{base:0,high:5}));
+  assert.equal(r.areaSignals[0].stats.medianPct,null);
+  assert.equal(r.areaSignals[0].stats.medianDelta,5);
+  assert.doesNotMatch(JSON.stringify(r.areaSignals), /Infinity|NaN/);
+  const duplicated = [1,1,3,3].map(n=>({address:`TESTVÄGEN ${n} TUMBA 14730`,base:8,high:14}));
+  assert.equal(analyze(duplicated).areaSignals.length,0);
+});
+
 test('area: two baseline days allow only a stronger, explicitly preliminary neighbourhood warning', () => {
   const strong = specs(3, { values: [6, 7, 52, 59] });
   const r = Engine.analyzeAll(filesFor(strong, 4));
@@ -125,7 +185,7 @@ test('area: broad simultaneous changes carry a drift/season caveat, export prese
   assert.equal(wb.sheets[1].rows.length,1);
   assert.equal(wb.sheets[0].rows[0].id,r.meters[0].id);
   assert.match(wb.sheets[0].rows[0].summary,/Områdessignal/);
-  assert.match(wb.sheets[0].rows[0].action,/Läcksök området runt/);
+  assert.match(wb.sheets[0].rows[0].action,/Kontrollera först gemensam drift/);
   assert.match(wb.sheets[1].rows[0].explanations,/inte fastställda/);
 });
 

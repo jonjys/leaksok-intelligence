@@ -69,7 +69,7 @@
       prevValue: m.previous?.value ?? null,
       prevDelta: m.changePrev?.delta ?? null,
       prevPct: m.changePrev?.pct ?? null,
-      summary: m.areaSignal ? `${m.summary} Områdessignal: ${m.areaSignal.count} mätare på ${m.areaSignal.buildingCount} adresser ökar tillsammans.` : m.summary,
+      summary: m.areaSignal ? `${m.summary} Områdessignal: ${m.areaSignal.count} mätare på ${m.areaSignal.buildingCount} adresser ökar tillsammans.${m.areaSignal.stats ? ` Medianökning ${Engine.fmtSigned(m.areaSignal.stats.medianDelta)} i nivå, ${m.areaSignal.stats.medianPct == null ? "ingen procent från noll" : Engine.fmtPct(m.areaSignal.stats.medianPct)} mot egen referens; ${m.areaSignal.stats.simultaneousDays} gemensamma förhöjda dagar.` : ""}` : m.summary,
       action: m.areaSignal ? `${m.action} ${m.areaSignal.action}` : m.action,
       comment: label.comment || "",
       done: label.fieldDone ? "Klar" : "Ej utförd",
