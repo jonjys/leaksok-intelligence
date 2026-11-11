@@ -23,7 +23,7 @@ const Evidence = require('../server/ai-evidence');
     }
     for(let i=0;i<15;i++) {
       const date=new Date(Date.UTC(2026,9,28+i)).toISOString().slice(0,10);
-      const rows=Array.from({length:5},(_,j)=>[String(98100001+j),`SAMKLANGSVÄGEN ${1+j*2} TUMBA 14730`,'TUMBA',j<3&&i>=12?40:35,35]);
+      const rows=Array.from({length:5},(_,j)=>[String(98100001+j),`SAMKLANGSVÄGEN ${1+j*2} TUMBA 14730`,'TUMBA',j<3&&i>=12?40:j===3&&i===14?37:35,35]);
       if(i>=4) rows.push(['98200001','VÄRMEREFERENSVÄGEN 1 TUMBA 14730','TUMBA',18,6]);
       add(date,rows);
     }
@@ -60,6 +60,7 @@ const Evidence = require('../server/ai-evidence');
     await page.locator('thead [data-sort="change"]').click();
     const changes=await page.evaluate(()=>state.visible.map(m=>m.changePrev?.pct).filter(v=>v!=null));
     assert.deepEqual(changes,[...changes].sort((a,b)=>b-a));
+    assert.equal(await page.evaluate(()=>state.visible[0].id),'98100004');
     await page.locator('thead [data-sort="excelP"]').click();
     assert.equal(await page.locator('thead [data-sort="excelP"]').evaluate(el=>el.closest('th').getAttribute('aria-sort')),'descending');
     assert.equal(await page.locator('#sortLabel').textContent(),'Mot snitt (P)');

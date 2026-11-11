@@ -101,6 +101,8 @@
   }
 
   function build(meters, { coordinates = new Map(), labels = {}, placeOf } = {}) {
+    const eligibleMeters = meters.filter((m) => eligible(m, labels[m.id] || m.label));
+    const sharedDays = (group) => group[0].elevatedDays.filter((d) => group.every((m) => m.elevatedDays.includes(d))).length;
     const candidates = meters.map((m) => candidate(m, labels[m.id] || m.label, placeOf(m.address, m.area), coordinates.get(m.id)))
       .filter(Boolean).sort((a, b) => a.address.localeCompare(b.address, "sv", { numeric: true }) || a.id.localeCompare(b.id));
     const signals = [], assigned = new Set();
@@ -110,7 +112,8 @@
       // Complete linkage: no kilometre-long chains of individually close neighbours.
       for (const other of candidates) {
         if (other.id === seed.id || assigned.has(other.id)) continue;
-        if (members.every((m) => relation(m, other))) members.push(other);
+        if (members.every((m) => relation(m, other))
+          && (!(other.subtle || members.some(m => m.subtle)) || sharedDays([...members, other]) >= 2)) members.push(other);
       }
       const buildings = addressCount(members);
       if (buildings < RULES.minAddresses) continue;
@@ -122,12 +125,11 @@
       const anchor = [...members].sort((a, b) => score(a) - score(b) || a.id.localeCompare(b.id))[0];
       let diameter = null;
       if (allLocated) { diameter = 0; for (const a of members) for (const b of members) diameter = Math.max(diameter, distance(a.position, b.position)); }
-      const commonDays = members[0].elevatedDays.filter((d) => members.every((m) => m.elevatedDays.includes(d))).length;
+      const commonDays = sharedDays(members);
       const repeated = commonDays >= 2 && members.every((m) => m.readings >= 2);
       const shortBaseline = members.some((m) => m.shortBaseline);
       const subtle = members.some((m) => m.subtle);
       if (subtle && !repeated) continue;
-      const eligibleMeters = meters.filter((m) => eligible(m, labels[m.id] || m.label));
       const broad = candidates.length >= 10 && candidates.length / Math.max(1, eligibleMeters.length) >= 0.2;
       const nearby = eligibleMeters.map((m) => ({ id: m.id, place: placeOf(m.address, m.area), position: validPosition(coordinates.get(m.id)) ? coordinates.get(m.id) : null }))
         .filter((m) => spatialRelation(anchor, m));
@@ -139,7 +141,8 @@
       const notes = [
         "Möjlig gemensam ljudkälla: läcka på huvudledning eller annan gemensam ledning, pump, spolning eller ändrad drift. Läckans plats och ledningstyp är inte fastställda.",
         allLocated ? "Avstånd avser husens kartpunkter, inte ledningssträckning eller mätarnas exakta placering." : "Grupperad efter gata, ort och närliggande husnummer. Fysisk närhet är inte verifierad utan kartpositioner.",
-        repeated ? "Förhöjningen har observerats minst två avläsningsdagar per mätare; det är inte samma sak som bekräftad läcka." : "Preliminär områdessignal: minst en mätare har bara en förhöjd avläsningsdag. Följ nästa avläsning.",
+        repeated ? `Förhöjningen har observerats under ${commonDays} gemensamma avläsningsdagar; det är inte samma sak som bekräftad läcka.`
+          : "Preliminär områdessignal: två gemensamma förhöjda avläsningsdagar saknas ännu. Följ nästa avläsning.",
       ];
       if (shortBaseline) notes.push("Kort referens: minst en mätare har bara två tidigare avläsningsdagar. Gruppen kräver då en större ökning, men jämförelsen är fortfarande preliminär.");
       if (subtle) notes.push("Liten men samstämmig ökning: minst sju tidigare avläsningsdagar och tre nya observationer per mätare med liten relativ ökning. Minst två gemensamma förhöjda dagar krävs i gruppen.");

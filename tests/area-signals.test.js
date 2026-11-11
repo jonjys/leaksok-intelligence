@@ -92,6 +92,15 @@ test('area: modest repeated changes can form a group while individual categories
   assert.equal(analyze(specs(3,{values:[...Array(9).fill(100),105,105,105]})).areaSignals.length,0, 'A tiny relative change is insufficient');
 });
 
+test('area: a newer neighbouring spike cannot erase an already repeated modest group', () => {
+  const steady = specs(3,{values:[...Array(9).fill(35),40,40,40]});
+  const latest = {address:'TESTVÄGEN 0 TUMBA 14730',values:[...Array(11).fill(8),14]};
+  const r = analyze([...steady,latest]);
+  const a = r.areaSignals.find(a=>a.subtle);
+  assert.equal(a.buildingCount,3);assert.equal(a.stats.simultaneousDays,3);
+  assert.ok(!a.members.some(m=>m.address===latest.address));
+});
+
 test('area: nearby stable addresses are counted without inventing more rising addresses', () => {
   const r = analyze([...specs(3,{base:8,high:14}), ...specs(2,{base:8,high:8})]);
   assert.deepEqual(r.areaSignals[0].neighborhood,{rising:3,total:5});
