@@ -12,6 +12,8 @@ const {buildDailyExports,toCsv}=require('./fixtures/synthetic-exports');
     await kit.importFiles(page,buildDailyExports({meters:300,days:20}).map(f=>({name:f.name,text:toCsv(f.rows)})));
     await page.waitForFunction(()=>state.meters.length===300);
     assert.equal(await page.locator('.brand-mark').count(),1);
+    assert.equal(await page.locator('.brand').evaluate(el=>getComputedStyle(el).flexDirection),'row');
+    assert.ok((await page.locator('.topbar').boundingBox()).height<=80, 'The brand does not enlarge the header');
     assert.equal(await page.locator('.brief-row > .brief-stats button').count(),3);
     fs.mkdirSync('test-results',{recursive:true});
     await page.screenshot({path:'test-results/studio-list-desktop.png',fullPage:true});
