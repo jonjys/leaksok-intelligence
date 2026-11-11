@@ -51,6 +51,10 @@ Om webbläsaren behöver läsbehörighet igen visas **Tillåt läsning**. Mappen
 - **Prioritet 0–100** är en regelbaserad rangordning (storlek, belägg/varaktighet, aktualitet, nivå, infokoder, störning, säsong, grannar). Samma händelse räknas en gång. Det är inte en sannolikhet för läcka.
 - **Manuella beslut**: Konstaterad läcka och Lagad sätts bara manuellt; automatiken markerar aldrig lagat för att värdet sjunker. En ny ökning efter lagning visas i Misstänk. Gömda försvinner från listorna men kan återställas.
 
+## Signal Studio: arbetsytan
+
+Det sammanhållna översiktskortet visar senaste export, tre statuskort och dagens granskning. Kompakt navigation, tätare mätarrader, lugna varannan-rad-skiftningar och separata scrollområden ger kartan mer plats. Klicksortering har en kort positionsövergång; listans scrollkanter tonas mjukt utan att kartan flyttas. Systemets inställning för minskad rörelse respekteras, även om den ändras medan appen är öppen. Presentationen finns i `src/studio.css` och `src/studio-motion.js`; analys, importer och sparade beslut påverkas inte.
+
 ## Områdessignaler (src/area-signals.js)
 
 **Direktsortering:** tryck **Brus**, **%** eller **Mot snitt (P)** i kolumnrubriken. Tryck samma val igen för att vända riktning. På mobilen och i kartans smala mätarlista ligger samma tre knappar ovanför mätarna. `%` jämför senaste och föregående avläsning; `Mot snitt (P)` använder E/F − 1 från samma exportrad. De fem valen i sorteringsmenyn behålls.

@@ -5,17 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LeakSök · Från signal till åtgärd</title>
   <meta name="description" content="Jämför Kamstrup-exporter, hitta nya förändringar och planera kontroller med karta, historik och arbetslista.">
-  <meta name="theme-color" content="#102b3a">
+  <meta name="theme-color" content="#f1f4f9">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="./src/styles.css?v=20261111-area1">
-  <link rel="stylesheet" href="./src/workspace.css?v=20261111-area1">
+  <link rel="stylesheet" href="./src/styles.css?v=20261111-studio1">
+  <link rel="stylesheet" href="./src/workspace.css?v=20261111-studio1">
+  <link rel="stylesheet" href="./src/studio.css?v=20261111-studio1">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body data-view="list">
   <header class="topbar">
     <div class="brand">
-      <h1>LeakSök<span class="brand-caption">FÄLTÖVERSIKT</span></h1>
+      <svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect width="40" height="40" rx="13" fill="currentColor"/><path d="M11 25V15a4 4 0 0 1 4-4h4m-8 14a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4V15" stroke="white" stroke-width="2.6" stroke-linecap="round"/><path d="M17 20h3l3-5 3 10 3-5" stroke="#9DC5FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="27" cy="11" r="3" fill="#BBD7FF"/></svg>
+      <h1>LeakSök<span class="brand-caption">SIGNAL &amp; FÄLT</span></h1>
     </div>
     <div class="top-actions">
       <div class="view-toggle" role="group" aria-label="Arbetsyta">
@@ -244,25 +246,26 @@
     </form>
   </dialog>
 
-  <script src="./src/storage.js?v=20261111-area1"></script>
-  <script src="./src/folder-import.js?v=20261111-area1"></script>
-  <script src="./src/backup.js?v=20261111-area1"></script>
-  <script src="./src/parse.js?v=20261111-area1"></script>
-  <script src="./src/history.js?v=20261111-area1"></script>
-  <script src="./src/area-signals.js?v=20261111-area1"></script>
-  <script src="./src/case-learning.js?v=20261111-area1"></script>
-  <script src="./src/engine.js?v=20261111-area1"></script>
-  <script src="./src/xlsx-writer.js?v=20261111-area1"></script>
-  <script src="./src/field-export.js?v=20261111-area1"></script>
-  <script src="./src/chart.js?v=20261111-area1"></script>
-  <script src="./src/meter-view.js?v=20261111-area1"></script>
-  <script src="./src/address-index.js?v=20261111-area1"></script>
-  <script src="./src/map.js?v=20261111-area1"></script>
-  <script src="./src/worklist.js?v=20261111-area1"></script>
-  <script src="./src/review-plan.js?v=20261111-area1"></script>
-  <script src="./src/ai-review.js?v=20261111-area1"></script>
-  <script src="./src/comparison.js?v=20261111-area1"></script>
-  <script src="./src/app.js?v=20261111-area1"></script>
+  <script src="./src/storage.js?v=20261111-studio1"></script>
+  <script src="./src/folder-import.js?v=20261111-studio1"></script>
+  <script src="./src/backup.js?v=20261111-studio1"></script>
+  <script src="./src/parse.js?v=20261111-studio1"></script>
+  <script src="./src/history.js?v=20261111-studio1"></script>
+  <script src="./src/area-signals.js?v=20261111-studio1"></script>
+  <script src="./src/case-learning.js?v=20261111-studio1"></script>
+  <script src="./src/engine.js?v=20261111-studio1"></script>
+  <script src="./src/xlsx-writer.js?v=20261111-studio1"></script>
+  <script src="./src/field-export.js?v=20261111-studio1"></script>
+  <script src="./src/chart.js?v=20261111-studio1"></script>
+  <script src="./src/meter-view.js?v=20261111-studio1"></script>
+  <script src="./src/address-index.js?v=20261111-studio1"></script>
+  <script src="./src/map.js?v=20261111-studio1"></script>
+  <script src="./src/worklist.js?v=20261111-studio1"></script>
+  <script src="./src/review-plan.js?v=20261111-studio1"></script>
+  <script src="./src/ai-review.js?v=20261111-studio1"></script>
+  <script src="./src/comparison.js?v=20261111-studio1"></script>
+  <script src="./src/app.js?v=20261111-studio1"></script>
+  <script src="./src/studio-motion.js?v=20261111-studio1"></script>
 </body>
 </html>
 
