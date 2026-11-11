@@ -111,7 +111,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal(await page.locator('#sortLabel').textContent(), 'Mest misstänkt');
     assert.equal(await page.locator('#sortOptions [data-sort-option]').count(), 5);
     assert.equal(await page.locator('#sortMenu').getAttribute('open'), null, 'Choosing a sort closes the menu');
-    assert.equal(await page.locator('#selectionBar [data-sort]').count(), 0, 'The marking bar has no duplicated sort controls');
+    assert.equal(await page.locator('#selectionBar [data-sort]').count(), 3, 'The map list has three direct numeric sort controls');
     await page.locator('#sortMenu > summary').focus();
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('End');
