@@ -29,3 +29,17 @@ test('Selection has no eight-meter ceiling; an empty daily shortlist needs no AI
   assert.equal(Plan.shortlist([meter(1, { category: 'stable_high', field: null })]).meters.length, 0);
   assert.equal(Plan.dayKey(new Date('2026-11-09T23:30:00Z')), '2026-11-10');
 });
+
+test('Repeated area evidence includes modest rises in the daily plan without changing manual or individual classifications', () => {
+  const areaSignal = {id:'a',stage:'repeated',broad:false};
+  const quiet = [1,2,3].map(i=>meter(i,{category:'normal',priority:0,field:null,areaSignal}));
+  assert.ok(quiet.every(m=>Plan.fieldCheck(m)));
+  const other=Array.from({length:60},(_,i)=>meter(i+10));
+  const plan=Plan.shortlist([...other,...quiet]);
+  assert.deepEqual(plan.meters.slice(0,3).map(m=>m.id),['1','2','3']);
+  assert.ok(quiet.every(m=>m.category==='normal'&&m.field===null));
+  assert.equal(Plan.fieldCheck({...quiet[0],label:{hidden:true}}),false);
+  for(const category of ['confirmed','repaired','ignored','noise','seasonal','customer_side','stale_contact']){
+    assert.equal(Plan.fieldCheck({...quiet[0],category}),false,category);
+  }
+});

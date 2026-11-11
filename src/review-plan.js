@@ -6,6 +6,7 @@
   root.LeakReviewPlan = api;
 }(typeof globalThis !== "undefined" ? globalThis : this, function () {
   const MAX_CASES = 24;
+  const ALGORITHM = 'area-20261111';
   const MAX_RELATIONS = 36;
   const FIELD_PREVIEW = 5;
   const stockholm = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit" });
@@ -14,12 +15,14 @@
   const fresh = m => m.latest?.ageDays <= 1 && !m.history?.missedExports;
   const available = m => hasHistory(m) && !m.label?.hidden && m.category !== "ignored";
   const customer = m => m.category === "customer_side";
-  const fieldCheck = m => available(m) && m.field?.state === "check";
+  const areaCheck = m => !!m.areaSignal && !['dispatch', 'confirmed', 'repaired', 'ignored', 'noise', 'seasonal', 'customer_side', 'stale_contact'].includes(m.category);
+  const fieldCheck = m => available(m) && (m.field?.state === "check" || areaCheck(m));
   const fieldOrder = (a, b) => {
     const wait = m => (m.field?.blockers || []).reduce((n, b) => n + ({ fresh: 4, dry: 4, coverage: 3, repeat: 2, size: 2, drift: 1, support: 1 }[b.key] || 1), 0);
-    return wait(a) - wait(b) || b.priority - a.priority || String(a.address).localeCompare(String(b.address), "sv", { numeric: true });
+    const area = m => !m.areaSignal?.broad ? m.areaSignal?.stage === 'repeated' ? 2 : areaCheck(m) ? 1 : 0 : 0;
+    return area(b) - area(a) || wait(a) - wait(b) || b.priority - a.priority || String(a.address).localeCompare(String(b.address), "sv", { numeric: true });
   };
-  const lane = m => m.category === "dispatch" ? 0 : m.field?.state === "check" ? 1 : customer(m) ? 2 : m.isNewToday ? 3 : 4;
+  const lane = m => m.category === "dispatch" ? 0 : fieldCheck(m) ? 1 : customer(m) ? 2 : m.isNewToday ? 3 : 4;
   const rank = (a, b) => lane(a) - lane(b)
     || Number(Boolean(b.codes?.burst)) - Number(Boolean(a.codes?.burst))
     || (lane(a) === 1 ? fieldOrder(a, b) : b.priority - a.priority)
@@ -49,6 +52,6 @@
     const chosen = diverse(eligible.filter(m => !follow.includes(m)), MAX_CASES - follow.length).concat(follow).sort(rank);
     return { mode, examined: meters.length, candidates: eligible.length, meters: chosen };
   }
-  return { MAX_CASES, MAX_RELATIONS, FIELD_PREVIEW, dayKey, fieldCheck, fieldOrder, shortlist };
+  return { ALGORITHM, MAX_CASES, MAX_RELATIONS, FIELD_PREVIEW, dayKey, fieldCheck, fieldOrder, shortlist };
 }));
 

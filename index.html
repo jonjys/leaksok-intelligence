@@ -7,8 +7,8 @@
   <meta name="description" content="Jämför Kamstrup-exporter, hitta nya förändringar och planera kontroller med karta, historik och arbetslista.">
   <meta name="theme-color" content="#102b3a">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="./src/styles.css?v=20261109-field2">
-  <link rel="stylesheet" href="./src/workspace.css?v=20261109-field2">
+  <link rel="stylesheet" href="./src/styles.css?v=20261111-area1">
+  <link rel="stylesheet" href="./src/workspace.css?v=20261111-area1">
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
@@ -129,7 +129,7 @@
               <th class="c-check"><input type="checkbox" id="checkPage" aria-label="Markera alla på sidan"></th>
               <th><button type="button" data-sort="suspicion">Status</button></th>
               <th><button type="button" data-sort="address">Adress</button></th>
-              <th><button type="button" data-sort="value">Brusvärde</button></th>
+              <th><div class="sort-heading" role="group" aria-label="Sortera mätvärden"><button type="button" data-sort="value">Brus</button><button type="button" data-sort="change" title="Sortera efter förändring sedan föregående avläsning">%</button><button type="button" data-sort="excelP" title="Sortera efter E/F − 1 från samma exportrad">Mot snitt (P)</button></div></th>
               <th>Underlag</th>
               <th class="c-spark">60 dagar</th>
               <th class="c-menu"><span class="sr-only">Åtgärder</span></th>
@@ -244,25 +244,25 @@
     </form>
   </dialog>
 
-  <script src="./src/storage.js?v=20261109-field2"></script>
-  <script src="./src/folder-import.js?v=20261109-field2"></script>
-  <script src="./src/backup.js?v=20261109-field2"></script>
-  <script src="./src/parse.js?v=20261109-field2"></script>
-  <script src="./src/history.js?v=20261109-field2"></script>
-  <script src="./src/area-signals.js?v=20261109-field2"></script>
-  <script src="./src/case-learning.js?v=20261109-field2"></script>
-  <script src="./src/engine.js?v=20261109-field2"></script>
-  <script src="./src/xlsx-writer.js?v=20261109-field2"></script>
-  <script src="./src/field-export.js?v=20261109-field2"></script>
-  <script src="./src/chart.js?v=20261109-field2"></script>
-  <script src="./src/meter-view.js?v=20261109-field2"></script>
-  <script src="./src/address-index.js?v=20261109-field2"></script>
-  <script src="./src/map.js?v=20261109-field2"></script>
-  <script src="./src/worklist.js?v=20261109-field2"></script>
-  <script src="./src/review-plan.js?v=20261109-field2"></script>
-  <script src="./src/ai-review.js?v=20261109-field2"></script>
-  <script src="./src/comparison.js?v=20261109-field2"></script>
-  <script src="./src/app.js?v=20261109-field2"></script>
+  <script src="./src/storage.js?v=20261111-area1"></script>
+  <script src="./src/folder-import.js?v=20261111-area1"></script>
+  <script src="./src/backup.js?v=20261111-area1"></script>
+  <script src="./src/parse.js?v=20261111-area1"></script>
+  <script src="./src/history.js?v=20261111-area1"></script>
+  <script src="./src/area-signals.js?v=20261111-area1"></script>
+  <script src="./src/case-learning.js?v=20261111-area1"></script>
+  <script src="./src/engine.js?v=20261111-area1"></script>
+  <script src="./src/xlsx-writer.js?v=20261111-area1"></script>
+  <script src="./src/field-export.js?v=20261111-area1"></script>
+  <script src="./src/chart.js?v=20261111-area1"></script>
+  <script src="./src/meter-view.js?v=20261111-area1"></script>
+  <script src="./src/address-index.js?v=20261111-area1"></script>
+  <script src="./src/map.js?v=20261111-area1"></script>
+  <script src="./src/worklist.js?v=20261111-area1"></script>
+  <script src="./src/review-plan.js?v=20261111-area1"></script>
+  <script src="./src/ai-review.js?v=20261111-area1"></script>
+  <script src="./src/comparison.js?v=20261111-area1"></script>
+  <script src="./src/app.js?v=20261111-area1"></script>
 </body>
 </html>
 

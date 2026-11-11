@@ -46,8 +46,17 @@ function validateCase(c, i, exportDate, limit) {
   });
   let areaGroup=null;
   if (c.areaGroup !== null) {
-    const g=c.areaGroup; if (!only(g,['key','meters','addresses','basis']) || !/^g[1-9][0-9]?$/.test(g.key) || +g.key.slice(1) > limit || !count(g.meters) || !count(g.addresses) || g.addresses > g.meters || !['position','address'].includes(g.basis)) fail();
+    const g=c.areaGroup; if (!only(g,['key','meters','addresses','basis','trend']) || !/^g[1-9][0-9]?$/.test(g.key) || +g.key.slice(1) > limit || !count(g.meters) || !count(g.addresses) || g.addresses > g.meters || !['position','address'].includes(g.basis)) fail();
     areaGroup={key:g.key,meters:g.meters,addresses:g.addresses,basis:g.basis};
+    if (g.trend !== undefined) {
+      const t=g.trend;
+      if (!only(t,['medianDelta','medianPct','simultaneousDays','support','risingAddresses','nearbyAddresses','broad'])
+        || !value(t.medianDelta) || (t.medianPct !== null && !value(t.medianPct))
+        || !count(t.simultaneousDays) || t.simultaneousDays > 1460
+        || !value(t.support) || t.support > 1 || !count(t.risingAddresses) || !count(t.nearbyAddresses)
+        || t.risingAddresses > t.nearbyAddresses || t.risingAddresses > g.addresses || typeof t.broad !== 'boolean') fail();
+      areaGroup.trend={...t};
+    }
   }
   if (!only(c.importQuality,['exportRows','reexports','missingValues','undated','conflicts'])) fail();
   for (const k of ['exportRows','reexports','missingValues','undated','conflicts']) if (!count(c.importQuality[k])) fail();
@@ -84,6 +93,7 @@ function buildCase(c, exportDate, compact = false) {
   add('Importkvalitet',`${c.importQuality.exportRows} exportrader; ${c.importQuality.reexports} återexporteringar, ${c.importQuality.missingValues} saknade värden, ${c.importQuality.undated} utan giltigt datum och ${c.importQuality.conflicts} värdekonflikter.`,'importörens kvalitetsräknare; råa exportrader skickas inte');
   if(c.interference.districtHeating||c.interference.largeSubstation)add('Störmiljö',`${c.interference.districtHeating?'Fjärrvärmestörning markerad i lokal analys. ':''}${c.interference.largeSubstation?'Större undercentral/störmiljö markerad.':''}`,'störflagga från den lokala analysen; adressen skickas inte');
   if(c.areaGroup) add('Gemensam områdessignal',`${c.areaGroup.key}: ${c.areaGroup.addresses} separata adresser och ${c.areaGroup.meters} mätare, gruppering via ${c.areaGroup.basis}. Adresspunkter är inte ledningstopologi. Kontrollera spolning/driftändringar innan fältutryckning.`,'rapporterat av appens områdesanalys, inte omräknad geometri på servern');
+  if(c.areaGroup?.trend){const t=c.areaGroup.trend;add('Samstämmig nivåökning',`Median av mätarnas förändringar mot egna referenser: ${Engine.fmtSigned(t.medianDelta)} i nivå, ${t.medianPct==null?'ingen procent från noll':Engine.fmtPct(t.medianPct)}. ${t.simultaneousDays} gemensamma förhöjda avläsningsdagar; medianandel förhöjda observationer ${Math.round(t.support*100)} %. ${t.risingAddresses} av ${t.nearbyAddresses} närliggande adresser ingår. ${t.broad?'Bred ökning i urvalet: kontrollera drift och säsong först.':'Lokal gemensam påverkan behöver kontrolleras.'} Procent avser avläsningsvärden, inte ljudenergi eller läcksannolikhet.`,'rapporterat av appens områdesanalys; områden, adresser och koordinater skickas inte');}
   if(r.season)add('Säsongsunderlag',`${{verified:'Återkommande årstidsmönster',possible:'Möjligt årstidsmönster',none:'Inget belagt årstidsmönster'}[r.season.status]}. ${r.season.months} observerade månader; vintermedian ${r.season.cold??'saknas'}, sommarmedian ${r.season.warm??'saknas'}, förväntad nivå ${r.season.expected??'saknas'}. Detta bevisar inte värmepanna eller pump.`);
   if(r.season?.sameTimeLastYear&&r.latest){const y=r.season.sameTimeLastYear;add('Samma period föregående år',`${key(y.from)}–${key(y.to)}: median ${y.level}, ${y.n} avläsningsdagar. Senaste värde ${r.latest.value}; ${y.level>0?Engine.fmtPct(r.latest.value/y.level-1):'ingen procent från noll'}. Historiska observationer är inte fullständig kontinuitet.`);}
   if(c.vendor.interestRank) add('Kamstrups rang',`${c.vendor.interestRank} i exporten. Motorns aktuella stöd: ${r.kamstrupInterest?'ja':'nej'}. Rang är inte läcksannolikhet.`,'leverantörsfält med serverns aktualitetskontroll');

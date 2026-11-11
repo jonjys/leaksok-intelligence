@@ -34,6 +34,7 @@ jobs:
           node-version: '24'
       - run: npm install --no-save --package-lock=false playwright@1.58.2
       - run: npx playwright install --with-deps chromium
+      - run: node tests/area-signals-browser.cjs
       - run: node tests/ai-review-browser.cjs
       - run: node tests/map-search-browser.cjs
       - run: node tests/sparse-history-browser.cjs

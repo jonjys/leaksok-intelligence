@@ -31,7 +31,7 @@
     { key: "stable_high", label: "Stabilt hög", test: (m) => m.category === "stable_high", more: true },
     { key: "sparse_history", label: "Glest underlag", test: (m) => m.category === "sparse_history", more: true },
     { group: true, key: "noise", label: "Störning / tillfällig", test: (m) => m.category === "noise", more: true },
-    { group: true, key: "seasonal", label: "Säsong", test: (m) => m.category === "seasonal", more: true },
+    { group: true, key: "seasonal", label: "Säsong", test: (m) => m.category === "seasonal" || m.season?.status === "possible" || m.season?.status === "verified", hint: "Möjliga och återkommande säsongsmönster; nya avvikelser behåller sin varning", more: true },
     { key: "learning", label: "Kort historik", test: (m) => m.category === "learning", more: true },
     { key: "stale_contact", label: "Utan färsk avläsning", test: (m) => m.category === "stale_contact", more: true },
     { group: true, key: "ignored", label: "Ignorerade", test: (m) => m.category === "ignored", more: true },
@@ -404,7 +404,7 @@
     const order = MeterView.comparator(state.sort, state.sortReverse, districtOf);
     if (state.list !== "dispatch") return scoped.filter(m => inList(m, state.list)).sort(order);
     const ready = scoped.filter(m => inList(m, "dispatch"));
-    const check = scoped.filter(m => inList(m, "suspect") && ReviewPlan.fieldCheck(m));
+    const check = scoped.filter(m => !hidden(m) && ReviewPlan.fieldCheck(m));
     state.fieldCounts = { ready: ready.length, check: check.length };
     state.fieldLaneEffective = state.fieldLane || (!ready.length && check.length ? "check" : "ready");
     if (state.fieldLaneEffective === "ready") return ready.sort(order);
@@ -451,9 +451,12 @@
 
   function areaSignalHtml(signal, detailed = false) {
     const stage = signal.stage === "early" ? "Preliminär" : "Upprepad ökning";
-    return `<div class="area-signal">
-      <div><b>${esc(signal.anchorAddress)}</b><span class="sub">${esc(stage)} · ${signal.count} mätare / ${signal.buildingCount} adresser · ${esc(Engine.fmtPeriod(signal.onsetFrom, signal.onsetTo, state.latestExport?.getFullYear()))}</span></div>
+    const stats = signal.stats, near = signal.neighborhood;
+    return `<div class="area-signal${signal.broad ? " is-broad" : ""}">
+      <div class="area-signal-head"><div><b>${esc(signal.anchorAddress)}</b><span class="sub">${esc(stage)} · ${signal.count} mätare / ${signal.buildingCount} adresser · ${esc(Engine.fmtPeriod(signal.onsetFrom, signal.onsetTo, state.latestExport?.getFullYear()))}</span></div><span class="area-kind">${signal.broad ? "Kontrollera drift" : signal.subtle ? "Liten gemensam ökning" : "Gemensam ökning"}</span></div>
+      ${stats ? `<div class="area-metrics"><div><strong>${esc(Engine.fmtSigned(stats.medianDelta))}</strong><span>medianökning i nivå</span></div><div><strong>${stats.medianPct == null ? "–" : esc(Engine.fmtPct(stats.medianPct))}</strong><span>mot egen referens</span></div><div><strong>${stats.simultaneousDays}</strong><span>gemensamma avläsningsdagar</span></div><div><strong>${near.rising} / ${near.total}</strong><span>adresser med samma ökning nära startpunkten</span></div></div>` : ""}
       <p>${esc(signal.summary)} ${signal.basis === "position" ? `Högst ca ${signal.diameterMeters} m mellan kartpunkterna.` : "Närhet enligt adress – kartpositioner behöver verifieras."}</p>
+      ${signal.broad ? '<p class="area-drift">Många i urvalet stiger samtidigt. Kontrollera gemensam drift och säsong först.</p>' : ""}
       <button type="button" class="secondary" data-area-signal="${esc(signal.id)}">Markera ${signal.count} och visa området</button>
       ${detailed ? `<p>${esc(signal.action)}</p>${list(signal.notes)}<ul class="area-members">${signal.members.map((m) => `<li><button type="button" class="link" data-focus="${esc(m.id)}">${esc(m.address)}</button>: ${num(m.baseline)} → ${num(m.current)} (${m.pct == null ? "ingen procent" : Engine.fmtPct(m.pct)}) · ${m.readings} avläsningsdagar · referens ${esc(Engine.fmtPeriod(m.from, m.beforeTo, state.latestExport?.getFullYear()))}</li>`).join("")}</ul>` : ""}
     </div>`;
@@ -469,7 +472,7 @@
     const exportAt = state.latestExport;
     const ageHours = exportAt ? (Date.now() - exportAt.getTime()) / 3600000 : Infinity;
     const time = exportAt ? `${Engine.fmtDate(exportAt, true)} ${String(exportAt.getHours()).padStart(2, "0")}:${String(exportAt.getMinutes()).padStart(2, "0")}` : "okänt";
-    const fieldChecks = state.meters.filter(m => inList(m, "suspect") && ReviewPlan.fieldCheck(m)).length;
+    const fieldChecks = state.meters.filter(m => !hidden(m) && ReviewPlan.fieldCheck(m)).length;
     els.brief.innerHTML = `
       <div class="brief-row">
         <div class="brief-heading"><span class="workspace-kicker">FÄLTÖVERSIKT</span><h2>${esc(LIST[state.list]?.label || "Alla mätare")}</h2><p class="brief-date${ageHours > 30 ? " is-old" : ""}">${ageHours > 30 ? "Äldre export" : "Export"} <b>${esc(time)}</b><span title="Avlästa under senaste exportdygnet"> · ${report.fresh.toLocaleString("sv-SE")}/${report.total.toLocaleString("sv-SE")} avlästa</span></p>
@@ -487,8 +490,16 @@
         : "Kontrollera först visar vilka uppgifter som saknas inför fältbesök.";
       els.brief.insertAdjacentHTML("beforeend", `<div class="field-overview"><div><b>${ready ? `${ready} redo för fältkontroll` : "Inga redo för fältkontroll i urvalet"}</b><p>${note}</p></div><div class="field-lanes" role="group" aria-label="Fältberedskap"><button type="button" data-field-lane="ready" aria-pressed="${lane === "ready"}">Åk ut <b>${ready}</b></button><button type="button" data-field-lane="check" aria-pressed="${lane === "check"}">Kontrollera först <b>${check}</b></button></div></div>`);
     }
+    if (state.list === "seasonal") {
+      const verified = state.visible.filter(m => m.season?.status === "verified" || m.label?.type === "seasonal").length;
+      const possible = state.visible.filter(m => m.season?.status === "possible" && m.label?.type !== "seasonal").length;
+      els.brief.insertAdjacentHTML("beforeend", `<p class="season-notice">${verified} återkommande eller manuellt markerade · ${possible} möjliga säsongsmönster i urvalet. Möjlig säsong är en jämförelse mellan varma och kalla månader. Nya avvikelser behåller sin varning.</p>`);
+    }
     if (state.areaSignals.length) {
-      els.brief.insertAdjacentHTML("beforeend", `<details class="area-signals"${areaOpen ? " open" : ""}><summary>${state.areaSignals.length} områdessignal${state.areaSignals.length > 1 ? "er" : ""}</summary><div class="area-signal-list">${state.areaSignals.map((signal) => areaSignalHtml(signal)).join("")}</div></details>`);
+      const top = state.areaSignals[0];
+      const preview = top.stats ? `${Engine.fmtSigned(top.stats.medianDelta)} i nivå · ${top.stats.medianPct == null ? "referens 0" : Engine.fmtPct(top.stats.medianPct)} · ${top.buildingCount} adresser` : top.anchorAddress;
+      const primary = state.areaSignals.slice(0, 5), extra = state.areaSignals.slice(5);
+      els.brief.insertAdjacentHTML("beforeend", `<details class="area-signals"${areaOpen ? " open" : ""}><summary><span>Områdeskollen · ${state.areaSignals.length} områdessignal${state.areaSignals.length > 1 ? "er" : ""}</span><b>${esc(preview)}</b></summary><div class="area-signal-list">${primary.map((signal) => areaSignalHtml(signal)).join("")}${extra.length ? `<details class="area-more"><summary>Visa ${extra.length} fler områden</summary>${extra.map((signal) => areaSignalHtml(signal)).join("")}</details>` : ""}</div></details>`);
     }
     window.LeakAI?.refreshBadge();
   }
@@ -532,11 +543,12 @@
   function rowHtml(m) {
     const marked = state.marked.has(m.id);
     const expanded = state.expanded.has(m.id);
-    const field = state.list === "dispatch" ? m.field : null;
+    const field = state.list === "dispatch" ? m.field || (ReviewPlan.fieldCheck(m) ? { state: "check", reason: m.areaSignal.action } : null) : null;
     const tags = [];
     if (m.excel.interestRank) tags.push(`<span class="tag" title="Kamstrups mätare av intresse i exporten ${esc(Engine.fmtDate(m.excel.exportDate, true))}">Kamstrup · rang ${m.excel.interestRank}</span>`);
     if (m.learnedLeakMatch) tags.push(`<span class="tag area-tag">Likt tidigare ${esc(m.learnedLeakMatch.lineType)}-läcka</span>`);
     if (m.areaSignal) tags.push(`<span class="tag area-tag">Områdessignal · ${m.areaSignal.count} mätare</span>`);
+    if (m.season?.status === "possible") tags.push('<span class="tag season-tag" title="Skillnad mellan varma och kalla månader. Återkommande säsong är ännu inte verifierad; nya ökningar behåller sin varning.">Möjlig säsong</span>');
     if (m.label?.type) tags.push(`<span class="tag manual">${esc(Engine.LABELS[m.label.type] || m.label.type)}</span>`);
     if (m.codes.leak || m.codes.burst || m.codes.dry) tags.push(`<span class="tag code">Infokod ${esc(m.codes.infoCode)}</span>`);
     if (m.codes.acousticLeak || m.codes.acousticOther || m.codes.acousticUndetermined) tags.push(`<span class="tag code">Händelse: ${esc(m.codes.activeEvents)}</span>`);
@@ -685,6 +697,7 @@
     els.selection.classList.toggle("has-marked", marked > 0);
     els.selection.innerHTML = !state.files.length ? "" : `
       <p><b>${marked ? `${marked.toLocaleString("sv-SE")} markerade` : resultCount}</b>${outside ? ` <span class="muted" title="Markerade mätare utanför filtret finns kvar på kartan">· ${outside} utanför filtret</span>` : ""}</p>
+      <div class="sort-shortcuts" role="group" aria-label="Sortera mätare"><button type="button" data-sort="value">Brus</button><button type="button" data-sort="change" title="Förändring sedan föregående avläsning">%</button><button type="button" data-sort="excelP" title="E/F − 1 från samma exportrad">Mot snitt (P)</button></div>
       <div class="sel-actions">
         ${marked ? `<button type="button" class="secondary" data-sel="move">Beslut</button>
         <button type="button" class="primary" data-sel="excel">Excel</button>` : ""}
@@ -718,7 +731,9 @@
       b.dataset.sortLabel ||= b.textContent;
       b.textContent = `${b.dataset.sortLabel}${active ? ascending ? " ↑" : " ↓" : ""}`;
       b.setAttribute("aria-pressed", String(active));
-      if (b.closest("th")) b.closest("th").setAttribute("aria-sort", active ? ascending ? "ascending" : "descending" : "none");
+    });
+    document.querySelectorAll(".meters th").forEach(th => {
+      if (th.querySelector('[data-sort]')) th.setAttribute('aria-sort', th.querySelector(`[data-sort="${state.sort}"]`) ? ascending ? 'ascending' : 'descending' : 'none');
     });
   }
 

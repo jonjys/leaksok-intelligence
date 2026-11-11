@@ -375,12 +375,28 @@
       const around = series.filter((p) => Math.abs(p.date - target) <= 15 * DAY);
       if (around.length >= 3) sameTimeLastYear = { level: median(around.map((p) => p.value)), n: around.length, from: around[0].date, to: around[around.length - 1].date };
     }
-    const status = verified ? "verified" : possible ? "possible" : "none";
     const month = latest ? latest.date.getMonth() : null;
     const phaseNow = month == null ? null : COLD.includes(month) ? "cold" : WARM.includes(month) ? "warm" : "transition";
+    // The first weeks of November can have a useful summer/winter contrast
+    // before two complete winter months exist. Keep it a visible hypothesis;
+    // it must never become verified seasonality or silence a fresh rise.
+    if (!verified && !possible && latest && phaseNow !== 'transition') {
+      const phase = p => COLD.includes(p.date.getMonth()) ? 'cold' : WARM.includes(p.date.getMonth()) ? 'warm' : 'transition';
+      const recent = series.filter(p => phase(p) === phaseNow && days(p.date, latest.date) <= 21);
+      const opposite = series.filter(p => phase(p) !== phaseNow && phase(p) !== 'transition' && days(p.date, latest.date) <= 370);
+      if (recent.length >= 7 && days(recent[0].date, recent.at(-1).date) >= 6
+        && opposite.length >= 10 && days(opposite[0].date, opposite.at(-1).date) >= 14) {
+        const now = median(recent.map(p => p.value)), other = median(opposite.map(p => p.value));
+        const cold = phaseNow === 'cold' ? now : other, warm = phaseNow === 'warm' ? now : other;
+        const aligned = recent.slice(-2).every(p => Math.abs(p.value - now) <= Math.max(2, now * .25));
+        const agreesWithYear = !sameTimeLastYear || Math.abs(now - sameTimeLastYear.level) <= Math.max(3, sameTimeLastYear.level * .25);
+        if (aligned && agreesWithYear && contrast(cold, warm)) possible = { cold, warm, basis: 'warm-cold' };
+      }
+    }
+    const status = verified ? "verified" : possible ? "possible" : "none";
     const ref = verified || possible;
     const expected = sameTimeLastYear?.level ?? (ref ? (phaseNow === "warm" ? ref.warm : ref.cold) : null);
-    return { status, cold: ref?.cold ?? null, warm: ref?.warm ?? null, phaseNow, sameTimeLastYear, expected, months: monthly.length };
+    return { status, basis: verified ? 'repeated-cycle' : possible?.basis || (possible ? 'single-cycle' : null), cold: ref?.cold ?? null, warm: ref?.warm ?? null, phaseNow, sameTimeLastYear, expected, months: monthly.length };
   }
 
   // ---- info codes and events ------------------------------------------------
@@ -764,7 +780,7 @@
     // Season.
     const season = result.season;
     if (season?.status === "verified") explain.push(`Återkommande årsmönster: vinter ca ${lv(season.cold)}, sommar ca ${lv(season.warm)} (minst två säsongsväxlingar).`);
-    else if (season?.status === "possible") explain.push(`Möjligt säsongsmönster (vinter ca ${lv(season.cold)}, sommar ca ${lv(season.warm)}) – bara en växling observerad, inte verifierat.`);
+    else if (season?.status === "possible") explain.push(`Möjligt säsongsmönster (vinter ca ${lv(season.cold)}, sommar ca ${lv(season.warm)}) – ${season.basis === 'warm-cold' ? 'skillnad mellan varma och kalla månader, ännu ingen belagd återkomst' : 'bara en växling observerad'}, inte verifierat. En ny ökning ska fortfarande kontrolleras.`);
     if (season?.sameTimeLastYear) obs.push(`Samma tid i fjol (${P(season.sameTimeLastYear.from, season.sameTimeLastYear.to)}): median ${lv(season.sameTimeLastYear.level)}.`);
     else if (upFinding && result.history.spanDays < 300) missing.push("Samma årstid föregående år saknas i historiken.");
 
@@ -808,7 +824,7 @@
     if (codes.dry) add("Infokod DRY (opålitlig mätning)", -15);
     if (interference.any && sizeScore < 25) add("Känd störmiljö", -8);
     if (season?.status === "verified") add("Verifierat säsongsmönster", -12);
-    else if (season?.status === "possible") add("Möjligt säsongsmönster", -5);
+    else if (season?.status === "possible" && season.basis !== 'warm-cold') add("Möjligt säsongsmönster", -5);
     result.priorityParts = parts;
     result.sizeScore = sizeScore;
 
@@ -1098,7 +1114,7 @@
         m.areaSignal = signal;
         m.observations.push(signal.summary);
         m.explanations.push(...signal.notes);
-        if (m.field?.corroboratable && signal.stage === "repeated" && signal.basis === "position" && signal.buildingCount >= 3) {
+        if (m.field?.corroboratable && !signal.broad && signal.stage === "repeated" && signal.basis === "position" && signal.buildingCount >= 3) {
           m.category = "dispatch";
           m.categoryLabel = CATEGORY.dispatch.label;
           m.status = CATEGORY.dispatch.status;

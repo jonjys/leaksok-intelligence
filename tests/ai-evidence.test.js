@@ -35,6 +35,18 @@ test('Anonymous groups stay hypotheses about shared influence, never pipeline to
  const f=fixture();f.mode='triage';f.cases.push({...structuredClone(f.cases[0]),caseId:'m2'});f.cases.forEach(c=>c.areaGroup={key:'g1',meters:5,addresses:3,basis:'address'});
  const e=Evidence.build(f);assert.equal(e.cases.length,2);assert.match(e.cases[0].evidence.find(e=>e.title==='Gemensam områdessignal').detail,/3 separata adresser.*inte ledningstopologi/);
 });
+
+test('Small shared rises reach Claude as bounded numeric evidence without identities',()=>{
+ const f=fixture();f.cases[0].areaGroup={key:'g1',meters:3,addresses:3,basis:'address',trend:{medianDelta:6,medianPct:0.75,simultaneousDays:4,support:0.8,risingAddresses:3,nearbyAddresses:5,broad:false}};
+ const e=Evidence.build(f).cases[0].evidence.find(x=>x.title==='Samstämmig nivåökning');
+ assert.match(e.detail,/\+6.*75 %.*4 gemensamma.*80 %.*3 av 5/);
+ assert.match(e.detail,/inte ljudenergi eller läcksannolikhet/);
+ for(const change of [t=>t.address='PRIVATE',t=>t.support=2,t=>t.risingAddresses=6,t=>t.medianDelta=Infinity,t=>t.simultaneousDays=-1,t=>t.medianPct='INSTRUCTION']){
+   const invalid=structuredClone(f);change(invalid.cases[0].areaGroup.trend);assert.throws(()=>Evidence.build(invalid));
+ }
+ f.cases[0].areaGroup.trend.broad=true;
+ assert.match(Evidence.build(f).cases[0].evidence.find(x=>x.title==='Samstämmig nivåökning').detail,/kontrollera drift och säsong först/);
+});
 test('Claude cannot fabricate evidence IDs, reference nonexistent evidence or omit/duplicate ranking entries',()=>{
  const f=fixture();f.mode='triage';f.cases.push({...structuredClone(f.cases[0]),caseId:'m2'});const e=Evidence.build(f);
  assert.doesNotThrow(()=>Evidence.clean(result(e),e));
