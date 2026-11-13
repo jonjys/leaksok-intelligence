@@ -256,6 +256,7 @@ dialog::backdrop { background:#14264770; backdrop-filter:blur(7px); }
   .top-actions #pickFiles { padding:6px 10px; min-height:32px; font-size:11px; }
   .top-actions > .secondary,.top-actions > .menu > summary { padding:5px 8px; font-size:10px; min-height:30px; }
   .layout { padding:10px; gap:10px; }
+  .rail { top:auto; z-index:45; }
   .rail-select select { min-height:35px; border-color:#dbe3f0; border-radius:9px; font-size:12px; }
   .rail-more > summary { min-height:35px; font-size:11px; }
   .brief,body.has-focus .brief { padding:14px; border-radius:13px; overflow:visible; }

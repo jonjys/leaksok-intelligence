@@ -32,7 +32,14 @@ const {buildDailyExports,toCsv}=require('./fixtures/synthetic-exports');
       await page.setViewportSize(viewport);
       await page.waitForFunction(()=>document.documentElement.scrollWidth<=innerWidth);
       assert.deepEqual(await page.evaluate(()=>({focus:state.focusId,marked:[...state.marked]})),before);
-      if(viewport.width===390)await page.screenshot({path:'test-results/studio-mobile.png',fullPage:true});
+      if(viewport.width===390){
+        const rail=await page.locator('#rail').boundingBox(),brief=await page.locator('#brief').boundingBox();
+        assert.ok(rail.y+rail.height<=brief.y,'Mobile navigation does not overlap the overview');
+        await page.locator('#rail .rail-more > summary').click();
+        await page.locator('#rail .rail-more [data-list="confirmed"]').click();
+        assert.equal(await page.locator('#listSelect').inputValue(),'confirmed');
+        await page.screenshot({path:'test-results/studio-mobile.png',fullPage:true});
+      }
     }
     await page.emulateMedia({reducedMotion:'reduce'});
     await page.locator('#selectionBar [data-sort="value"]').click();
