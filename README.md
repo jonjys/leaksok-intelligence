@@ -98,7 +98,7 @@ Tillverkarkällor: [flowIQ 2200, svensk produktinformation](https://www.kamstrup
 
 - Originalexporter från kommunen finns inte i repot. Tester använder syntetiska och anonymiserade data. Kör egna filer lokalt: `node tests/exports-regression.js exports/*.csv`.
 - Tröskelvärdena (25 %, 50 % för enskild avläsning, 50 för stabilt hög, 5 avläsningar/5 dagar för Åk ut) är hypoteser. De kan bara kalibreras mot fältfacit: registrera Konstaterad läcka och Lagad för att bygga det underlaget.
-- Säsongsbedömning kräver minst ett års historik i appen. Historiklängd i appen är inte mätarens installationsålder.
+- Återkommande säsong kräver tillräcklig historik för flera växlingar. **Möjlig säsong** kan visas tidigare vid tydlig kontrast mellan varma och kalla månader, utan att sänka en ny varning. Historiklängd i appen är inte mätarens installationsålder.
 - Lagring är lokal per webbläsare; använd *Mer → Säkerhetskopiera hela arbetsytan* regelbundet.
 
 ## Dagens granskning och fältberedskap
@@ -107,10 +107,16 @@ Tillverkarkällor: [flowIQ 2200, svensk produktinformation](https://www.kamstrup
 
 Om **Åk ut** är tomt visas **Kontrollera först** automatiskt när färska kontrollförslag finns. Högst fem prioriterade fall visas med en förklaring, till exempel bekräfta ökningen med nästa avläsning eller jämför hela kurvan i Kamstrup. De räknas inte som beslut att åka ut.
 
+De fem första kontrollerna sprids över olika områdessignaler och adresser innan fler mätare från samma plats tas med. Sortering ändrar visningsordningen inom dessa förslag; ingen mätare byter kategori. Den dagliga AI-kortlistan respekterar även rena döljbeslut utan annan manuell status.
+
+Upp till åtta platser i den dagliga kortlistan reserveras för aktuella Kamstrup-rekommendationer i **Misstänk**, efter leverantörens rang. Föråldrade avläsningar, DRY och manuellt dolda mätare tas inte med på den grunden. Egen analys och kundsidans kontroller behåller plats i kortlistan; leverantörsrang skapar varken konstaterad läcka eller automatisk Åk ut. Antalet Kamstrup-rekommendationer i AI-underlaget visas i dialogen.
+
 1. Välj **Granska idag** och **Aktivera AI** en gång på den här webbläsaren. Ange värdet i serverns `LEAKSOK_AI_ACCESS_CODE`. Det är appens åtkomstkod, separat från både din lokala kod och Anthropic-nyckeln. En signerad HttpOnly-session gäller i 30 dagar. Logga ut från AI i dialogen; rotera serverkoden för att ogiltigförklara tidigare sessioner.
 2. Välj **Kör dagens granskning** eller slå på **Granska automatiskt efter import**. Det automatiska läget kräver att sidan är öppen och upplåst och att dagens export finns, enligt svensk kalenderdag. Arbetsytan körs inte när webbläsaren är stängd; Excel-historiken finns här på enheten.
 3. Regelmotorn går igenom hela beståndet lokalt. Claude får komprimerade belägg för högst 24 prioriterade mätare. Antal bedömda lokalt och antal i AI-underlaget visas separat. Om inga aktuella fall finns behövs inget AI-anrop. En färdig plan återanvänds efter omladdning och för samma export. En lokal IndexedDB-reservation skyddar mot dubbletter mellan flikar. Efter fel kan du försöka igen manuellt; ingen automatisk omkörning. En lokal arbetsyta har högst en färdig AI-plan per dag.
 4. För särskilda fall finns **AI-granska** på mätaren och **AI-plan** för markeringen. Du kan markera fler än åtta; vid större urval får Claude den prioriterade kortlistan. En enskild mätare får fördjupad analys. Markering och analys ändrar inte beslut eller arbetslista.
+
+En sparad plan jämförs med det faktiska underlaget, inte bara exportens tidsstämpel. Rättade värden, tillagd historik, relevanta beslut, områdessignaler och kartpositioner kan göra planen inaktuell. Då visas **Underlaget har ändrats**. Samma oförändrade underlag behåller sin plan efter omladdning och sortering. En redan betald dagsgranskning startas inte om automatiskt; nästa dags granskning använder det nya underlaget, och enskilda mätare kan fortfarande granskas separat.
 
 AI visar prioritering, kontroller och spårbara belägg. Källhopp kan gå mellan fall i kortlistan; okända belägg-ID:n avvisas. Adresser, serienummer, koordinater, kommentarer och hela filer skickas inte. Servern tar upp till 1 460 avläsningsdagar per valt fall och skickar sammanfattade belägg, exempelvis egen nivå, årstidsjämförelse, koder, historiktäckning och närhet, till Claude. Närliggande adresser visar inte ledningstopologi. Kontrollplanen kan sparas lokalt som HTML eller skrivas till PDF. Dagens sparade plan är separat från säkerhetskopian av historiken.
 

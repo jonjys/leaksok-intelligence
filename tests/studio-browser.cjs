@@ -18,6 +18,8 @@ const {buildDailyExports,toCsv}=require('./fixtures/synthetic-exports');
     fs.mkdirSync('test-results',{recursive:true});
     await page.screenshot({path:'test-results/studio-list-desktop.png',fullPage:true});
     await page.locator('button[data-view="map"]').click();
+    assert.equal(await page.locator('.brief-stats [data-list="dispatch"]').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(255, 248, 247)');
+    assert.equal(await page.locator('.brief-stats [data-field-lane]').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(255, 251, 241)');
     await page.locator('#rows tr.row').first().locator('[data-mark]').check();
     const before=await page.evaluate(()=>({focus:state.focusId,marked:[...state.marked]}));
     const map=await page.locator('#map').boundingBox();
