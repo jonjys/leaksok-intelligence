@@ -57,7 +57,7 @@
 
   const state = {
     files: [], labels: loadLabelBackup(), tripList: [], profileId: null, profileName: null,
-    areaSignals: [], coordinatesKey: "", prepared: null, cache: new Map(), meters: [], byId: new Map(), latestExport: null,
+    areaSignals: [], coordinatesKey: "", reviewKey: "", prepared: null, cache: new Map(), meters: [], byId: new Map(), latestExport: null,
     list: "all", fieldLane: null, fieldLaneEffective: "ready", fieldCounts: { ready: 0, check: 0 },
     search: "", sort: "suspicion", sortReverse: false, area: "all", excluded: new Set(DEFAULT_HIDDEN),
     page: 1, pageSize: 50, marked: new Set(), focusId: "", chartHidden: false, expanded: new Set(),
@@ -372,9 +372,12 @@
     state.coordinatesKey = JSON.stringify([...coords].sort(([a], [b]) => a.localeCompare(b)));
     state.byId = new Map(result.meters.map((m) => [m.id, m]));
     state.latestExport = result.latestExport;
+    state.reviewKey = ReviewPlan.contextKey(state.meters, { latestExport: state.latestExport, histories: state.prepared.histories,
+      labels: state.labels, coordinatesKey: state.coordinatesKey });
     for (const id of [...state.marked]) if (!state.byId.has(id)) state.marked.delete(id);
     if (state.focusId && !state.byId.has(state.focusId)) state.focusId = "";
     render();
+    window.LeakAI?.refreshContext();
     resolveCaseNeighbors();
   }
 
@@ -404,11 +407,11 @@
     const order = MeterView.comparator(state.sort, state.sortReverse, districtOf);
     if (state.list !== "dispatch") return scoped.filter(m => inList(m, state.list)).sort(order);
     const ready = scoped.filter(m => inList(m, "dispatch"));
-    const check = scoped.filter(m => !hidden(m) && ReviewPlan.fieldCheck(m));
+    const check = scoped.filter(m => !hidden(m) && ReviewPlan.fieldCheck(m, state.labels));
     state.fieldCounts = { ready: ready.length, check: check.length };
     state.fieldLaneEffective = state.fieldLane || (!ready.length && check.length ? "check" : "ready");
     if (state.fieldLaneEffective === "ready") return ready.sort(order);
-    const short = check.sort(ReviewPlan.fieldOrder).slice(0, ReviewPlan.FIELD_PREVIEW);
+    const short = ReviewPlan.fieldPreview(check);
     return state.sort === "suspicion" ? (state.sortReverse ? short.reverse() : short) : short.sort(order);
   }
 
@@ -472,7 +475,7 @@
     const exportAt = state.latestExport;
     const ageHours = exportAt ? (Date.now() - exportAt.getTime()) / 3600000 : Infinity;
     const time = exportAt ? `${Engine.fmtDate(exportAt, true)} ${String(exportAt.getHours()).padStart(2, "0")}:${String(exportAt.getMinutes()).padStart(2, "0")}` : "okänt";
-    const fieldChecks = state.meters.filter(m => !hidden(m) && ReviewPlan.fieldCheck(m)).length;
+    const fieldChecks = state.meters.filter(m => !hidden(m) && ReviewPlan.fieldCheck(m, state.labels)).length;
     els.brief.innerHTML = `
       <div class="brief-row">
         <div class="brief-heading"><span class="workspace-kicker">DIN SIGNALÖVERSIKT</span><h2>${esc(LIST[state.list]?.label || "Alla mätare")}</h2><p class="brief-date${ageHours > 30 ? " is-old" : ""}">${ageHours > 30 ? "Äldre export" : "Export"} <b>${esc(time)}</b><span title="Avlästa under senaste exportdygnet"> · ${report.fresh.toLocaleString("sv-SE")}/${report.total.toLocaleString("sv-SE")} avlästa</span></p></div>
@@ -485,7 +488,7 @@
       const { ready, check } = state.fieldCounts, lane = state.fieldLaneEffective;
       let note = "Inga kontrollförslag matchar nuvarande sökning och filter.";
       if (check) note = lane === "check"
-        ? `Visar ${Math.min(check, ReviewPlan.FIELD_PREVIEW)} av ${check} förslag. Granska underlaget innan du åker ut.`
+        ? `Visar ${Math.min(check, ReviewPlan.FIELD_PREVIEW)} av ${check} förslag. Olika områden och adresser visas först. Granska underlaget innan du åker ut.`
         : "Kontrollera först visar vilka uppgifter som saknas inför fältbesök.";
       els.brief.insertAdjacentHTML("beforeend", `<div class="field-overview"><div><b>${ready ? `${ready} redo för fältkontroll` : "Inga redo för fältkontroll i urvalet"}</b><p>${note}</p></div><div class="field-lanes" role="group" aria-label="Fältberedskap"><button type="button" data-field-lane="ready" aria-pressed="${lane === "ready"}">Åk ut <b>${ready}</b></button><button type="button" data-field-lane="check" aria-pressed="${lane === "check"}">Kontrollera först <b>${check}</b></button></div></div>`);
     }
@@ -542,7 +545,7 @@
   function rowHtml(m) {
     const marked = state.marked.has(m.id);
     const expanded = state.expanded.has(m.id);
-    const field = state.list === "dispatch" ? m.field || (ReviewPlan.fieldCheck(m) ? { state: "check", reason: m.areaSignal.action } : null) : null;
+    const field = state.list === "dispatch" ? m.field || (ReviewPlan.fieldCheck(m, state.labels) ? { state: "check", reason: m.areaSignal.action } : null) : null;
     const tags = [];
     if (m.excel.interestRank) tags.push(`<span class="tag" title="Kamstrups mätare av intresse i exporten ${esc(Engine.fmtDate(m.excel.exportDate, true))}">Kamstrup · rang ${m.excel.interestRank}</span>`);
     if (m.learnedLeakMatch) tags.push(`<span class="tag area-tag">Likt tidigare ${esc(m.learnedLeakMatch.lineType)}-läcka</span>`);

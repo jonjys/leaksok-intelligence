@@ -18,6 +18,10 @@ const {buildDailyExports,toCsv}=require('./fixtures/synthetic-exports');
     fs.mkdirSync('test-results',{recursive:true});
     await page.screenshot({path:'test-results/studio-list-desktop.png',fullPage:true});
     await page.locator('button[data-view="map"]').click();
+    await page.waitForFunction(()=>{
+      const a=document.querySelector('.brief-stats [data-list="dispatch"]'),b=document.querySelector('.brief-stats [data-field-lane]');
+      return a&&b&&getComputedStyle(a).backgroundColor==='rgb(255, 248, 247)'&&getComputedStyle(b).backgroundColor==='rgb(255, 251, 241)';
+    });
     await page.locator('#rows tr.row').first().locator('[data-mark]').check();
     const before=await page.evaluate(()=>({focus:state.focusId,marked:[...state.marked]}));
     const map=await page.locator('#map').boundingBox();
@@ -30,7 +34,14 @@ const {buildDailyExports,toCsv}=require('./fixtures/synthetic-exports');
       await page.setViewportSize(viewport);
       await page.waitForFunction(()=>document.documentElement.scrollWidth<=innerWidth);
       assert.deepEqual(await page.evaluate(()=>({focus:state.focusId,marked:[...state.marked]})),before);
-      if(viewport.width===390)await page.screenshot({path:'test-results/studio-mobile.png',fullPage:true});
+      if(viewport.width===390){
+        const rail=await page.locator('#rail').boundingBox(),brief=await page.locator('#brief').boundingBox();
+        assert.ok(rail.y+rail.height<=brief.y,'Mobile navigation does not overlap the overview');
+        await page.locator('#rail .rail-more > summary').click();
+        await page.locator('#rail .rail-more [data-list="confirmed"]').click();
+        assert.equal(await page.locator('#listSelect').inputValue(),'confirmed');
+        await page.screenshot({path:'test-results/studio-mobile.png',fullPage:true});
+      }
     }
     await page.emulateMedia({reducedMotion:'reduce'});
     await page.locator('#selectionBar [data-sort="value"]').click();

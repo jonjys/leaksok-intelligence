@@ -184,6 +184,19 @@ const responseFor = input => ({
     await page.waitForSelector('#aiResult .ai-summary');
     assert.equal(provider.length, before + 2);
     assert.equal(await page.locator('#aiRun').isVisible(), false);
+
+    // Same timestamp, updated export metadata: retain the paid daily limit,
+    // but never advertise the previous evidence as current.
+    await close(page);
+    const revisionBefore = await page.evaluate(()=>state.reviewKey);
+    const corrected = toCsv(last.rows.map((row,i)=>i ? row.map((v,j)=>j===3?'2026-11-10 04:00':j===5?2:v) : row));
+    await kit.importFiles(page,[{name:tomorrow.name,text:corrected}]);
+    await page.waitForFunction(key=>state.reviewKey!==key,revisionBefore);
+    await page.waitForFunction(()=>document.getElementById('dailyStatusLine').textContent.includes('Underlaget har ändrats'));
+    await page.locator('#dailyButton').click();
+    await page.waitForFunction(()=>document.getElementById('aiStatus').textContent.includes('Underlaget har ändrats'));
+    assert.equal(await page.locator('#aiRun').isVisible(),false);
+    assert.equal(provider.length,before+2,'A corrected import does not trigger a second paid daily review');
     await page.locator('#aiDisconnect').click();
     await page.waitForSelector('#aiLoginForm');
     assert.ok(!(await context.cookies()).some(c => c.name === '__Host-leaksok_ai'));

@@ -68,9 +68,9 @@
     const s = root.LeakApp?.state;
     return s?.profileId && !$('profileDialog').open ? s : null;
   };
-  const contextOf = s => ({ histories: s.prepared?.histories, latestExport: s.latestExport });
-  const exportKey = s => `${s?.latestExport?.toISOString() || ''}|${ReviewPlan.ALGORITHM}`;
-  const scopeText = (plan, daily = false) => `${number(plan.examined)} ${daily ? 'mätare granskade lokalt' : 'markerade'} · ${number(plan.candidates)} relevanta · ${number(plan.meters.length)} i AI-underlaget. Adresser, serienummer och kommentarer stannar här.`;
+  const contextOf = s => ({ histories: s.prepared?.histories, latestExport: s.latestExport, reviewKey: s.reviewKey, labels: s.labels });
+  const exportKey = s => s?.reviewKey || `${s?.latestExport?.toISOString() || ''}|${ReviewPlan.ALGORITHM}`;
+  const scopeText = (plan, daily = false) => `${number(plan.examined)} ${daily ? 'mätare granskade lokalt' : 'markerade'} · ${number(plan.candidates)} relevanta · ${number(plan.meters.length)} i AI-underlaget${plan.vendorSelected ? `, varav ${plan.vendorSelected} rekommenderade av Kamstrup` : ''}. Adresser, serienummer och kommentarer stannar här.`;
   function renderLegacy(data) {
     const result = $('aiResult'); result.replaceChildren();
     const summary = document.createElement('p'); summary.className = 'ai-summary'; summary.textContent = data.review.summary; result.append(summary);
@@ -199,14 +199,14 @@
     button.textContent = running ? 'Visa pågående' : state === 'cached' || state === 'done' ? 'Visa plan' : 'Granska idag';
     note.textContent = running ? 'Granskar prioriterade signaler…'
       : state === 'cached' ? (report?.result ? 'Klar för senaste exporten' : 'Inga nya fall att granska')
-      : state === 'done' ? 'Dagens plan finns · ny export tillgänglig'
+      : state === 'done' ? 'Underlaget har ändrats · visa sparad plan'
       : state === 'retry' ? 'Senaste granskningen avbröts'
       : journal.auto ? (config && !config.authenticated ? 'Aktivera AI för automatisk granskning' : 'Automatisk efter dagens import')
       : `${number(s.meters.length)} mätare · en plan per dag`;
     note.dataset.state = running ? 'running' : state;
   }
   function draft(kind, meters, context) {
-    const plan = ReviewPlan.shortlist(meters, kind);
+    const plan = ReviewPlan.shortlist(meters, kind, context.labels);
     const links = new Map(plan.meters.map((m, i) => [`m${i+1}`, { id: m.id, address: m.address, category: m.category }]));
     return { kind, plan, context, links, exportKey: exportKey(context), data: null, result: null, message: '' };
   }
@@ -253,7 +253,7 @@
     $('aiRun').textContent = disposition === 'retry' ? 'Försök igen' : daily ? 'Kör dagens granskning' : 'Granska urvalet';
     const status = busy ? (operation?.kind === 'selection' ? 'AI granskar urvalet…' : 'AI går igenom dagens prioriterade signaler…')
       : active.message ? active.message
-      : daily && journal.report && !currentPlan ? 'Planen gäller en tidigare export. Nästa dags granskning använder den senaste.'
+      : daily && journal.report && !currentPlan ? 'Underlaget har ändrats sedan planen skapades. Nya avläsningar, historik, beslut eller kartpositioner ingår inte i den sparade planen. Nästa dags granskning använder det aktuella underlaget. Du kan AI-granska en markerad mätare separat.'
       : disposition === 'retry' ? journal.attempt?.message || 'Körningen slutfördes inte. Försök igen manuellt.'
       : config && !config.configured ? 'AI är inte aktiverad på servern. Kontrollera serverns inställningar.'
       : !config ? 'Kontrollerar AI-anslutningen…'
@@ -351,6 +351,15 @@
       updateControls();
     }
   }
+  function refreshContext() {
+    const s = workspace(); if (!s) return;
+    if (active?.kind === 'daily' && active.exportKey !== exportKey(s)) {
+      active = draft('daily', s.meters, contextOf(s));
+      $('aiMeter').textContent = `Senaste export ${dayString(s.latestExport)}`;
+      $('aiResult').replaceChildren(); $('aiData').open = false; $('aiExport').hidden = true;
+    }
+    updateControls();
+  }
   function onWorkspace() {
     clearTimeout(autoTimer);
     if (!workspace()) return;
@@ -358,12 +367,7 @@
       const s = workspace(); if (!s || s.importing || document.hidden) return;
       try {
         if (!await loadJournal(s)) return;
-        if (active?.kind === 'daily' && active.exportKey !== exportKey(s)) {
-          active = draft('daily', s.meters, contextOf(s));
-          $('aiMeter').textContent = `Senaste export ${dayString(s.latestExport)}`;
-          $('aiResult').replaceChildren(); $('aiData').open = false; $('aiExport').hidden = true;
-        }
-        updateControls();
+        refreshContext();
         if (journal.auto) await runDaily(false);
       } catch (error) {
         if (active?.kind === 'daily') { active.message = error.message; updateControls(); }
@@ -434,6 +438,6 @@
     catch { /* import history has already been cleared */ }
     refreshBadge();
   }
-  root.LeakAI = { open, openDaily, payload, packet, lock, onWorkspace, clearDaily, refreshBadge };
+  root.LeakAI = { open, openDaily, payload, packet, lock, onWorkspace, clearDaily, refreshBadge, refreshContext };
 }(window));
 
