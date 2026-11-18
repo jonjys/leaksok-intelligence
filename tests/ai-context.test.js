@@ -23,8 +23,11 @@ test('An updated same-timestamp workspace marks a paid plan outdated without ano
   state.reviewKey=Plan.contextKey(state.meters,{latestExport});
   const report={day:Plan.dayKey(),exportKey:state.reviewKey,exportDate:Plan.dayKey(),examined:1,selected:1,
     links:[['m1',{id:'1',address:meter.address}]],createdAt:latestExport.toISOString(),
-    result:{model:'test',createdAt:latestExport.toISOString(),usage:{inputTokens:0,outputTokens:0},
-      review:{summary:'Sparad plan',observations:[],possibleCauses:[],nextChecks:[],limitations:[]}}};
+    result:{model:'test',createdAt:latestExport.toISOString(),promptVersion:'test',usage:{inputTokens:0,outputTokens:0},
+      evidence:{version:3,algorithmVersion:'test',cases:[{caseId:'m1',serverCategory:'suspect_auto',confidence:'medel',historyDigest:'0'.repeat(64),
+        evidence:[{id:'m1:e1',title:'Datatäckning',detail:'Syntetiskt.',source:'test'}]}]},
+      review:{summary:'Sparad plan',order:['m1'],sharedChecks:[],
+        cases:[{caseId:'m1',summary:'Ändrat mönster.',evidenceIds:['m1:e1'],hypotheses:[],nextChecks:['Kontrollera på plats.'],limitations:[]}]}}};
   const window={LeakReviewPlan:Plan,LeakApp:{state},LeakStorage:{loadDailyReview:async()=>({auto:true,report})},addEventListener(){}};
   vm.runInNewContext(fs.readFileSync(require.resolve('../src/ai-review.js'),'utf8'),{window,document,Date,Intl,Map,Set,Boolean,Number,Array,Error,JSON,AbortController,
     setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout(){},

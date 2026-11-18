@@ -108,7 +108,7 @@ test('Selected neighbours have anonymous proximity evidence, while invalid pair 
 test('Changing old data invalidates the audit fingerprint even outside the recent curve',()=>{
  const f=fixture(),a=Evidence.build(f).cases[0].historyDigest;f.cases[0].readings[0].value=6;assert.notEqual(Evidence.build(f).cases[0].historyDigest,a);
 });
-test('The v2 endpoint forwards computed evidence, validates references, caches and keeps v1 compatibility',async()=>{
+test('The v2 endpoint forwards computed evidence, validates references and caches',async()=>{
  const code='synthetic-access-code-at-least-24';let calls=0,modelInput;
  const h=createHandler({env:{ANTHROPIC_API_KEY:'not-real',LEAKSOK_AI_ACCESS_CODE:code},fetcher:async(url,opts)=>{
    calls++;const sent=JSON.parse(opts.body);assert.equal(sent.max_tokens,7000);assert.equal(sent.output_config.effort,'medium');modelInput=JSON.parse(sent.messages[0].content);

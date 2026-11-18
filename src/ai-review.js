@@ -3,14 +3,6 @@
 (function (root) {
   const ReviewPlan = root.LeakReviewPlan;
   const date = value => value instanceof Date && !Number.isNaN(+value) ? `${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}` : null;
-  function payload(meter) {
-    const readings = meter.series.slice(-180).map(p => ({ date: date(p.date), value: p.value }));
-    return { version: 1, readings, totalReadingDays: meter.series.length,
-      exportDate: date(meter.excel.exportDate), infoCodes: Object.fromEntries(['leak','burst','dry','acousticLeak','follow'].map(k => [k, !!meter.codes[k]])),
-      neighborAddresses: meter.areaSignal?.buildingCount || 0,
-      minimumFlow: meter.excel.minimumFlow == null ? null : { valueLph: meter.excel.minimumFlow, date: date(meter.excel.minimumFlowAt) },
-      localAssessment: { score: meter.priority, confidence: meter.confidence } };
-  }
   const dayString = value => typeof value==='string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : value ? date(value instanceof Date ? value : new Date(value)) : null;
   function packet(meters, context = {}, plan = null) {
     const exportDate = dayString(context.latestExport || new Date(Math.max(...meters.map(m => +m.excel.exportDate))));
@@ -77,24 +69,9 @@
   const contextOf = s => ({ histories: s.prepared?.histories, latestExport: s.latestExport, reviewKey: s.reviewKey, labels: s.labels });
   const exportKey = s => s?.reviewKey || `${s?.latestExport?.toISOString() || ''}|${ReviewPlan.ALGORITHM}`;
   const scopeText = (plan, daily = false) => `${number(plan.examined)} ${daily ? 'mätare granskade lokalt' : 'markerade'} · ${number(plan.candidates)} relevanta · ${number(plan.meters.length)} i AI-underlaget${plan.vendorSelected ? `, varav ${plan.vendorSelected} rekommenderade av Kamstrup` : ''}. Adresser, serienummer och kommentarer stannar här.`;
-  function renderLegacy(data) {
-    const result = $('aiResult'); result.replaceChildren();
-    const summary = document.createElement('p'); summary.className = 'ai-summary'; summary.textContent = data.review.summary; result.append(summary);
-    for (const [key, title] of [['observations','Observationer'],['possibleCauses','Möjliga förklaringar'],['nextChecks','Nästa kontroller'],['limitations','Osäkerheter']]) {
-      if (!data.review[key].length) continue;
-      const h = document.createElement('h3'); h.textContent = title;
-      const ul = document.createElement('ul');
-      for (const text of data.review[key]) { const li = document.createElement('li'); li.textContent = text; ul.append(li); }
-      result.append(h, ul);
-    }
-    const meta = document.createElement('p'); meta.className = 'small';
-    meta.textContent = `${data.model} · ${new Date(data.createdAt).toLocaleString('sv-SE')} · ${data.usage.inputTokens + data.usage.outputTokens} token${data.cached ? ' · återanvänt svar' : ''}`;
-    result.append(meta);
-  }
   function renderResult(data) {
     if(active)active.result=data;
     $('aiExport').hidden=false;
-    if(!data.evidence){renderLegacy(data);return;}
     const container=$('aiResult');container.replaceChildren();
     const node=(tag,text,parent,className)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(className)n.className=className;parent.append(n);return n;};
     const dataTable=(data,parent)=>{
@@ -449,6 +426,6 @@
     catch { /* import history has already been cleared */ }
     refreshBadge();
   }
-  root.LeakAI = { open, openDaily, payload, packet, lock, onWorkspace, clearDaily, refreshBadge, refreshContext };
+  root.LeakAI = { open, openDaily, packet, lock, onWorkspace, clearDaily, refreshBadge, refreshContext };
 }(window));
 
