@@ -12,6 +12,18 @@ const outputSchema = { type: 'object', additionalProperties: false,
   properties: Object.fromEntries(['summary', 'observations', 'possibleCauses', 'nextChecks', 'limitations'].map(k => [k,
     k === 'summary' ? { type: 'string' } : { type: 'array', items: { type: 'string' } }])),
   required: ['summary', 'observations', 'possibleCauses', 'nextChecks', 'limitations'] };
+// max_tokens caps thinking and answer together, and a truncated answer is
+// discarded although it is billed. The reply allowance assumes a wordy but
+// rule-abiding answer; the rest is reserved for adaptive thinking. 21 000 stays
+// below the size where Anthropic expects streaming. See docs/AI-BUDGET.md.
+const BUDGET = { ceiling: 21000,
+  daily: { thinking: 6000, perCase: 625 },   // 24 cases: 6 000 + 15 000 = 21 000
+  field: { thinking: 5000, perCase: 2000 } }; // 8 detailed cases: 5 000 + 16 000 = 21 000
+function maxTokens(input) {
+  if (input.version < 2) return 1600;
+  const b = input.version === 3 ? BUDGET.daily : BUDGET.field;
+  return Math.min(BUDGET.ceiling, b.thinking + input.cases.length * b.perCase);
+}
 const hash = value => createHash('sha256').update(value).digest();
 const date = v => typeof v === 'string' && /^20\d\d-\d\d-\d\d$/.test(v) && !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v;
 const number = v => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1000000;
@@ -89,13 +101,13 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
     if (busy || now() - lastCall < 10000 || calls >= 20) { res.setHeader('Retry-After', '10'); return res.status(429).json({ error: 'Vänta en stund före nästa Claude-bedömning.' }); }
     busy = true; calls++; lastCall = now();
     const evidenceMode = input.version >= 2, compact = input.version === 3;
-    let stage = 'request', stopReason = null, outputTokens = 0;
+    const limit = maxTokens(input), startedAt = now();
+    let stage = 'request', stopReason = null, outputTokens = 0, thinkingTokens = 0;
     try {
       const response = await fetcher('https://api.anthropic.com/v1/messages', {
-        method: 'POST', signal: AbortSignal.timeout(evidenceMode ? 90000 : 45000),
+        method: 'POST', signal: AbortSignal.timeout(evidenceMode ? 140000 : 45000),
         headers: { Authorization: `Bearer ${env.ANTHROPIC_API_KEY}`, 'anthropic-version': '2026-10-21', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, max_tokens: compact ? Math.min(12000, 3200 + input.cases.length * 350)
-          : evidenceMode ? Math.min(12000, 4000 + input.cases.length * 1000) : 1600,
+        body: JSON.stringify({ model: MODEL, max_tokens: limit,
           thinking: { type: evidenceMode ? 'adaptive' : 'between_tools' }, system: compact ? Evidence.planPrompt : evidenceMode ? Evidence.prompt : PROMPT,
           messages: [{ role: 'user', content: JSON.stringify(input) }],
           output_config: { ...(evidenceMode ? {effort:compact?'low':'medium'} : {}), format: { type: 'json_schema', schema: evidenceMode ? Evidence.schemaFor(input) : outputSchema } } }),
@@ -107,6 +119,7 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
       }
       const data = await response.json();
       stage = 'completion'; stopReason = data.stop_reason; outputTokens = Number(data.usage?.output_tokens) || 0;
+      thinkingTokens = Number(data.usage?.output_tokens_details?.thinking_tokens) || 0;
       if (data.stop_reason !== 'end_turn') throw Error('Incomplete result');
       stage = 'parse';
       const parsed = JSON.parse((data.content || []).filter(b => b.type === 'text').map(b => b.text).join(''));
@@ -115,12 +128,17 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
       const result = { review, model: data.model || MODEL, createdAt: new Date(now()).toISOString(),
         ...(evidenceMode ? { evidence: input, promptVersion: compact ? 'daily-plan-3.0' : 'field-plan-2.0' } : {}),
         usage: { inputTokens: Number(data.usage?.input_tokens) || 0, outputTokens: Number(data.usage?.output_tokens) || 0 }, cached: false };
+      // Counts only: never evidence, readings or text from the plan.
+      console.info('ai-review-complete', { cases: input.cases?.length || 1, maxTokens: limit, outputTokens, thinkingTokens,
+        seconds: Math.round((now() - startedAt) / 1000), removedReferences: review.removedReferences || 0,
+        untraceableCases: evidenceMode ? review.cases.filter(c => c.untraceable).length : 0 });
       if (cache.size >= 32) cache.delete(cache.keys().next().value);
       cache.set(key, { at: now(), result });
       return res.status(200).json(result);
     } catch (error) {
       const reason = /^AI_[A-Z_]+$/.test(error.code || '') ? error.code : 'incomplete';
-      console.warn('ai-review-incomplete', { stage, reason, stopReason, outputTokens, cases: input.cases?.length || 1 });
+      console.warn('ai-review-incomplete', { stage, reason, stopReason, outputTokens, thinkingTokens, maxTokens: limit,
+        seconds: Math.round((now() - startedAt) / 1000), cases: input.cases?.length || 1 });
       return res.status(502).json({ error: 'Claude gav inget komplett läsbart svar. Ingen automatisk omkörning görs.' });
     }
     finally { busy = false; }
@@ -129,3 +147,4 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
 module.exports = createHandler();
 module.exports.createHandler = createHandler;
 module.exports.validate = validate;
+module.exports.maxTokens = maxTokens;
