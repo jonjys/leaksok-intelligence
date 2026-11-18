@@ -113,7 +113,9 @@
       node('h3',local?.address||id,head);
       const status=root.LeakMeterView?.statuses[local?.category||facts.serverCategory]?.label;
       if(status)node('span',status,head,`pill cat-${local?.category||facts.serverCategory}`);
+      if(item.untraceable)node('span','Utan spårbara belägg',head,'pill');
       node('p',item.summary,article,'ai-case-summary');
+      if(item.untraceable)node('p','Claude angav inga giltiga belägg för det här fallet. Texten kan inte spåras till underlaget; kontrollera mot kurvan innan du agerar.',article,'small');
       if(compact&&item.nextChecks.length){
         const next=node('div',null,article,'ai-next');
         node('b','Börja här',next);node('p',item.nextChecks[0],next);
@@ -147,6 +149,7 @@
         const add=node('button','Lägg i arbetslista',actions,'secondary');add.type='button';add.addEventListener('click',()=>{root.LeakApp.addToWorklist([local.id]);add.textContent='Tillagd';add.disabled=true;});
       }
     }
+    if(data.review.removedReferences)node('p',`${number(data.review.removedReferences)} ${data.review.removedReferences===1?'ogiltig belägghänvisning ströks':'ogiltiga belägghänvisningar ströks'} ur Claudes svar. Resten av planen är oförändrad.`,container,'small');
     node('p',`${data.model} · ${new Date(data.createdAt).toLocaleString('sv-SE')} · ${data.usage.inputTokens+data.usage.outputTokens} token${data.cached?' · återanvänt svar':''} · ${data.evidence.algorithmVersion} · ${data.promptVersion}`,container,'small');
   }
   async function request(url, options = {}) {

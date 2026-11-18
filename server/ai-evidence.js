@@ -7,6 +7,7 @@ const { MAX_CASES, MAX_RELATIONS } = require('../src/review-plan');
 const VERSION = 'leaksok-evidence-2.0';
 const PLAN_VERSION = 'leaksok-plan-3.0';
 const DAY = 86400000;
+const MAX_REFERENCES = 60;
 const decisions = ['none','manual_dispatch','interesting','customer_contact','leak','repaired','seasonal','known_noise','new_install','reset_baseline','ignored','district_heating','large_building','pump','false_alarm'];
 const validDate = v => typeof v === 'string' && /^20\d\d-\d\d-\d\d$/.test(v) && !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0,10) === v;
 const day = v => new Date(`${v}T12:00:00Z`);
@@ -158,6 +159,8 @@ function schemaFor(input){
   // enforced by clean() against the selected server-computed evidence, never trusted.
   return output;
 }
+// A paid answer is kept when Claude cites evidence that does not exist: unknown
+// references are removed and counted. Structural faults still reject the plan.
 function clean(result,input){
   const fail=code=>{const error=Error('Ogiltig kontrollplan.');error.code=code;throw error;};
   const text=s=>typeof s==='string'&&s.trim().length>0&&s.length<=1500;
@@ -167,22 +170,33 @@ function clean(result,input){
   result=structuredClone(result);
   if(Array.isArray(result.order))result.order=result.order.map(caseId);
   if(!text(result.summary)||!list(result.order,input.cases.length)||result.order.length!==input.cases.length||new Set(result.order).size!==input.cases.length||!result.order.every(id=>input.cases.some(c=>c.caseId===id))||!list(result.sharedChecks)||!Array.isArray(result.cases)||result.cases.length!==input.cases.length)fail('AI_PLAN_STRUCTURE');
-  const seen=new Set(),allEvidence=input.cases.flatMap(c=>c.evidence);
+  const seen=new Set(),known=new Map(input.cases.flatMap(c=>c.evidence).map(e=>[e.id.toLowerCase(),e.id]));
+  let removed=0;
+  // The list itself must be a bounded array; only its unknown entries are dropped.
+  const refs=(ids,code)=>{
+    if(!Array.isArray(ids)||ids.length>MAX_REFERENCES)fail(code);
+    const kept=[];
+    for(const id of ids){const match=typeof id==='string'?known.get(id.toLowerCase()):undefined;if(match===undefined)removed++;else if(!kept.includes(match))kept.push(match);}
+    return kept;
+  };
   for(const c of result.cases){
     c.caseId=caseId(c.caseId);const source=input.cases.find(s=>s.caseId===c.caseId);
     if(!source||seen.has(c.caseId))fail('AI_CASE_ID');seen.add(c.caseId);
     if(!text(c.summary))fail('AI_CASE_SUMMARY');
-    if(!list(c.evidenceIds,allEvidence.length)||!c.evidenceIds.length)fail('AI_CASE_EVIDENCE_LIST');
     if(!Array.isArray(c.nextChecks))fail('AI_CASE_CHECKS_TYPE');
     if(!c.nextChecks.length)fail('AI_CASE_CHECKS_EMPTY');
     if(!list(c.nextChecks))fail('AI_CASE_CHECKS_CONTENT');
     if(!list(c.limitations))fail('AI_CASE_LIMITATIONS');
     if(!Array.isArray(c.hypotheses)||c.hypotheses.length>4)fail('AI_CASE_HYPOTHESES');
-    const canonical=ids=>Array.isArray(ids)?ids.map(id=>typeof id==='string'?(allEvidence.find(e=>e.id.toLowerCase()===id.toLowerCase())?.id||id):id):ids;
-    const refs=ids=>list(ids,allEvidence.length)&&ids.every(id=>allEvidence.some(e=>e.id===id));
-    c.evidenceIds=canonical(c.evidenceIds);if(!refs(c.evidenceIds))fail('AI_EVIDENCE_MEMBERSHIP');
-    for(const h of c.hypotheses){h.support=canonical(h.support);h.against=canonical(h.against);if(!text(h.explanation)||!refs(h.support)||!refs(h.against)||!text(h.check))fail('AI_HYPOTHESIS');}
+    c.evidenceIds=refs(c.evidenceIds,'AI_CASE_EVIDENCE_LIST');
+    for(const h of c.hypotheses){
+      if(!h||typeof h!=='object'||!text(h.explanation)||!text(h.check))fail('AI_HYPOTHESIS');
+      h.support=refs(h.support,'AI_HYPOTHESIS');h.against=refs(h.against,'AI_HYPOTHESIS');
+    }
+    // Kept for the field worker, but never presented as evidence-backed.
+    if(c.evidenceIds.length)delete c.untraceable;else c.untraceable=true;
   }
+  result.removedReferences=removed;
   return result;
 }
 const prompt=`Du är VA-driftens analysassistent. Underlaget är serverberäknat med samma regelmotor som LeakSök och beläggen har stabila ID:n. Räkna inte om värden och hitta inte på fakta. Använd både stöd och motbevis, periodtäckning, senaste datum, infokoder, manuella beslut, återgång efter lagning, säsong och samtidiga områdessignaler. Alla slutsatser gäller endast urvalet. Bevara beslut om konstaterad/lagad läcka; builtin-uppgifter är inte oberoende pilotfacit. Brist på historik eller flöde är okänt, inte normalt. Skilj sedan föregående avläsning från förändring mot egen referens. Gamla toppar är inte nya varningar. Ange inga läcksannolikheter, läckflöden, geografiska lägen eller nätkopplingar. Prioritera nästa undersökning, aldrig automatiska statusändringar. DRY och för gammal avläsning kräver datakontroll. Dämpa säkra tolkningar vid gles referens eller osäkert fältdatum.

@@ -47,10 +47,58 @@ test('Small shared rises reach Claude as bounded numeric evidence without identi
  f.cases[0].areaGroup.trend.broad=true;
  assert.match(Evidence.build(f).cases[0].evidence.find(x=>x.title==='Samstämmig nivåökning').detail,/kontrollera drift och säsong först/);
 });
-test('Claude cannot fabricate evidence IDs, reference nonexistent evidence or omit/duplicate ranking entries',()=>{
+test('Unknown evidence IDs are removed and counted while the rest of a paid plan is kept',()=>{
  const f=fixture();f.mode='triage';f.cases.push({...structuredClone(f.cases[0]),caseId:'m2'});const e=Evidence.build(f);
- assert.doesNotThrow(()=>Evidence.clean(result(e),e));
- for(const mutate of [r=>r.cases[0].evidenceIds=['made-up'],r=>r.cases[0].hypotheses[0].support=['m2:e99'],r=>r.order=['m1','m1'],r=>r.cases.pop()]){const r=result(e);mutate(r);assert.throws(()=>Evidence.clean(r,e));}
+ const untouched=Evidence.clean(result(e),e);assert.equal(untouched.removedReferences,0);assert.ok(untouched.cases.every(c=>!('untraceable' in c)));
+ const r=result(e);r.cases[0].evidenceIds=['m1:e1','made-up','m2:e99'];r.cases[0].hypotheses[0].support=['m2:e99','m1:e2'];r.cases[0].hypotheses[0].against=['m9:e1'];
+ const plan=Evidence.clean(r,e);
+ assert.deepEqual(plan.cases[0].evidenceIds,['m1:e1']);assert.deepEqual(plan.cases[0].hypotheses[0].support,['m1:e2']);assert.deepEqual(plan.cases[0].hypotheses[0].against,[]);
+ assert.equal(plan.removedReferences,4);assert.equal(plan.cases[0].untraceable,undefined);
+ assert.equal(plan.cases[0].summary,'Ändrat mönster.');assert.deepEqual(plan.cases[1],untouched.cases[1],'Other cases are untouched');
+ assert.deepEqual(plan.order,['m1','m2']);
+});
+test('A case left without any valid evidence is kept but marked as untraceable',()=>{
+ const f=fixture();f.mode='triage';f.cases.push({...structuredClone(f.cases[0]),caseId:'m2'});const e=Evidence.build(f);
+ const r=result(e);r.cases[1].evidenceIds=['m2:e99',42];
+ const plan=Evidence.clean(r,e);
+ assert.equal(plan.cases[1].untraceable,true);assert.deepEqual(plan.cases[1].evidenceIds,[]);assert.equal(plan.removedReferences,2);
+ assert.deepEqual(plan.cases[1].nextChecks,['Kontrollera på plats.']);assert.equal(plan.cases[0].untraceable,undefined);
+ const empty=result(e);empty.cases[0].evidenceIds=[];assert.equal(Evidence.clean(empty,e).cases[0].untraceable,true);
+ const forged=result(e);forged.cases[0].untraceable=true;assert.equal(Evidence.clean(forged,e).cases[0].untraceable,undefined,'Only the server decides the marking');
+});
+test('Structural faults still reject the whole plan: missing or duplicated cases, wrong order length, malformed lists',()=>{
+ const f=fixture();f.mode='triage';f.cases.push({...structuredClone(f.cases[0]),caseId:'m2'});const e=Evidence.build(f);
+ for(const [mutate,code] of [[r=>r.order=['m1','m1'],'AI_PLAN_STRUCTURE'],[r=>r.order=['m1'],'AI_PLAN_STRUCTURE'],[r=>r.order=['m1','m2','m1'],'AI_PLAN_STRUCTURE'],
+   [r=>r.cases.pop(),'AI_PLAN_STRUCTURE'],[r=>r.cases[1].caseId='m1','AI_CASE_ID'],[r=>r.cases[1].caseId='m7','AI_CASE_ID'],
+   [r=>r.cases[0].evidenceIds='m1:e1','AI_CASE_EVIDENCE_LIST'],[r=>delete r.cases[0].evidenceIds,'AI_CASE_EVIDENCE_LIST'],
+   [r=>r.cases[0].evidenceIds=Array(61).fill('m1:e1'),'AI_CASE_EVIDENCE_LIST'],
+   [r=>r.cases[0].hypotheses[0].support=null,'AI_HYPOTHESIS'],[r=>r.cases[0].hypotheses[0]=null,'AI_HYPOTHESIS'],[r=>r.cases[0].summary='','AI_CASE_SUMMARY']]){
+   const r=result(e);mutate(r);assert.throws(()=>Evidence.clean(r,e),{code});
+ }
+});
+test('The endpoint returns a plan with removed references, reports the count and logs counts only',async()=>{
+ const code='synthetic-access-code-at-least-24',logs=[],info=console.info;console.info=(...a)=>logs.push(a);
+ try{
+  const h=createHandler({env:{ANTHROPIC_API_KEY:'not-real',LEAKSOK_AI_ACCESS_CODE:code},fetcher:async(url,opts)=>{
+    const input=JSON.parse(JSON.parse(opts.body).messages[0].content),r=result(input);r.cases[0].evidenceIds=['m1:e99'];r.cases[0].hypotheses[0].support=['m1:e1','m3:e1'];
+    return {ok:true,json:async()=>({model:'test',stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify(r)}],usage:{input_tokens:100,output_tokens:900,output_tokens_details:{thinking_tokens:400}}})};
+  }});
+  let status,data;const res={setHeader(){},status(n){status=n;return this},json(v){data=v},end(){}};
+  await h({method:'POST',headers:{authorization:`Bearer ${code}`,'content-type':'application/json',host:'example.test'},body:fixture()},res);
+  assert.equal(status,200);assert.equal(data.review.removedReferences,2);assert.equal(data.review.cases[0].untraceable,true);assert.deepEqual(data.review.cases[0].hypotheses[0].support,['m1:e1']);
+  assert.equal(logs.length,1);assert.equal(logs[0][0],'ai-review-complete');
+  assert.deepEqual(Object.keys(logs[0][1]).sort(),['cases','maxTokens','outputTokens','removedReferences','seconds','thinkingTokens','untraceableCases']);
+  assert.ok(Object.values(logs[0][1]).every(Number.isInteger),'Only counts are logged, never evidence or readings');
+  assert.deepEqual([logs[0][1].removedReferences,logs[0][1].untraceableCases,logs[0][1].thinkingTokens],[2,1,400]);
+ }finally{console.info=info;}
+});
+test('max_tokens leaves room for both thinking and a wordy 24-case answer',()=>{
+ const {maxTokens}=require('../api/ai-review'),cases=n=>({length:n});
+ assert.equal(maxTokens({version:3,cases:cases(24)}),21000);assert.equal(maxTokens({version:3,cases:cases(5)}),9125);
+ assert.equal(maxTokens({version:2,cases:cases(1)}),7000);assert.equal(maxTokens({version:2,cases:cases(8)}),21000);
+ // docs/AI-BUDGET.md: a wordy case is at most about 600 tokens; thinking must still fit.
+ const wordy=24*600+600;assert.ok(maxTokens({version:3,cases:cases(24)})-wordy>=5000);
+ assert.ok(maxTokens({version:3,cases:cases(24)})<21333,'Stay below the non-streaming guidance');
 });
 test('Selected neighbours have anonymous proximity evidence, while invalid pair identities cannot pass',()=>{
  const f=fixture();f.mode='triage';f.cases.push({...structuredClone(f.cases[0]),caseId:'m2'});f.relations=[{a:'m1',b:'m2',distanceMeters:35,independentAddress:true}];
@@ -63,7 +111,7 @@ test('Changing old data invalidates the audit fingerprint even outside the recen
 test('The v2 endpoint forwards computed evidence, validates references, caches and keeps v1 compatibility',async()=>{
  const code='synthetic-access-code-at-least-24';let calls=0,modelInput;
  const h=createHandler({env:{ANTHROPIC_API_KEY:'not-real',LEAKSOK_AI_ACCESS_CODE:code},fetcher:async(url,opts)=>{
-   calls++;const sent=JSON.parse(opts.body);assert.equal(sent.max_tokens,5000);assert.equal(sent.output_config.effort,'medium');modelInput=JSON.parse(sent.messages[0].content);
+   calls++;const sent=JSON.parse(opts.body);assert.equal(sent.max_tokens,7000);assert.equal(sent.output_config.effort,'medium');modelInput=JSON.parse(sent.messages[0].content);
    return {ok:true,json:async()=>({model:'test',stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify(result(modelInput))}],usage:{input_tokens:100,output_tokens:100}})};
  }});
  const run=async()=>{let status,data;const res={setHeader(){},status(n){status=n;return this},json(v){data=v},end(){}};await h({method:'POST',headers:{authorization:`Bearer ${code}`,'content-type':'application/json',host:'example.test'},body:fixture()},res);return {status,data}};
@@ -92,12 +140,12 @@ test('Provider schema stays compact while server enforces exact selected evidenc
  assert.deepEqual(s.properties.order.items.enum,['m1','m2']);assert.deepEqual(s.properties.cases.items.properties.caseId.enum,['m1','m2']);
  assert.ok(JSON.stringify(s).length<2000);
  const r=result(input);r.cases[0].evidenceIds=input.cases[0].evidence.map(e=>e.id);assert.doesNotThrow(()=>Evidence.clean(r,input));
- r.cases[0].evidenceIds=['m2:e1'];assert.equal(Evidence.clean(r,input).cases[0].evidenceIds[0],'m2:e1');r.cases[0].evidenceIds=['m2:e99'];assert.throws(()=>Evidence.clean(r,input));
+ r.cases[0].evidenceIds=['m2:e1'];assert.equal(Evidence.clean(r,input).cases[0].evidenceIds[0],'m2:e1');r.cases[0].evidenceIds=['m2:e99'];assert.equal(Evidence.clean(r,input).cases[0].untraceable,true);
 });
 
-test('Provider enum casing is canonicalised without accepting unknown references',()=>{
+test('Provider enum casing is canonicalised; unknown references are removed, never accepted',()=>{
  const e=Evidence.build(fixture()),r=result(e);r.order=['M1'];r.cases[0].caseId='M1';r.cases[0].evidenceIds=['M1:E1'];r.cases[0].hypotheses[0].support=['M1:E1'];
- assert.equal(Evidence.clean(r,e).cases[0].evidenceIds[0],'m1:e1');r.cases[0].evidenceIds=['M2:E1'];assert.throws(()=>Evidence.clean(r,e),{code:'AI_EVIDENCE_MEMBERSHIP'});
+ assert.equal(Evidence.clean(r,e).cases[0].evidenceIds[0],'m1:e1');r.cases[0].evidenceIds=['M2:E1'];const stripped=Evidence.clean(r,e);assert.deepEqual(stripped.cases[0].evidenceIds,[]);assert.equal(stripped.removedReferences,1);
 });
 
 test('Every case including a seasonal one requires at least one follow-up check',()=>{

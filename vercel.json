@@ -4,7 +4,7 @@
       "maxDuration": 60
     },
     "api/ai-review.js": {
-      "maxDuration": 120
+      "maxDuration": 150
     }
   },
   "headers": [
