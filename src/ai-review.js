@@ -56,7 +56,13 @@
       selected.push(r);degree.set(r.a,(degree.get(r.a)||0)+1);degree.set(r.b,(degree.get(r.b)||0)+1);
       if(selected.length===ReviewPlan.MAX_RELATIONS)break;
     }
-    return {version:3,mode:plan.mode,examined:plan.examined,candidates:plan.candidates,exportDate,cases,relations:selected};
+    const packet={version:3,mode:plan.mode,examined:plan.examined,candidates:plan.candidates,exportDate,cases,relations:selected};
+    if(plan.mode==='daily'){
+      const memory=ReviewPlan.memory(context.previousReport,meters,context.labels);
+      packet.previousPlan=memory?.previousPlan||null;
+      if(memory)cases.forEach((c,i)=>{c.previous=memory.cases[i];});
+    }
+    return packet;
   }
   let active = null, operation = null, owner = null, journal = {}, epoch = 0;
   let config = null, configAt = 0, configRequest = null, autoTimer = 0, sessionBusy = false;
@@ -216,7 +222,9 @@
   function evidencePacket(snapshot) {
     const { plan, context } = snapshot;
     if (!snapshot.data && plan.meters.length) {
-      snapshot.data = packet(plan.meters, context, snapshot.kind === 'daily' || plan.examined > 1 ? plan : null);
+      // Yesterday's plan comes from this profile's own journal, read when the packet is built.
+      const previousReport = snapshot.kind === 'daily' && owner === workspace()?.profileId ? journal.report : null;
+      snapshot.data = packet(plan.meters, { ...context, previousReport }, snapshot.kind === 'daily' || plan.examined > 1 ? plan : null);
     }
     return snapshot.data;
   }

@@ -96,6 +96,27 @@
     return { mode, examined: meters.length, candidates: eligible.length, meters: chosen,
       vendorSelected: chosen.filter(vendor).length };
   }
-  return { ALGORITHM, MAX_CASES, MAX_RELATIONS, FIELD_PREVIEW, dayKey, fieldCheck, fieldOrder, fieldPreview, contextKey, shortlist };
+  // Memory between days. Yesterday's saved plan stays on this device; only the
+  // place in that plan and the decision recorded since then leave it, bound to
+  // today's anonymous case order. No address, serial number or comment.
+  const DECISIONS = ['manual_dispatch','interesting','customer_contact','leak','repaired','seasonal','known_noise','new_install','reset_baseline','ignored','district_heating','large_building','pump','false_alarm'];
+  function memory(report, meters, labels = {}, today = dayKey()) {
+    const order = report?.result?.review?.order;
+    if (!report || !/^\d{4}-\d{2}-\d{2}$/.test(report.day || '') || report.day >= today) return null;
+    if (report.result && !Array.isArray(order)) return null;
+    const links = new Map(Array.isArray(report.links) ? report.links : []), ranks = new Map();
+    (order || []).forEach((caseId, i) => { const id = links.get(caseId)?.id; if (id != null && !ranks.has(String(id))) ranks.set(String(id), i + 1); });
+    const selected = (order || []).length, madeAt = Date.parse(report.createdAt);
+    if (selected > MAX_CASES) return null;
+    return { previousPlan: { day: report.day, selected }, cases: meters.map(m => {
+      const rank = ranks.get(String(m.id));
+      if (!rank) return null;
+      const label = labels[m.id] || m.label || {}, at = Date.parse(label.at);
+      const type = ['watch','suspect'].includes(label.type) ? 'interesting' : label.type;
+      const decided = DECISIONS.includes(type) && label.source !== 'inbyggt facit' && Number.isFinite(at) && Number.isFinite(madeAt) && at > madeAt && at <= Date.now();
+      return { rank, decisionSince: decided ? type : 'none', decisionDate: decided ? dayKey(new Date(at)) : null };
+    }) };
+  }
+  return { ALGORITHM, MAX_CASES, MAX_RELATIONS, FIELD_PREVIEW, dayKey, fieldCheck, fieldOrder, fieldPreview, contextKey, shortlist, memory };
 }));
 

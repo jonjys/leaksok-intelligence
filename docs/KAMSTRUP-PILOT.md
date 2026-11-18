@@ -9,6 +9,7 @@ Värdet att prova är ett tydligt arbetsflöde från exporterad signal till en m
 - Adresskarta och lokalt markerade fall över filter och flikar.
 - Serverberäknade belägg från samma regelmotor, med månadsvärden, tidigare år och registrerade läck-/lagdatum.
 - Claude som tolkningsstöd för en mätare eller en prioriterad kortlista på högst 24 fall, med validerade beläggshänvisningar och kontrollordning.
+- Minne mellan dagar i den dagliga planen: plats i föregående plan och beslut som registrerats sedan dess följer med per fall-ID, utan adresser, serienummer eller kommentarer. Föregående plan läses från enhetens egen dagjournal.
 - Export av kontrollplan med osäkerheter, tidsstämpel, modell, analysversion och fingeravtryck. Spara arbetsytans säkerhetskopia tillsammans med rapporten för reproduktion.
 
 ## Fältpilot och acceptans

@@ -126,7 +126,7 @@ function createHandler({ env = process.env, fetcher = (...args) => fetch(...args
       stage = 'validation';
       const review = evidenceMode ? Evidence.clean(parsed,input) : cleanResult(parsed);
       const result = { review, model: data.model || MODEL, createdAt: new Date(now()).toISOString(),
-        ...(evidenceMode ? { evidence: input, promptVersion: compact ? 'daily-plan-3.0' : 'field-plan-2.0' } : {}),
+        ...(evidenceMode ? { evidence: input, promptVersion: compact ? Evidence.PLAN_PROMPT_VERSION : 'field-plan-2.0' } : {}),
         usage: { inputTokens: Number(data.usage?.input_tokens) || 0, outputTokens: Number(data.usage?.output_tokens) || 0 }, cached: false };
       // Counts only: never evidence, readings or text from the plan.
       console.info('ai-review-complete', { cases: input.cases?.length || 1, maxTokens: limit, outputTokens, thinkingTokens,

@@ -5,10 +5,17 @@ const History = require('../src/history');
 const Engine = require('../src/engine');
 const { MAX_CASES, MAX_RELATIONS } = require('../src/review-plan');
 const VERSION = 'leaksok-evidence-2.0';
-const PLAN_VERSION = 'leaksok-plan-3.0';
+const PLAN_VERSION = 'leaksok-plan-3.1';
+const PLAN_PROMPT_VERSION = 'daily-plan-3.1';
 const DAY = 86400000;
 const MAX_REFERENCES = 60;
 const decisions = ['none','manual_dispatch','interesting','customer_contact','leak','repaired','seasonal','known_noise','new_install','reset_baseline','ignored','district_heating','large_building','pump','false_alarm'];
+// Decisions recorded after the previous plan. An outcome means the check is done;
+// the others are intentions whose result is still unknown.
+const since = {leak:['konstaterad läcka',true],repaired:['lagad läcka',true],false_alarm:['störning/falsklarm',true],known_noise:['störning/falsklarm',true],
+  seasonal:['säsong/känd värmepanna',true],district_heating:['fjärrvärme',true],large_building:['höghus/stor byggnad',true],pump:['undercentral/pump',true],
+  manual_dispatch:['utryckning beslutad (Åk ut)',false],customer_contact:['efter mätare, kontakt med fastighetsägare',false],interesting:['bevakas',false],
+  new_install:['nyuppsatt, avvakta',false],reset_baseline:['jämförelsenivån nollställd',false],ignored:['ignoreras',false]};
 const validDate = v => typeof v === 'string' && /^20\d\d-\d\d-\d\d$/.test(v) && !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0,10) === v;
 const day = v => new Date(`${v}T12:00:00Z`);
 const key = v => v instanceof Date ? v.toISOString().slice(0,10) : null;
@@ -16,8 +23,8 @@ const count = v => Number.isInteger(v) && v >= 0 && v <= 10000000;
 const value = v => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1000000;
 const only = (o, keys) => o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).every(k => keys.includes(k));
 const fail = () => { throw Error('Ogiltigt kontrollunderlag. Endast strukturerade mätuppgifter utan identiteter accepteras.'); };
-function validateCase(c, i, exportDate, limit) {
-  if (!only(c, ['caseId','readings','totalReadingDays','codes','minimumFlow','vendor','decision','incidents','areaGroup','importQuality','interference']) || c.caseId !== `m${i+1}`) fail();
+function validateCase(c, i, exportDate, limit, previousPlan = null) {
+  if (!only(c, ['caseId','readings','totalReadingDays','codes','minimumFlow','vendor','decision','incidents','areaGroup','importQuality','interference',...(previousPlan?['previous']:[])]) || c.caseId !== `m${i+1}`) fail();
   if (!Array.isArray(c.readings) || c.readings.length < 1 || c.readings.length > 1460 || !count(c.totalReadingDays) || c.totalReadingDays < c.readings.length) fail();
   let prev = '';
   const readings = c.readings.map(p => {
@@ -62,15 +69,27 @@ function validateCase(c, i, exportDate, limit) {
   if (!only(c.importQuality,['exportRows','reexports','missingValues','undated','conflicts'])) fail();
   for (const k of ['exportRows','reexports','missingValues','undated','conflicts']) if (!count(c.importQuality[k])) fail();
   if(!only(c.interference,['districtHeating','largeSubstation'])||typeof c.interference.districtHeating!=='boolean'||typeof c.interference.largeSubstation!=='boolean')fail();
-  return {caseId:c.caseId,readings,totalReadingDays:c.totalReadingDays,codes,minimumFlow,vendor:{...c.vendor},decision:{...d},incidents,areaGroup,importQuality:{...c.importQuality},interference:{...c.interference}};
+  // Memory between days: place in the previous plan and the decision recorded
+  // since then. Structured values only; the client maps yesterday's case to today's.
+  let previous=null;
+  if (c.previous !== undefined && c.previous !== null) {
+    const p=c.previous;
+    if (!only(p,['rank','decisionSince','decisionDate']) || !Number.isInteger(p.rank) || p.rank < 1 || p.rank > previousPlan.selected
+      || !decisions.includes(p.decisionSince) || (p.decisionSince === 'none') !== (p.decisionDate === null)
+      || (p.decisionDate !== null && (!validDate(p.decisionDate) || p.decisionDate < previousPlan.day))) fail();
+    previous={rank:p.rank,decisionSince:p.decisionSince,decisionDate:p.decisionDate};
+  }
+  return {caseId:c.caseId,readings,totalReadingDays:c.totalReadingDays,codes,minimumFlow,vendor:{...c.vendor},decision:{...d},incidents,areaGroup,importQuality:{...c.importQuality},interference:{...c.interference},
+    ...(previousPlan?{previous}:{})};
 }
+const digest=({previous,...history})=>createHash('sha256').update(JSON.stringify(history)).digest('hex');
 function period(points, from, to) {
   if(to<from)return {from:null,to:null,n:0,median:null,missingDays:0,coverage:0,maxGap:0,pending:true};
   const selected=points.filter(p=>p.date>=from&&p.date<=to), coverage=History.coverage(selected,from,to);
   return {from:key(from),to:key(to),n:selected.length,median:selected.length?Engine.median(selected.map(p=>p.value)):null,
     missingDays:coverage.missingDays,coverage:Math.round(coverage.coverage*1000)/1000,maxGap:coverage.maxGap};
 }
-function buildCase(c, exportDate, compact = false) {
+function buildCase(c, exportDate, compact = false, previousPlan = null) {
   const raw=c.readings.map(p=>({id:c.caseId,address:'',serial:'',readAt:day(p.date),current:p.value}));
   const last=raw.at(-1), latest={...last,average:c.vendor.average,max:c.vendor.maximum,interestRank:c.vendor.interestRank,
     infoCode:[...['leak','burst','dry','reverse','tamper','noConsumption'].filter(k=>c.codes[k]).map(k=>k.toUpperCase()),...(c.codes.afterMeterText?['läcka efter mätaren']:[])].join(' '),
@@ -108,11 +127,24 @@ function buildCase(c, exportDate, compact = false) {
     return item;
   });
   if(r.dataQuality.length||r.missing.length) add('Reservationer',[...r.dataQuality,...r.missing].slice(0,compact?3:undefined).join(' '));
+  if(compact&&previousPlan){
+    const p=c.previous,source='lokal dagjournal; fall-ID:n är nya varje dag och kopplingen mellan dagarna är gjord lokalt';
+    if(!p)add('Föregående plan',`Nytt i kortlistan: fallet fanns inte i föregående plan ${previousPlan.day}.`,source);
+    else{
+      const [label,outcome]=since[p.decisionSince]||[];
+      add('Föregående plan',`Fanns i föregående plan ${previousPlan.day} på plats ${p.rank} av ${previousPlan.selected}. ${!label
+        ?'Inget nytt beslut är registrerat sedan dess; det är okänt om kontrollen har gjorts.'
+        :`Beslut registrerat ${p.decisionDate}, efter den planen: ${label}. ${outcome
+          ?'Det är ett utfall: kontrollen är gjord och ska inte föreslås igen.'
+          :'Det är en planerad åtgärd utan registrerat utfall: upprepa den inte som ny kontroll, ange vad som återstår.'}`}`,
+        source,{previousRank:p.rank,previousSelected:previousPlan.selected,decisionSince:p.decisionSince,decisionDate:p.decisionDate});
+    }
+  }
   if(compact){
     if(r.excel.P!=null) add('Mot snitt i exporten',`E ${r.excel.E}, F ${r.excel.F}; P ${Engine.fmtPct(r.excel.P)}. Avvikelse i samma exportrad, inte sannolikhet.`,'exportvärden');
     add('Senaste avläsningar','Högst fem faktiska avläsningsdagar. Luckor fylls inte.','importerade avläsningar',c.readings.slice(-5));
     return {caseId:c.caseId,evidence:facts,serverCategory:r.category,confidence:r.confidence,
-      historyDigest:createHash('sha256').update(JSON.stringify(c)).digest('hex')};
+      historyDigest:digest(c)};
   }
   const monthly=new Map();
   for(const p of hist.series){const k=key(p.date).slice(0,7);if(!monthly.has(k))monthly.set(k,[]);monthly.get(k).push(p.value);}
@@ -121,15 +153,25 @@ function buildCase(c, exportDate, compact = false) {
   add('Månadsmönster',`${Math.min(48,monthly.size)} av ${monthly.size} observerade månader visas; antal avläsningsdagar är n. Ingen värmekälla eller väderdata är känd.`,'beräknat från importerade avläsningar',[...monthly].slice(-48).map(([month,values])=>({month,n:values.length,median:Engine.median(values),min:Math.min(...values),max:Math.max(...values)})));
   add('Aktuell kurva','Högst 30 senaste faktiska avläsningsdagar, inte interpolerade kalenderdagar.','importerade avläsningar',c.readings.slice(-30));
   return {caseId:c.caseId,evidence:facts,serverCategory:r.category,confidence:r.confidence,
-    historyDigest:createHash('sha256').update(JSON.stringify(c)).digest('hex')};
+    historyDigest:digest(c)};
 }
 function build(body) {
   const compact=body?.version===3, limit=compact?MAX_CASES:8;
-  const fields=['version','mode','exportDate','cases','relations',...(compact?['examined','candidates']:[])];
+  const daily=compact&&body.mode==='daily';
+  const fields=['version','mode','exportDate','cases','relations',...(compact?['examined','candidates']:[]),...(daily?['previousPlan']:[])];
   if(!only(body,fields)||![2,3].includes(body.version)||!(compact?['daily','selection']:['meter','triage']).includes(body.mode)
       ||!validDate(body.exportDate)||!Array.isArray(body.cases)||body.cases.length<1||body.cases.length>limit||(body.mode==='meter'&&body.cases.length!==1))fail();
   if(compact&&(!count(body.examined)||!count(body.candidates)||body.cases.length>body.candidates||body.candidates>body.examined))fail();
-  const cases=body.cases.map((c,i)=>validateCase(c,i,body.exportDate,limit)).map(c=>buildCase(c,body.exportDate,compact));
+  let previousPlan=null;
+  if(daily&&body.previousPlan!==undefined&&body.previousPlan!==null){
+    const p=body.previousPlan;
+    if(!only(p,['day','selected'])||!validDate(p.day)||!Number.isInteger(p.selected)||p.selected<0||p.selected>MAX_CASES)fail();
+    previousPlan={day:p.day,selected:p.selected};
+  }
+  const checked=body.cases.map((c,i)=>validateCase(c,i,body.exportDate,limit,previousPlan));
+  const ranks=checked.filter(c=>c.previous).map(c=>c.previous.rank);
+  if(new Set(ranks).size!==ranks.length)fail();
+  const cases=checked.map(c=>buildCase(c,body.exportDate,compact,previousPlan));
   if(body.relations!==undefined&&!Array.isArray(body.relations))fail();
   const relations=body.relations||[],pairs=new Set();if(relations.length>(compact?MAX_RELATIONS:28))fail();
   for(const r of relations){
@@ -140,6 +182,8 @@ function build(body) {
   }
   return {version:body.version,algorithmVersion:compact?PLAN_VERSION:VERSION,mode:body.mode,exportDate:body.exportDate,cases,relations,
     ...(compact?{examined:body.examined,candidates:body.candidates}:{}),
+    ...(daily?{previousPlan:previousPlan?{...previousPlan,carried:ranks.length,newCases:cases.length-ranks.length,
+      decidedSince:checked.filter(c=>c.previous&&c.previous.decisionSince!=='none').length}:null}:{}),
     scope:compact?'Regelmotorn har gått igenom arbetsytan eller markeringen lokalt. Claude bedömer endast kortlistan. Ingen nätövergripande slutsats eller läcklokalisering.'
       :'Endast uttryckligen valda mätare. Ingen nätövergripande slutsats eller läcklokalisering. Inga identiteter eller ledningsdata.'};
 }
@@ -203,5 +247,6 @@ const prompt=`Du är VA-driftens analysassistent. Underlaget är serverberäknat
 Bakgrund: Kamstrup FILE100004503_A_EN_08.2024 beskriver kurvbeteende framför absolut brusnivå, ny bestående ökning, gradvis ökning, återkommande förändringar, grannsamband, pump-/värmestörning samt kontroll av spolning, värme, rörarbete och ny pump före utryckning. Det är kvalitativa råd, inte numeriska gränser eller bevisad träffsäkerhet för LeakSök. Brusvärdet har ingen angiven fysisk enhet. Flöde ska ha datum, kan vara legitim förbrukning och fastställer inte läckans läge. Adressnärhet bevisar inte samma ledning.
 Samstämmiga ökningar hos separata närliggande adresspunkter får motivera hypotes om gemensam läcka, även på huvudledning, men ställ den mot spolning, tryck/drift och värme. Kräv ledningsuppgifter och kontroll i fält innan en sådan koppling fastställs. Anta aldrig närhet bara för att flera mätare valts.
 Svara kort på svenska. order ska innehålla varje caseId exakt en gång som föreslagen kontrollordning, inte riskprocent. Ge summary och gemensamma sharedChecks utan påhittade samband. cases ska vara en lista med exakt ett fall per valt caseId. Använd bara belägg-ID:n exakt som de står i underlaget, till exempel m1:e1. Högst sex välvalda belägg i evidenceIds. Varje fall ska ha giltiga evidenceIds; varje hypotes ska ange support och against som ID-listor (tom lista om belägg saknas) samt en konkret check som kan skilja orsakerna åt. Referera giltiga belägg från de valda fallen. Gemensamma hypoteser får hänvisa till båda mätarnas faktiska belägg; ID-prefixet anger vilken mätare källan gäller. Närhet måste ha separat stöd i relationsunderlaget. Högst två hypoteser och en till tre korta nästa kontroller per fall. nextChecks får aldrig vara tom: ange uppföljning även för säsong eller låg prioritet. Högst sex punkter i sharedChecks och limitations. Varje textfält högst 1 500 tecken. Förklara vad som skulle ändra bedömningen. Ingen fri chatt, inga verktyg eller externa datakällor. Nätets topologi, modellvariant, mätarstorlek, tryck och rörmaterial saknas.`;
-const planPrompt=prompt+`\nFör kortlistan: ange de mest motiverade nästa kontrollerna först, med kundsidans LEAK/BURST som en separat typ av kontroll. Var kort: högst 45 ord i varje falls sammanfattning, en hypotes, en konkret nästa kontroll och en kort osäkerhet. Ge verklig text i sharedChecks och limitations, inte fall-ID:n. Ge exakt ett fall för varje inskickad mätare. Påstå aldrig att du sett övriga mätare som bara passerat den lokala gallringen. Skillnader i rapporterat antal är inte läckor. En fältkontroll är ett förslag, och en ensam hög avläsning är inte en bekräftad läcka.`;
-module.exports={build,clean,schema,schemaFor,prompt,planPrompt,VERSION,PLAN_VERSION,MAX_CASES};
+const planPrompt=prompt+`\nFör kortlistan: ange de mest motiverade nästa kontrollerna först, med kundsidans LEAK/BURST som en separat typ av kontroll. Var kort: högst 45 ord i varje falls sammanfattning, en hypotes, en konkret nästa kontroll och en kort osäkerhet. Ge verklig text i sharedChecks och limitations, inte fall-ID:n. Ge exakt ett fall för varje inskickad mätare. Påstå aldrig att du sett övriga mätare som bara passerat den lokala gallringen. Skillnader i rapporterat antal är inte läckor. En fältkontroll är ett förslag, och en ensam hög avläsning är inte en bekräftad läcka.
+Minne mellan dagar: previousPlan och belägget "Föregående plan" visar vilka fall som fanns i förra planen, deras plats då och vilka beslut som registrerats sedan dess. Fall-ID:n är nya varje dag; jämför aldrig ID mellan dagar. Börja summary med vad som är nytt sedan föregående plan: antal nya fall, fall som står kvar och beslut som tillkommit. Ett utfall som registrerats sedan förra planen (läcka, lagad, falsklarm, säsong, känd störkälla) betyder att kontrollen är gjord: föreslå den inte igen. Ange i stället vad som återstår, eller vad i kurvan som skulle motivera en ny kontroll trots utfallet. En planerad åtgärd utan utfall (utryckning beslutad, kundkontakt, bevakas) ska inte föreslås en gång till; säg vad som saknas för att avsluta den. För fall som står kvar utan nytt beslut: säg att förslaget kvarstår och anta inte att kontrollen har gjorts. Hänvisa till belägget "Föregående plan" när bedömningen bygger på det. Saknas previousPlan eller är den null finns ingen tidigare plan: skriv då inget om gårdagen och hitta inte på historik.`;
+module.exports={build,clean,schema,schemaFor,prompt,planPrompt,VERSION,PLAN_VERSION,PLAN_PROMPT_VERSION,MAX_CASES};
