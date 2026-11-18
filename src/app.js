@@ -24,6 +24,7 @@
     { key: "all", label: "Alla mätare", test: () => true },
     { key: "dispatch", label: "Åk ut", test: (m) => m.category === "dispatch" },
     { key: "suspect", label: "Misstänk", test: (m) => m.category === "suspect_auto", hint: "Automatisk upptäckt" },
+    { key: "worklist", label: "Arbetslista", test: (m) => state.tripList.some((e) => e.id === m.id), hint: "Mätarna du lagt i arbetslistan, oavsett status" },
     { key: "watch", label: "Bevaka", test: (m) => m.category === "watch", hint: "Din manuella lista" },
     { group: true, key: "customer_side", label: "Efter mätare", test: (m) => m.category === "customer_side" },
     { key: "confirmed", label: "Aktiva läckor", test: (m) => m.category === "confirmed" },
@@ -38,7 +39,7 @@
     { key: "hidden", label: "Dolda", test: () => true, more: true },
   ];
   const LIST = Object.fromEntries(LISTS.map((l) => [l.key, l]));
-  const PRIMARY_LISTS = ["today", "dispatch", "suspect", "all"];
+  const PRIMARY_LISTS = ["today", "dispatch", "suspect", "all", "worklist"];
 
   const DEFAULT_HIDDEN = ["customer_side", "noise", "seasonal", "ignored"];
   const DECISIONS = [
@@ -392,6 +393,8 @@
 
   function inList(m, key) {
     if (key === "hidden") return hidden(m);
+    // Arbetslistan är ditt eget urval: dolda och filtrerade kategorier visas ändå.
+    if (key === "worklist") return LIST.worklist.test(m);
     if (state.labels[m.id]?.hidden === true) return false;
     if (state.excluded.has(m.category) && state.labels[m.id]?.hidden !== false && !LIST[key]?.group) return false;
     return LIST[key].test(m);
@@ -439,7 +442,7 @@
   function renderRail() {
     const counts = Object.fromEntries(LISTS.map((l) => [l.key, 0]));
     for (const m of state.meters) for (const l of LISTS) if (inList(m, l.key)) counts[l.key]++;
-    const icons = { today: "✦", all: "◉", dispatch: "!", suspect: "?", watch: "◎", confirmed: "●", repaired: "✓", stable_high: "↔", learning: "◷", stale_contact: "○", hidden: "⊘" };
+    const icons = { today: "✦", all: "◉", dispatch: "!", suspect: "?", watch: "◎", worklist: "▤", confirmed: "●", repaired: "✓", stable_high: "↔", learning: "◷", stale_contact: "○", hidden: "⊘" };
     const button = (l) => `<button type="button" data-list="${l.key}" aria-label="${esc(l.label)} (${counts[l.key]})" aria-pressed="${state.list === l.key}" title="${esc(l.hint || l.label)}"><i class="rail-icon" aria-hidden="true">${icons[l.key] || "○"}</i><span>${esc(l.label)}</span><b>${counts[l.key].toLocaleString("sv-SE")}</b></button>`;
     const main = PRIMARY_LISTS.map(key => LIST[key]);
     const more = LISTS.filter(l => !PRIMARY_LISTS.includes(l.key));
@@ -1136,6 +1139,7 @@
     getComment: (id) => state.labels[id]?.comment ?? state.labels[id]?.note ?? "",
     setComment: (id, text) => { setComment(id, text); },
     persist: () => persist(), onChange: () => render(), notify: (t) => toast(t),
+    onShowMap: () => setList("worklist"),
   });
   function addToWorklist(ids) {
     const { added, already } = worklist.add(ids);

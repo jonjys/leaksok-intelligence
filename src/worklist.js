@@ -74,7 +74,8 @@
           <button type="button" class="secondary" data-act="all" ${total ? "" : "disabled"}>Välj alla i arbetslistan (${total})</button>
           <button type="button" class="secondary" data-act="none" ${count ? "" : "disabled"}>Avmarkera</button>
           <button type="button" class="primary" data-act="export" ${count ? "" : "disabled"}>Excel (${count} mätare)</button>
-          <button type="button" class="secondary" data-act="copy" ${count ? "" : "disabled"}>Kopiera (${count})</button>`;
+          <button type="button" class="secondary" data-act="copy" ${count ? "" : "disabled"}>Kopiera (${count})</button>
+          <button type="button" class="secondary" data-act="map" ${total ? "" : "disabled"}>Visa på karta (${total})</button>`;
       dialog.querySelector(".wl-foot").innerHTML = `
           <button type="button" class="secondary" data-act="remove" ${count ? "" : "disabled"}>Ta bort valda ur listan</button>
           <button type="button" class="secondary danger-text" data-act="clear" ${entries().length ? "" : "disabled"}>Töm listan</button>`;
@@ -104,6 +105,7 @@
         return;
       }
       if (act === "close") dialog.close();
+      if (act === "map") { dialog.close(); api.onShowMap?.(); return; }
       if (act === "all") { known().forEach((e) => picked.add(e.id)); renderTools(); }
       if (act === "none") { picked.clear(); renderTools(); }
       if (act === "remove") {

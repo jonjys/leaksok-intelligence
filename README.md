@@ -82,6 +82,8 @@ Ett separat analyslager söker samtidiga ökningar på minst tre olika adresser.
 
 ## Excel-arbetslista (src/field-export.js, src/xlsx-writer.js)
 
+**Arbetslista** finns också som egen lista i vänstermenyn (i mobilen i listväljaren), och **Visa på karta** i arbetslistans dialog öppnar den direkt. Listan och kartan visar då bara mätarna du lagt i arbetslistan, även sådana i dolda grupper som Efter mätare eller Säsong. Tar du bort en mätare ur arbetslistan försvinner den från kartan direkt.
+
 - **Arbetslista**: Adress, Serienummer (text), Status, Senast avläst, Senaste värde, Förändring sedan föregående (värde och %), Huvudorsak, Rekommenderad kontroll, Kommentar, Utförd (Ej utförd/Klar, raden blir grön). Excel-tabell med filter, fryst rubrik, liggande utskrift en sida bred.
 - **Analysunderlag**: samma mätare med jämförelsedatum, referensvärden, absoluta och procentuella förändringar, jämförelseperiod och definition, antal avläsningar, varaktighet, E/F/G/P, infokoder, datakvalitet och full motivering.
 - **Definitioner**: förklaring av alla mått.
