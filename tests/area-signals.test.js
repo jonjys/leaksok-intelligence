@@ -198,3 +198,15 @@ test('area: broad simultaneous changes carry a drift/season caveat, export prese
   assert.match(wb.sheets[1].rows[0].explanations,/inte fastställda/);
 });
 
+
+test('A sustained modest increase warrants field inspection only with independent spatial support', () => {
+  const files = filesFor(specs(3, {base:20, high:30, onset:24}), 32);
+  const coordinates = new Map([0,1,2].map(j => [String(j), {lat:59.2+j*.0002,lng:17.8}]));
+  const run = (data, positions) => Engine.analyzeAll(data, {}, {coordinates:positions});
+  const local = run(files);
+  assert.ok(local.meters.every(m => m.category === 'suspect_auto' && m.field.blockers.some(b => b.key === 'size')));
+  assert.ok(run(files, coordinates).meters.every(m => m.category === 'dispatch'));
+  assert.ok(run(files.slice(0, 26), coordinates).meters.every(m => m.category !== 'dispatch'));
+  const sameBuilding = new Map([0,1,2].map(j => [String(j),{lat:59.2,lng:17.8}]));
+  assert.ok(run(files, sameBuilding).meters.every(m => m.category !== 'dispatch'));
+});

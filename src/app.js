@@ -478,11 +478,11 @@
     const fieldChecks = state.meters.filter(m => !hidden(m) && ReviewPlan.fieldCheck(m, state.labels)).length;
     els.brief.innerHTML = `
       <div class="brief-row">
-        <div class="brief-heading"><span class="workspace-kicker">DIN SIGNALÖVERSIKT</span><h2>${esc(LIST[state.list]?.label || "Alla mätare")}</h2><p class="brief-date${ageHours > 30 ? " is-old" : ""}">${ageHours > 30 ? "Äldre export" : "Export"} <b>${esc(time)}</b><span title="Avlästa under senaste exportdygnet"> · ${report.fresh.toLocaleString("sv-SE")}/${report.total.toLocaleString("sv-SE")} avlästa</span></p></div>
+        <div class="brief-heading"><span class="workspace-kicker">FÄLTCENTRAL / LÄGESBILD</span><h2>${esc(LIST[state.list]?.label || "Alla mätare")}</h2><p class="brief-date${ageHours > 30 ? " is-old" : ""}">${ageHours > 30 ? "Äldre export" : "Export"} <b>${esc(time)}</b><span title="Avlästa under senaste exportdygnet"> · ${report.fresh.toLocaleString("sv-SE")}/${report.total.toLocaleString("sv-SE")} avlästa</span></p></div>
         <div class="brief-stats" role="group" aria-label="Lägesbild"><button type="button" data-list="today"><b>${report.newToday.length.toLocaleString("sv-SE")}</b><span>Nya signaler</span></button>
           <button type="button" data-list="dispatch"><b>${report.dispatch.toLocaleString("sv-SE")}</b><span>Åk ut</span></button>
           <button type="button" data-field-lane="check"><b>${fieldChecks.toLocaleString("sv-SE")}</b><span>Kontrollera först</span></button></div>
-        <div class="daily-tile"><div><b>Dagens granskning</b><small id="dailyStatusLine">Prioriterar hela beståndet</small></div><button type="button" class="primary" id="dailyButton">Granska idag</button></div>
+        <div class="daily-tile"><div><b>Dagens granskning</b><small id="dailyStatusLine">Från mätdata till nästa kontroll</small></div><button type="button" class="primary" id="dailyButton">Granska idag</button></div>
       </div>`;
     if (state.list === "dispatch") {
       const { ready, check } = state.fieldCounts, lane = state.fieldLaneEffective;

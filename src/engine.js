@@ -964,7 +964,7 @@
     return {
       ready: blockers.length === 0,
       review: !!(fresh && (rise || r.kamstrupInterest || r.codes.acousticLeak || r.latest?.value >= 100)),
-      corroboratable: blockers.length === 1 && blockers[0].key === "support",
+      corroboratable: blockers.length > 0 && blockers.every(b => b.key === "size" || b.key === "support"),
       blockers,
       reason: r.codes.acousticLeak ? "Bestående ökning med stöd av Leak Detector-händelse." : "Tydlig bestående ökning jämfört med mätarens egen nivå.",
     };
@@ -1114,11 +1114,16 @@
         m.areaSignal = signal;
         m.observations.push(signal.summary);
         m.explanations.push(...signal.notes);
-        if (m.field?.corroboratable && !signal.broad && signal.stage === "repeated" && signal.basis === "position" && signal.buildingCount >= 3) {
+        // A smaller sustained rise can warrant a visit when nearby addresses
+        // independently rise on the same days. The group cannot waive data-quality blockers.
+        const modestRise = m.field?.blockers.some(b => b.key === "size");
+        if (m.field?.corroboratable && !signal.broad && signal.stage === "repeated" && signal.basis === "position"
+            && signal.buildingCount >= 3 && (!modestRise || (signal.stats.simultaneousDays >= 3
+              && signal.stats.medianDelta >= 5 && (m.upFinding?.delta ?? 0) >= 5))) {
           m.category = "dispatch";
           m.categoryLabel = CATEGORY.dispatch.label;
           m.status = CATEGORY.dispatch.status;
-          m.field = { state: "ready", blockers: [], reason: "Bestående ökning på flera separata närliggande adresser." };
+          m.field = { state: "ready", blockers: [], reason: modestRise ? "Mindre men bestående ökning med stöd från flera oberoende adresser." : "Bestående ökning på flera separata närliggande adresser." };
           m.action = actionFor(m);
           m.sortRank = CATEGORY.dispatch.rank * 1000 + m.priority;
         }

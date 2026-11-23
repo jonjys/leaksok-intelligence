@@ -84,6 +84,30 @@
     const compact=data.evidence.version===3;
     node('p',data.review.summary,container,'ai-summary');
     if(data.review.order.length>1)node('p','Föreslagen kontrollordning för kortlistan. Dina beslut och arbetslistan ändras inte.',container,'small');
+    if (compact) {
+      const strip = node('div', null, container, 'ai-brief-strip');
+      const untraceable = data.review.cases.filter(c => c.untraceable || !c.evidenceIds?.length).length;
+      node('span', `${data.review.order.length} granskade`, strip);
+      node('span', `${untraceable} utan spårbara belägg`, strip);
+      const previous = data.evidence.previousPlan;
+      if (previous) node('span', `${previous.newCases} nya · ${previous.carried} återkommande`, strip);
+      const candidates = () => {
+        const s = workspace();
+        if (!s || (active.kind === 'daily' && active.exportKey !== exportKey(s))) return [];
+        return ReviewPlan.actionable(data.review, active.links, s.byId, s.labels);
+      };
+      const ids = candidates();
+      if (ids.length) {
+        const add = node('button', `Lägg ${ids.length} första med belägg i arbetslistan`, strip, 'secondary');
+        add.type = 'button';
+        add.addEventListener('click', () => {
+          const current = candidates();
+          if (current.length) root.LeakApp.addToWorklist(current);
+          add.textContent = current.length ? 'Arbetslistan uppdaterad' : 'Underlaget har ändrats';
+          add.disabled = true;
+        });
+      }
+    }
     const checks=node('section',null,container);
     if(data.review.sharedChecks.length){node('h3','Gemensamma kontroller',checks);const ul=node('ul',null,checks);data.review.sharedChecks.forEach(s=>node('li',s,ul));}
     let more;
@@ -101,7 +125,7 @@
       if(item.untraceable)node('p','Claude angav inga giltiga belägg för det här fallet. Texten kan inte spåras till underlaget; kontrollera mot kurvan innan du agerar.',article,'small');
       if(compact&&item.nextChecks.length){
         const next=node('div',null,article,'ai-next');
-        node('b','Börja här',next);node('p',item.nextChecks[0],next);
+        node('b',item.untraceable ? 'Verifiera innan du agerar' : 'Börja här',next);node('p',item.nextChecks[0],next);
       }else if(item.nextChecks.length){
         node('h4','Nästa kontroll',article);const ol=node('ol',null,article);item.nextChecks.forEach(s=>node('li',s,ol));
       }

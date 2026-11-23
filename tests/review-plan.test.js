@@ -106,3 +106,11 @@ test('Review identity includes the full AI history before a manual reset, and ar
   assert.notEqual(Plan.contextKey([m],{...context,histories:new Map([['1',{series:[{date:'2026-11-08',value:7},...m.series]}]])}),key);
   assert.notEqual(Plan.contextKey([{...m,areaSignal:{...m.areaSignal,neighborhood:{rising:3,total:20}}}],context),key);
 });
+
+test('Worklist batch respects AI order and skips missing, hidden, repaired or untraceable cases', () => {
+  const order = Array.from({length:10}, (_, i) => 'm' + i);
+  const links = new Map(order.map(id => [id, { id }]));
+  const byId = new Map(order.slice(1).map(id => [id, { id, category: id === 'm3' ? 'repaired' : 'normal' }]));
+  const cases = order.map(id => ({caseId:id,evidenceIds:id === 'm4' ? [] : [id + ':e1']}));
+  assert.deepEqual(Plan.actionable({order,cases}, links, byId, {m2:{hidden:true}}), ['m1','m5','m6','m7','m8']);
+});

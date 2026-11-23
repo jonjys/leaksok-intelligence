@@ -6,7 +6,7 @@
   root.LeakReviewPlan = api;
 }(typeof globalThis !== "undefined" ? globalThis : this, function () {
   const MAX_CASES = 24;
-  const ALGORITHM = 'review-20261113';
+  const ALGORITHM = 'review-20261123-area';
   const MAX_RELATIONS = 36;
   const FIELD_PREVIEW = 5;
   const VENDOR_RESERVE = 8;
@@ -117,6 +117,16 @@
       return { rank, decisionSince: decided ? type : 'none', decisionDate: decided ? dayKey(new Date(at)) : null };
     }) };
   }
-  return { ALGORITHM, MAX_CASES, MAX_RELATIONS, FIELD_PREVIEW, dayKey, fieldCheck, fieldOrder, fieldPreview, contextKey, shortlist, memory };
+  // Only traceable cases still present in the workspace qualify for the batch action.
+  function actionable(review, links, byId, labels = {}) {
+    const cases = new Map(review.cases.map(item => [item.caseId, item]));
+    return [...new Set(review.order.flatMap(id => {
+      const item = cases.get(id), local = links.get(id), meter = local && byId.get(local.id);
+      return item && !item.untraceable && item.evidenceIds?.length && meter
+        && !(labels[meter.id]?.hidden ?? meter.label?.hidden)
+        && !['ignored', 'repaired'].includes(meter.category) ? [meter.id] : [];
+    }))].slice(0, FIELD_PREVIEW);
+  }
+  return { ALGORITHM, MAX_CASES, MAX_RELATIONS, FIELD_PREVIEW, dayKey, fieldCheck, fieldOrder, fieldPreview, contextKey, shortlist, memory, actionable };
 }));
 
