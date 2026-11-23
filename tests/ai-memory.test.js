@@ -96,7 +96,7 @@ test('The daily prompt asks what is new since yesterday and forbids repeating fi
   let status, data; const res = { setHeader() {}, status(n) { status = n; return this; }, json(v) { data = v; }, end() {} };
   const info = console.info; console.info = () => {};
   try { await h({ method: 'POST', headers: { authorization: `Bearer ${code}`, 'content-type': 'application/json', host: 'example.test' }, body }, res); } finally { console.info = info; }
-  assert.equal(status, 200); assert.equal(data.promptVersion, 'daily-plan-3.1'); assert.equal(sent.system, Evidence.planPrompt);
+  assert.equal(status, 200); assert.equal(data.promptVersion, 'daily-plan-3.2'); assert.equal(sent.system, Evidence.planPrompt);
   assert.equal(JSON.parse(sent.messages[0].content).previousPlan.carried, 1);
   assert.match(sent.messages[0].content, /lagad läcka/);
 });
