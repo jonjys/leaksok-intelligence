@@ -6,7 +6,7 @@
   root.LeakReviewPlan = api;
 }(typeof globalThis !== "undefined" ? globalThis : this, function () {
   const MAX_CASES = 24;
-  const ALGORITHM = 'review-20261113';
+  const ALGORITHM = 'review-20261123-area';
   const MAX_RELATIONS = 36;
   const FIELD_PREVIEW = 5;
   const VENDOR_RESERVE = 8;
