@@ -1,0 +1,89 @@
+/* Fältläge för telefon: tung text, färgblock och bottenmeny. Bara under 761 px. */
+.today, .field-nav, .field-more { display: none; }
+
+@media (max-width: 760px) {
+  body.field-mode {
+    --f-ink: #0B1A2E; --f-paper: #F4F1EA; --f-red: #E8351F; --f-amber: #FFB000; --f-amber-ink: #8A5A00; --f-blue: #2F6BFF; --f-mute: #5B5348;
+    background: var(--f-paper); color: var(--f-ink); padding-bottom: 84px;
+  }
+  body.field-mode .topbar, body.field-mode .topbar.is-scrolled { background: var(--f-ink); border: 0; box-shadow: none; padding: 10px 16px; }
+  body.field-mode .brand h1 { color: #fff; font-weight: 900; letter-spacing: -.5px; }
+  body.field-mode .brand-caption { color: #FFB000; }
+  body.field-mode .brand-mark { color: var(--f-red); }
+  body.field-mode .top-actions { display: none; }
+
+  /* Idag: bara startskärmen. Karta/Lista: listväljare, sök och arbetsyta. */
+  body.field-mode[data-tab="today"] .rail,
+  body.field-mode[data-tab="today"] #brief,
+  body.field-mode[data-tab="today"] .import-line,
+  body.field-mode[data-tab="today"] .toolbar,
+  body.field-mode[data-tab="today"] .workspace,
+  body.field-mode[data-tab="today"] #sourceLine { display: none !important; }
+  body.field-mode:not([data-tab="today"]) #brief,
+  body.field-mode:not([data-tab="today"]) .import-line { display: none !important; }
+  /* Karta: kartan direkt under listväljaren. */
+  body.field-mode[data-tab="map"] .toolbar,
+  body.field-mode[data-tab="map"] #sourceLine:not(.is-error) { display: none !important; }
+  body.field-mode[data-tab="map"] .map { height: calc(100vh - 330px); min-height: 340px; }
+  body.field-mode[data-tab="today"] .today { display: block; }
+  body.field-mode .work { padding-top: 0; }
+
+  body.field-mode[data-tab="today"] .layout { padding-top: 0; }
+  .today { margin: 0 -10px; }
+  .today-head { background: var(--f-ink); color: #fff; padding: 14px 18px 22px; }
+  .today-head .kicker { font-size: 13px; font-weight: 800; color: #FFB000; text-transform: uppercase; letter-spacing: .6px; margin: 0; }
+  .today-head h2 { font-size: 38px; line-height: 1.02; font-weight: 900; letter-spacing: -1.4px; margin: 10px 0 8px; color: #fff; }
+  .today-head p { margin: 0; font-size: 15px; font-weight: 700; color: #ffffffbf; }
+  .today-warn { margin: 12px 14px 0; padding: 12px 14px; border-radius: 12px; background: #FFE3DC; color: #7A1A0C; font-size: 14px; font-weight: 600; line-height: 1.35; }
+  .today-warn b { display: block; font-weight: 900; }
+  .today-blocks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 14px 14px 0; }
+  .today-blocks .blk { border: 0; border-radius: 14px; padding: 12px 10px 10px; text-align: left; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .4px; min-height: 86px; display: flex; flex-direction: column; justify-content: space-between; }
+  .today-blocks .blk b { font-size: 38px; line-height: 1; letter-spacing: -1.5px; }
+  .blk.red { background: var(--f-red); color: #fff; }
+  .blk.amber { background: var(--f-amber); color: var(--f-ink); }
+  .blk.ink { background: var(--f-ink); color: #fff; }
+  .today-sec { margin: 0; padding: 20px 16px 4px; font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: .8px; color: var(--f-mute); }
+
+  .today-card { background: #fff; margin: 10px 14px; border-radius: 16px; padding: 14px 14px 12px; border-left: 10px solid var(--f-red); box-shadow: 0 2px 0 #0B1A2E14; }
+  .today-card.fresh { border-left-color: var(--f-amber); }
+  .today-card.area { background: var(--f-blue); color: #fff; border-left: 0; }
+  .today-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .today-card .tag { font-size: 11px; font-weight: 900; padding: 4px 8px; border-radius: 6px; text-transform: uppercase; letter-spacing: .5px; border: 0; }
+  .tag.t-red { background: var(--f-red); color: #fff; }
+  .tag.t-amber { background: var(--f-amber); color: var(--f-ink); }
+  .tag.t-ink { background: var(--f-ink); color: #fff; }
+  .tag.t-white { background: #fff; color: var(--f-blue); }
+  .today-card h3 { font-size: 20px; font-weight: 900; letter-spacing: -.3px; margin: 8px 0 0; line-height: 1.15; overflow-wrap: anywhere; }
+  .today-value { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; margin-top: 6px; }
+  .today-value .big { font-size: 44px; font-weight: 900; letter-spacing: -2px; line-height: 1; }
+  .today-value .big span { font-size: 21px; color: #8A8174; letter-spacing: -.5px; }
+  .today-value .pct { font-size: 22px; font-weight: 900; color: var(--f-red); }
+  .today-card.fresh .pct { color: var(--f-amber-ink); }
+  .today-spark { display: block; width: 100%; height: 44px; margin-top: 6px; }
+  .today-card .why { font-size: 14px; font-weight: 600; color: #3D372F; margin: 8px 0 0; line-height: 1.35; }
+  .today-card.area .why { color: #E4ECFF; }
+  .today-card .why.strong { color: #fff; font-weight: 800; }
+  .today-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
+  .today-card.area .today-actions { grid-template-columns: 1fr; }
+  .today-actions button { min-height: 46px; border: 0; border-radius: 12px; background: #EFEAE0; color: var(--f-ink); font-weight: 900; font-size: 14px; padding: 6px 4px; }
+  .today-actions button.dark { background: var(--f-ink); color: #fff; }
+  .today-actions button.light { background: #fff; color: var(--f-blue); }
+  .today-actions button:disabled { opacity: .55; }
+  .today-more, .today-empty button { display: block; width: calc(100% - 28px); margin: 14px; min-height: 52px; border: 0; border-radius: 14px; background: var(--f-ink); color: #fff; font-weight: 900; font-size: 16px; }
+  .today-empty { padding: 8px 0; }
+
+  body.field-mode .field-nav { display: grid; grid-template-columns: repeat(4, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 900; background: var(--f-ink); padding: 8px 6px calc(10px + env(safe-area-inset-bottom)); }
+  .field-nav button { background: none; border: 0; color: #fff; font-weight: 900; font-size: 12px; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+  .field-nav button span { font-size: 20px; line-height: 1; }
+  .field-nav button[aria-pressed="true"] { color: #FFB000; }
+
+  body.field-mode .field-more:not([hidden]) { display: flex; position: fixed; inset: 0; z-index: 1000; background: #0B1A2E99; align-items: flex-end; }
+  .field-more-sheet { width: 100%; background: var(--f-paper); border-radius: 20px 20px 0 0; padding: 14px 14px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 8px; }
+  .field-more-sheet button { min-height: 52px; border: 0; border-radius: 14px; background: #fff; color: var(--f-ink); font-weight: 900; font-size: 16px; text-align: left; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; }
+  .field-more-sheet button b { background: var(--f-amber); border-radius: 999px; padding: 2px 10px; }
+  .field-more-sheet .field-more-close { background: var(--f-ink); color: #fff; justify-content: center; }
+
+  /* Lista och Karta i fältläge: större text och knappar. */
+  body.field-mode .rail-select select { min-height: 48px; font-weight: 800; font-size: 16px; }
+  body.field-mode .toolbar input[type="search"] { min-height: 48px; font-size: 16px; }
+}

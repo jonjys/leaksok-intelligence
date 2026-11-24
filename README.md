@@ -13,6 +13,10 @@ Adressunderlaget är begränsat till Botkyrka och hämtas gemensamt, utan mätar
 
 Mätarpanelen visar senaste brusvärde, förändring sedan föregående avläsning, analyspoäng, underlag och nästa steg. **Visa graf & underlag** öppnar hela grafen och utfällbara jämförelser, bedömningar och poäng. Datakvalitet visas direkt vid tunt underlag, gammal/saknad avläsning, värdekonflikt eller DRY. Grafens korta datatäckning kan utvecklas med **Så läser du grafen**; importspårningen finns kvar separat.
 
+## Fältläge på telefon
+
+På skärmar under 761 px startar LeakSök i fältläge. **Idag** visar hur många som är värda att lyssna på, tre block (Åk ut, Nytt 14 dagar och mätare i arbetslistan) och kort för Åk ut, områdessignaler och nya ökningar, med stort värde, ökning, minigraf och knapparna Kör hit, + Lista, Graf och Karta. Bottenmenyn har Idag, Karta, Lista och Mer. Under Mer finns import, arbetslista, arbetslistan på karta, AI-granskning, säkerhetskopia och lås. Listan **Nytt 14 dagar** visar Misstänk och Åk ut vars signal började de senaste 14 dagarna. Datorvyn är oförändrad.
+
 ## Lokal lagring
 
 Varje importerad export sparas som en egen post i webbläsarens IndexedDB, och profilens huvudpost innehåller bara beslut, arbetslista och en lista över exporterna. Ett års dagliga exporter (cirka 180 filer, 500 000 rader) blir runt 155 MB och får inte plats i en enda post: Chrome tar högst cirka 133 MB per värde. Vid ny import skrivs bara nya exporter. Äldre profiler med alla exporter i en post läses som förut och delas upp vid nästa sparning.

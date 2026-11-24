@@ -21,6 +21,7 @@
 
   const LISTS = [
     { key: "today", label: "Nytt i dag", test: (m) => m.isNewToday, hint: "Nya signaler i senaste exporten" },
+    { key: "fresh", label: "Nytt 14 dagar", test: (m) => isFresh(m), hint: "Misstänk och Åk ut som började de senaste 14 dagarna" },
     { key: "all", label: "Alla mätare", test: () => true },
     { key: "dispatch", label: "Åk ut", test: (m) => m.category === "dispatch" },
     { key: "suspect", label: "Misstänk", test: (m) => m.category === "suspect_auto", hint: "Automatisk upptäckt" },
@@ -39,7 +40,20 @@
     { key: "hidden", label: "Dolda", test: () => true, more: true },
   ];
   const LIST = Object.fromEntries(LISTS.map((l) => [l.key, l]));
-  const PRIMARY_LISTS = ["today", "dispatch", "suspect", "all", "worklist"];
+  // När började signalen? Nivåskifte: skiftdagen. Ny signal: första förhöjda
+  // avläsningen. Gradvis ökning: slutet av referensperioden.
+  function onsetOf(m) {
+    const f = m.finding || {};
+    const at = f.onset?.at || (f.type === "trend" ? f.ref?.to : f.now?.from);
+    return at instanceof Date && !Number.isNaN(+at) ? at : null;
+  }
+  const FRESH_DAYS = 14;
+  function isFresh(m) {
+    if (!["dispatch", "suspect_auto"].includes(m.category)) return false;
+    const at = onsetOf(m), latest = state.latestExport;
+    return Boolean(at && latest && (latest - at) / 86400000 <= FRESH_DAYS);
+  }
+  const PRIMARY_LISTS = ["today", "fresh", "dispatch", "suspect", "all", "worklist"];
 
   const DEFAULT_HIDDEN = ["customer_side", "noise", "seasonal", "ignored"];
   const DECISIONS = [
@@ -242,7 +256,8 @@
             const rows = LeakComparison.mergeRows(existing.rows, parsed.rows);
             changed = JSON.stringify(rows) !== JSON.stringify(existing.rows);
             // Copy, do not mutate: failed analysis can still roll back safely.
-            if (changed) { next[duplicateIndex] = { ...existing, rows }; updated++; }
+            // Ny revision: lagringen skriver då om just den här exporten.
+            if (changed) { next[duplicateIndex] = { ...existing, rows, revision: (existing.revision || 0) + 1 }; updated++; }
             accepted.push(file.name);
             continue;
           }
@@ -437,12 +452,13 @@
       if (open) $("chartDialogDetail").innerHTML = detailHtml(open);
     }
     els.worklistCount.textContent = String(state.tripList.filter((e) => state.byId.has(e.id)).length);
+    window.LeakField?.render();
   }
 
   function renderRail() {
     const counts = Object.fromEntries(LISTS.map((l) => [l.key, 0]));
     for (const m of state.meters) for (const l of LISTS) if (inList(m, l.key)) counts[l.key]++;
-    const icons = { today: "✦", all: "◉", dispatch: "!", suspect: "?", watch: "◎", worklist: "▤", confirmed: "●", repaired: "✓", stable_high: "↔", learning: "◷", stale_contact: "○", hidden: "⊘" };
+    const icons = { today: "✦", all: "◉", dispatch: "!", suspect: "?", watch: "◎", worklist: "▤", fresh: "▲", confirmed: "●", repaired: "✓", stable_high: "↔", learning: "◷", stale_contact: "○", hidden: "⊘" };
     const button = (l) => `<button type="button" data-list="${l.key}" aria-label="${esc(l.label)} (${counts[l.key]})" aria-pressed="${state.list === l.key}" title="${esc(l.hint || l.label)}"><i class="rail-icon" aria-hidden="true">${icons[l.key] || "○"}</i><span>${esc(l.label)}</span><b>${counts[l.key].toLocaleString("sv-SE")}</b></button>`;
     const main = PRIMARY_LISTS.map(key => LIST[key]);
     const more = LISTS.filter(l => !PRIMARY_LISTS.includes(l.key));
@@ -1508,7 +1524,7 @@
     if (event.key === "Escape" && !els.menu.hidden) closeMenu();
   });
 
-  window.LeakApp = { state, reanalyze, render, applyDecision, setHidden, openChart, setFocus, worklist, handleFiles, folderImport, addToWorklist };
+  window.LeakApp = { state, reanalyze, render, applyDecision, setHidden, openChart, setFocus, worklist, handleFiles, folderImport, addToWorklist, setList, onsetOf, isFresh, inList };
 
   // ---------------- start ----------------
   if (window.indexedDB && window.LeakStorage) showProfile();

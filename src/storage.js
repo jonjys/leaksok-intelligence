@@ -15,7 +15,8 @@
   const dailyKey = (profileId) => `${profileId}::daily-ai`;
   const fileKey = (profileId, file) => {
     const at = file?.exportDate instanceof Date ? file.exportDate.toISOString() : String(file?.exportDate ?? "");
-    return `${profileId}::file::${file?.name ?? ""}|${at}|${Array.isArray(file?.rows) ? file.rows.length : 0}`;
+    // revision ökar när en redan importerad export kompletteras med nya fält.
+    return `${profileId}::file::${file?.name ?? ""}|${at}|${Array.isArray(file?.rows) ? file.rows.length : 0}|r${file?.revision || 0}`;
   };
 
   function openDatabase() {

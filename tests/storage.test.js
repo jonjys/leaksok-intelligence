@@ -143,3 +143,13 @@ test("rensning tar bort alla sparade exporter för profilen", async () => {
   assert.equal([...fake.data.keys()].filter((k) => k.startsWith("p")).length, 0);
   assert.equal((await storage.load("q")).files.length, 1, "Andra profiler påverkas inte");
 });
+
+test("en kompletterad export (ny revision) skrivs om", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  const file = { name: "a.xlsx", exportDate: "2026-11-01", rows: [{ id: "a", interestRank: null }] };
+  await storage.saveAll("p", { files: [file], labels: {}, tripList: [] });
+  await storage.saveAll("p", { files: [{ ...file, rows: [{ id: "a", interestRank: 2 }], revision: 1 }], labels: {}, tripList: [] });
+  const loaded = await load(fake).load("p");
+  assert.equal(loaded.files[0].rows[0].interestRank, 2);
+  assert.equal([...fake.data.keys()].filter((k) => k.includes("::file::")).length, 1, "Gamla revisionen raderas");
+});

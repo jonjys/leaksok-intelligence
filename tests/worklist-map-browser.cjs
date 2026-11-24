@@ -20,7 +20,8 @@ const {buildDailyExports,toCsv}=require('./fixtures/synthetic-exports');
         if(hiddenCat)ids.push(hiddenCat.id);
         LeakApp.addToWorklist(ids);return ids;
       });
-      await page.locator('#openWorklist').click();
+      if(viewport.width>760) await page.locator('#openWorklist').click();
+      else { await page.locator('#fieldNav [data-tab="more"]').click(); await page.locator('#fieldMore [data-more="worklist"]').click(); }
       await page.locator('#worklistDialog [data-act="map"]').click();
       await page.waitForFunction(()=>state.list==='worklist'&&state.view==='map');
       assert.equal(await page.locator('#worklistDialog').evaluate(d=>d.open),false);
