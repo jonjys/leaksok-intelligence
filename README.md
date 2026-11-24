@@ -13,6 +13,10 @@ Adressunderlaget är begränsat till Botkyrka och hämtas gemensamt, utan mätar
 
 Mätarpanelen visar senaste brusvärde, förändring sedan föregående avläsning, analyspoäng, underlag och nästa steg. **Visa graf & underlag** öppnar hela grafen och utfällbara jämförelser, bedömningar och poäng. Datakvalitet visas direkt vid tunt underlag, gammal/saknad avläsning, värdekonflikt eller DRY. Grafens korta datatäckning kan utvecklas med **Så läser du grafen**; importspårningen finns kvar separat.
 
+## Lokal lagring
+
+Varje importerad export sparas som en egen post i webbläsarens IndexedDB, och profilens huvudpost innehåller bara beslut, arbetslista och en lista över exporterna. Ett års dagliga exporter (cirka 180 filer, 500 000 rader) blir runt 155 MB och får inte plats i en enda post: Chrome tar högst cirka 133 MB per värde. Vid ny import skrivs bara nya exporter. Äldre profiler med alla exporter i en post läses som förut och delas upp vid nästa sparning.
+
 ## Automatisk mappimport
 
 Välj **Mer → Anslut mapp → Välj exportmapp** i Chrome eller Edge på dator. Spara Kamstrups exporter direkt i den mappen. LeakSök läser nya och ändrade `.xlsx/.xls/.csv` varje minut medan appen är synlig, öppen och upplåst, samt när du återvänder till appen. Undermappar, tomma filer och Excels tillfälliga `~$`-filer läses inte. Appen hämtar inte exporter från Kamstrup och kör inte när sidan är stängd.
