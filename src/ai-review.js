@@ -305,8 +305,12 @@
     updateControls();
   }
 
+  // Vilken export en plan gäller: exportens tid, antal exporter och deras
+  // revisioner. Beslut och kartpositioner ingår inte, så de flyttar inte
+  // planen till en annan export; en ny eller kompletterad export gör det.
+  const exportStamp = s => `${s?.latestExport instanceof Date ? s.latestExport.toISOString() : ''}|${s?.files?.length || 0}|${(s?.files || []).reduce((n, f) => n + (f.revision || 0), 0)}`;
   function reportFor(snapshot, result, run) {
-    return { day: run.day, exportKey: run.exportKey, exportDate: dayString(snapshot.context.latestExport),
+    return { day: run.day, exportKey: run.exportKey, exportStamp: run.exportStamp, exportDate: dayString(snapshot.context.latestExport),
       createdAt: new Date().toISOString(), examined: snapshot.plan.examined, candidates: snapshot.plan.candidates,
       selected: snapshot.plan.meters.length, links: [...snapshot.links], result };
   }
@@ -315,7 +319,7 @@
     const today = ReviewPlan.dayKey(), profile = s.profileId, generation = epoch;
     if (!manual && (document.hidden || !journal.auto || dayString(s.latestExport) !== today || dailyDisposition(s) !== 'start')) return;
     const snapshot = draft('daily', s.meters, contextOf(s));
-    const run = { id: crypto.randomUUID(), day: today, exportKey: snapshot.exportKey, startedAt: Date.now() };
+    const run = { id: crypto.randomUUID(), day: today, exportKey: snapshot.exportKey, exportStamp: exportStamp(s), startedAt: Date.now() };
     const job = { kind: 'daily', controller: new AbortController() };
     operation = job;
     let reserved = false;
@@ -467,7 +471,9 @@
     // kartposition ändrar underlaget men inte vilken export som granskades,
     // så ordningen ligger kvar på Idag (dialogen visar fortfarande att
     // underlaget har ändrats).
-    const sameExport = Boolean(report && report.exportDate && report.exportDate === dayString(s.latestExport));
+    // Exakt samma underlag, eller samma export med nya beslut/kartpositioner.
+    // En plan sparad innan exportStamp fanns kräver exakt samma underlag.
+    const sameExport = Boolean(report && (current || (report.exportStamp && report.exportStamp === exportStamp(s))));
     let ranking = [], actionable = [];
     if (sameExport && report.result) {
       const links = new Map(report.links), review = report.result.review;
@@ -480,15 +486,19 @@
       }).filter(Boolean);
       actionable = ReviewPlan.actionable(review, links, s.byId, s.labels);
     }
-    const failed = mine && !sameExport && journal.attempt?.day === ReviewPlan.dayKey() && journal.attempt.status === 'failed';
-    const phase = running ? 'running' : sameExport ? (report.result ? 'ranked' : 'clear')
-      : disposition === 'done' ? 'stale' : disposition === 'retry' || failed ? 'failed' : 'idle';
+    // Ett misslyckat försök efter den sparade planen visas som misslyckat,
+    // inte som planen före det.
+    const attempt = mine ? journal.attempt : null;
+    const failed = Boolean(attempt && attempt.day === ReviewPlan.dayKey() && attempt.status === 'failed'
+      && (!report || !(Date.parse(report.createdAt) >= attempt.startedAt)));
+    const phase = running ? 'running' : failed ? 'failed' : sameExport ? (report.result ? 'ranked' : 'clear')
+      : disposition === 'done' ? 'stale' : disposition === 'retry' ? 'failed' : 'idle';
     return {
       configured: config ? Boolean(config.configured) : null, authenticated: Boolean(config?.authenticated),
       auto: mine && journal.auto === true, phase, changed: sameExport && !current,
       exportIsToday: dayString(s.latestExport) === ReviewPlan.dayKey(),
       examined: s.meters.length,
-      report: report ? { examined: report.examined, selected: report.selected, exportDate: report.exportDate } : null,
+      report: report ? { examined: report.examined, selected: report.selected, exportDate: report.exportDate, createdAt: report.createdAt } : null,
       summary: sameExport && report.result ? report.result.review.summary || '' : '',
       ranking, traceable: ranking.filter(r => r.traceable).length, actionable,
       message: mine ? journal.attempt?.message || '' : '',

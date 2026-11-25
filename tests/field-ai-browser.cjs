@@ -128,17 +128,32 @@ const responseFor = input => ({
     assert.equal(wire.length, 1);
     assert.equal(await page.locator('.today-card[data-meter]').first().getAttribute('data-meter'), status.ranking[0].id);
 
-    // 7. Nästa dag före dagens import: ingen knapp förbrukar dagens plan på
+    // 7. En andra export samma dag med nya avläsningar: morgonens AI-ordning
+    //    gäller inte längre. Inga AI-märken, ingen AI-knapp till arbetslistan,
+    //    och dagens plan är redan använd, så inget nytt anrop.
+    const last = files.at(-1);
+    const afternoon = { name: last.name.replace(/(\.\w+)?$/, ' eftermiddag.csv'),
+      text: toCsv(last.rows.map((row, i) => i && +row[0] >= 20000000 && +row[0] < 20000004 ? row.map((v, j) => j === 4 ? 31 : v) : row)) };
+    await kit.importFiles(page, [afternoon]);
+    await page.waitForFunction(n => state.files.length === n, files.length + 1);
+    await page.waitForSelector('.today-ai[data-ai="stale"]');
+    assert.equal(await page.locator('.today-card .tag.t-ai').count(), 0, 'Morgonens AI-ordning visas inte för eftermiddagens export');
+    assert.equal(await page.locator('.today-ai [data-f="ai-add"]').count(), 0);
+    await page.waitForTimeout(1500);
+    assert.equal(provider.length, 1, 'En plan per dag');
+
+    // 8. Nästa dag före dagens import: ingen knapp förbrukar dagens plan på
     //    gårdagens export, och runNow öppnar dialogen i stället för att anropa.
     await page.clock.setFixedTime(new Date('2026-11-10T06:00:00Z'));
     await page.evaluate(() => LeakApp.render());
-    await page.waitForSelector('.today-ai[data-ai="ranked"]');
+    await page.waitForSelector('.today-ai[data-ai="idle"]');
     assert.equal(await page.evaluate(() => LeakAI.status().exportIsToday), false);
+    assert.equal(await page.locator('.today-ai [data-f="ai-run"]').count(), 0, 'Ingen knapp som använder dagens plan på gårdagens export');
     await page.evaluate(() => LeakAI.runNow());
     await page.waitForSelector('#aiDialog[open]');
     await page.waitForTimeout(800);
     assert.equal(provider.length, 1, 'runNow på gårdagens export gör inget anrop');
     assert.deepEqual(errors, []);
-    console.log('Field AI PASS: activation from Idag, automatic daily review, AI order drives cards, AI text escaped, worklist from AI, plan kept after reload.');
+    console.log('Field AI PASS: activation from Idag, automatic daily review, AI order drives cards and survives decisions, AI text escaped, worklist from AI, plan kept after reload, second same-day export not shown with the morning order, no button spends today\'s plan on yesterday.');
   } finally { await browser.close(); server.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
