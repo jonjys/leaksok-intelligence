@@ -22,6 +22,7 @@ function fakeIndexedDB({ failNext = false } = {}) {
           put(value, key) { staged.push(["put", key, value]); return {}; },
           delete(key) { staged.push(["delete", key]); return {}; },
           get(key) { const req = {}; request(() => req.onsuccess?.({ target: { result: data.get(key) } })); return req; },
+          count(key) { const req = {}; request(() => req.onsuccess?.({ target: { result: data.has(key) ? 1 : 0 } })); return req; },
         }),
       };
       const start = () => new Promise((finished) => {
@@ -236,4 +237,32 @@ test("en huvudpost från förra versionen med samma nyckel två gånger reparera
   const loaded = await storage.load("p");
   assert.equal(loaded.files.length, 1);
   assert.equal(loaded.missing, 0);
+});
+
+test("en saknad export som importeras igen sparas och finns efter omladdning", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  const b = { ...morning, name: "b.xlsx" };
+  await storage.saveAll("p", { files: [morning, b], labels: {}, tripList: [] });
+  const lost = fake.data.get("p").fileKeys[1];
+  fake.data.delete(lost);
+  const opened = await load(fake).load("p");
+  assert.equal(opened.missing, 1);
+  // Användaren importerar b igen: samma nyckel som huvudposten redan listar.
+  await storage.saveAll("p", { files: [...opened.files, b], labels: {}, tripList: [] });
+  assert.ok(fake.data.has(lost), "Den återimporterade exporten skrevs");
+  const reloaded = await load(fake).load("p");
+  assert.equal(reloaded.missing, 0);
+  assert.equal(reloaded.files.length, 2);
+});
+
+test("laddning under en annan fliks sparning ser antingen före eller efter, aldrig en saknad export", async () => {
+  const fake = fakeIndexedDB(), tabA = load(fake), tabB = load(fake);
+  const x = { name: "x.xlsx", exportDate: "2026-11-01", rows: [{ id: "a", interestRank: null }] };
+  await tabA.saveAll("p", { files: [x], labels: {}, tripList: [] });
+  const [opened] = await Promise.all([
+    tabA.load("p"),
+    tabB.saveAll("p", { files: [{ ...x, rows: [{ id: "a", interestRank: 2 }], revision: 1 }], labels: {}, tripList: [] }),
+  ]);
+  assert.equal(opened.missing, 0);
+  assert.equal(opened.files.length, 1);
 });

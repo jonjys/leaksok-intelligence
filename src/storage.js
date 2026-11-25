@@ -166,19 +166,22 @@
     // reachable even if some stored exports are gone. `missing` counts them.
     async load(profileId) {
       await writes.catch(() => {});
-      const { main, side } = await transact("readonly", (store, out) => {
-        store.get(profileId).onsuccess = (e) => { out.main = e.target.result; };
+      // Head and exports in ONE transaction: a save from another tab cannot
+      // land in between and make an export look missing.
+      const { main, side, stored = [] } = await transact("readonly", (store, out) => {
+        store.get(profileId).onsuccess = (e) => {
+          out.main = e.target.result;
+          if (!Array.isArray(out.main?.fileKeys)) return;
+          // A head saved by an earlier version could list the same key twice.
+          const keys = [...new Set(out.main.fileKeys)];
+          out.stored = new Array(keys.length);
+          keys.forEach((key, i) => { store.get(key).onsuccess = (ev) => { out.stored[i] = ev.target.result; }; });
+        };
         store.get(stateKey(profileId)).onsuccess = (e) => { out.side = e.target.result; };
       });
       if (!main && !side) return null;
       let files = main?.files || [], missing = 0;
       if (Array.isArray(main?.fileKeys) && main.fileKeys.length) {
-        // A head saved by an earlier version could list the same key twice.
-        const keys = [...new Set(main.fileKeys)];
-        const { stored } = await transact("readonly", (store, out) => {
-          out.stored = new Array(keys.length);
-          keys.forEach((key, i) => { store.get(key).onsuccess = (e) => { out.stored[i] = e.target.result; }; });
-        });
         missing = stored.filter((file) => !file).length;
         files = stored.filter(Boolean);
       }
@@ -208,11 +211,17 @@
             const previous = e.target.result;
             const had = new Set(Array.isArray(previous?.fileKeys) ? previous.fileKeys : []);
             const keep = new Set(keys);
-            files.forEach((file, i) => { if (!had.has(keys[i])) store.put(structuredClone(file), keys[i]); });
+            files.forEach((file, i) => {
+              if (!had.has(keys[i])) { store.put(structuredClone(file), keys[i]); return; }
+              // Listed before, but is the record really there? An export that
+              // went missing and is imported or restored again must be written.
+              store.count(keys[i]).onsuccess = (ev) => {
+                try { if (!ev.target.result) store.put(structuredClone(file), keys[i]); } catch (error) { fail(error); }
+              };
+            });
             for (const key of had) if (!keep.has(key)) store.delete(key);
             store.put(head, profileId);
             store.put(small, stateKey(profileId));
-            out.written = files.filter((file, i) => !had.has(keys[i])).length;
           } catch (error) { fail(error); }
         };
       }));
