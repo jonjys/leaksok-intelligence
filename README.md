@@ -13,6 +13,14 @@ Adressunderlaget är begränsat till Botkyrka och hämtas gemensamt, utan mätar
 
 Mätarpanelen visar senaste brusvärde, förändring sedan föregående avläsning, analyspoäng, underlag och nästa steg. **Visa graf & underlag** öppnar hela grafen och utfällbara jämförelser, bedömningar och poäng. Datakvalitet visas direkt vid tunt underlag, gammal/saknad avläsning, värdekonflikt eller DRY. Grafens korta datatäckning kan utvecklas med **Så läser du grafen**; importspårningen finns kvar separat.
 
+## Fältläge på telefon
+
+På skärmar under 761 px startar LeakSök i fältläge. **Idag** visar hur många som är värda att lyssna på, tre block (Åk ut, Nytt 14 dagar och mätare i arbetslistan) och kort för Åk ut, områdessignaler och nya ökningar, med stort värde, ökning, minigraf och knapparna Kör hit, + Lista, Graf och Karta. Bottenmenyn har Idag, Karta, Lista och Mer. Under Mer finns import, arbetslista, arbetslistan på karta, AI-granskning, säkerhetskopia och lås. Listan **Nytt 14 dagar** visar Misstänk och Åk ut vars signal började de senaste 14 dagarna. Datorvyn är oförändrad.
+
+## Lokal lagring
+
+Varje importerad export sparas som en egen post i webbläsarens IndexedDB, och profilens huvudpost innehåller bara beslut, arbetslista och en lista över exporterna. Ett års dagliga exporter (cirka 180 filer, 500 000 rader) blir runt 155 MB och får inte plats i en enda post: Chrome tar högst cirka 133 MB per värde. Vid ny import skrivs bara nya exporter. Äldre profiler med alla exporter i en post läses som förut och delas upp vid nästa sparning.
+
 ## Automatisk mappimport
 
 Välj **Mer → Anslut mapp → Välj exportmapp** i Chrome eller Edge på dator. Spara Kamstrups exporter direkt i den mappen. LeakSök läser nya och ändrade `.xlsx/.xls/.csv` varje minut medan appen är synlig, öppen och upplåst, samt när du återvänder till appen. Undermappar, tomma filer och Excels tillfälliga `~$`-filer läses inte. Appen hämtar inte exporter från Kamstrup och kör inte när sidan är stängd.
@@ -77,6 +85,8 @@ Ett separat analyslager söker samtidiga ökningar på minst tre olika adresser.
 Öppna den kompakta raden **områdessignaler** i morgonanalysen och välj **Markera och visa området**. Befintliga markeringar behålls. Mätarens utvecklade rad visar gruppens baslinjer, ökningar och referensdatum. Gruppen följer med i arbetslistans motivering och kontrollförslag, men exporten innehåller fortfarande endast det valda urvalet. Individuell prioritet, kategori, manuella beslut och grafer ändras inte av det nya analyslagret. Kartpositioner som tillkommer kan förfina eller avfärda en adressbaserad grupp.
 
 ## Excel-arbetslista (src/field-export.js, src/xlsx-writer.js)
+
+**Arbetslista** finns också som egen lista i vänstermenyn (i mobilen i listväljaren), och **Visa på karta** i arbetslistans dialog öppnar den direkt. Listan och kartan visar då bara mätarna du lagt i arbetslistan, även sådana i dolda grupper som Efter mätare eller Säsong. Tar du bort en mätare ur arbetslistan försvinner den från kartan direkt.
 
 - **Arbetslista**: Adress, Serienummer (text), Status, Senast avläst, Senaste värde, Förändring sedan föregående (värde och %), Huvudorsak, Rekommenderad kontroll, Kommentar, Utförd (Ej utförd/Klar, raden blir grön). Excel-tabell med filter, fryst rubrik, liggande utskrift en sida bred.
 - **Analysunderlag**: samma mätare med jämförelsedatum, referensvärden, absoluta och procentuella förändringar, jämförelseperiod och definition, antal avläsningar, varaktighet, E/F/G/P, infokoder, datakvalitet och full motivering.

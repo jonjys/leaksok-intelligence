@@ -93,3 +93,63 @@ test("Dagsgranskningen reserveras en gång och sparas även för nästa omladdni
   assert.equal((await reloaded.reserveDailyReview("p", { ...retry, day: "2026-11-10", exportKey: "tomorrow" })).kind, "start");
 });
 
+
+test("historiken sparas en export per post, aldrig som ett enda stort värde", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  const file = (name, n) => ({ name, exportDate: new Date(`2026-11-${String(n).padStart(2, "0")}T05:00:00Z`), rows: [{ id: name, current: n }] });
+  await storage.saveAll("p", { files: [file("a.xlsx", 1), file("b.xlsx", 2)], labels: {}, tripList: [] });
+  assert.equal(fake.data.get("p").files, undefined, "Huvudposten innehåller inga exporter");
+  assert.equal(fake.data.get("p").fileKeys.length, 2);
+  for (const key of fake.data.get("p").fileKeys) assert.ok(fake.data.get(key)?.rows, "Varje export har en egen post");
+  // Nästa import skriver bara den nya exporten och tar bort den som försvann.
+  const puts = [];
+  const original = fake.data.set.bind(fake.data);
+  fake.data.set = (key, value) => { puts.push(key); return original(key, value); };
+  await storage.saveAll("p", { files: [file("b.xlsx", 2), file("c.xlsx", 3)], labels: {}, tripList: [] });
+  assert.deepEqual(puts.filter((k) => k.includes("::file::")).length, 1, "Oförändrade exporter skrivs inte om");
+  assert.equal([...fake.data.keys()].filter((k) => k.includes("::file::")).length, 2, "Borttagen export raderas");
+  const loaded = await load(fake).load("p");
+  assert.equal(loaded.files.map((f) => f.name).join(","), "b.xlsx,c.xlsx", "Ordningen behålls");
+});
+
+test("äldre profil med alla exporter i en post laddas och flyttas vid nästa sparning", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  fake.data.set("old", { files: [{ name: "x.xlsx", rows: [1] }, { name: "y.xlsx", rows: [2] }], labels: {}, tripList: [], savedAt: "2026-09-01T00:00:00Z" });
+  const loaded = await storage.load("old");
+  assert.equal(loaded.files.length, 2);
+  await storage.saveAll("old", loaded);
+  assert.equal(fake.data.get("old").files, undefined);
+  assert.equal((await load(fake).load("old")).files.length, 2);
+});
+
+test("misslyckad historiksparning lämnar förra versionen orörd", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  await storage.saveAll("p", { files: [{ name: "a.xlsx", rows: [1] }], labels: {}, tripList: [] });
+  const before = new Map(fake.data);
+  const reads = fake.control;
+  // Läsningen går igenom, skrivningen avbryts.
+  const failWrite = () => { reads.failNext = true; };
+  const save = storage.saveAll("p", { files: [{ name: "a.xlsx", rows: [1] }, { name: "b.xlsx", rows: [2] }], labels: {}, tripList: [] });
+  await new Promise((r) => setTimeout(r, 2)); failWrite();
+  await assert.rejects(save, /quota/);
+  assert.deepEqual([...fake.data.keys()].sort(), [...before.keys()].sort());
+});
+
+test("rensning tar bort alla sparade exporter för profilen", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  await storage.saveAll("p", { files: [{ name: "a.xlsx", rows: [1] }], labels: {}, tripList: [] });
+  await storage.saveAll("q", { files: [{ name: "a.xlsx", rows: [1] }], labels: {}, tripList: [] });
+  await storage.clear("p");
+  assert.equal([...fake.data.keys()].filter((k) => k.startsWith("p")).length, 0);
+  assert.equal((await storage.load("q")).files.length, 1, "Andra profiler påverkas inte");
+});
+
+test("en kompletterad export (ny revision) skrivs om", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  const file = { name: "a.xlsx", exportDate: "2026-11-01", rows: [{ id: "a", interestRank: null }] };
+  await storage.saveAll("p", { files: [file], labels: {}, tripList: [] });
+  await storage.saveAll("p", { files: [{ ...file, rows: [{ id: "a", interestRank: 2 }], revision: 1 }], labels: {}, tripList: [] });
+  const loaded = await load(fake).load("p");
+  assert.equal(loaded.files[0].rows[0].interestRank, 2);
+  assert.equal([...fake.data.keys()].filter((k) => k.includes("::file::")).length, 1, "Gamla revisionen raderas");
+});

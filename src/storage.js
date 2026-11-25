@@ -1,14 +1,23 @@
 /* Local profile storage in IndexedDB.
-   Key `<profile>` holds the full snapshot { files, labels, tripList, savedAt }
-   (unchanged format). Key `<profile>::state` holds only { labels, tripList,
-   savedAt } so manual decisions and comments are saved without rewriting every
-   imported export. On load the newer labels/tripList win. */
+   Key `<profile>` holds { labels, tripList, savedAt, fileKeys } and each
+   imported export is stored under its own key `<profile>::file::<id>`. A year
+   of daily exports is far larger than the largest single value a browser
+   accepts (Chrome: about 133 MB), so the history must never be one value.
+   Older profiles with `files` inside `<profile>` still load and are converted
+   on the next save. Key `<profile>::state` holds only { labels, tripList,
+   savedAt } so manual decisions and comments are saved without rewriting the
+   history. On load the newer labels/tripList win. */
 (function exposeLeakStorage(root) {
   const DB_NAME = "leaksok-intelligence";
   const STORE_NAME = "profiles";
   const VERSION = 1;
   const stateKey = (profileId) => `${profileId}::state`;
   const dailyKey = (profileId) => `${profileId}::daily-ai`;
+  const fileKey = (profileId, file) => {
+    const at = file?.exportDate instanceof Date ? file.exportDate.toISOString() : String(file?.exportDate ?? "");
+    // revision ökar när en redan importerad export kompletteras med nya fält.
+    return `${profileId}::file::${file?.name ?? ""}|${at}|${Array.isArray(file?.rows) ? file.rows.length : 0}|r${file?.revision || 0}`;
+  };
 
   function openDatabase() {
     return new Promise((resolve, reject) => {
@@ -121,9 +130,19 @@
         store.get(stateKey(profileId)).onsuccess = (e) => { out.side = e.target.result; };
       });
       if (!main && !side) return null;
+      let files = main?.files || [];
+      if (Array.isArray(main?.fileKeys) && main.fileKeys.length) {
+        const { stored } = await transact("readonly", (store, out) => {
+          out.stored = new Array(main.fileKeys.length);
+          main.fileKeys.forEach((key, i) => { store.get(key).onsuccess = (e) => { out.stored[i] = e.target.result; }; });
+        });
+        const missing = stored.filter((file) => !file).length;
+        if (missing) throw new Error(`${missing} sparade exporter saknas i den lokala lagringen. Importera dem igen eller återställ en säkerhetskopia.`);
+        files = stored;
+      }
       const newer = side && (!main || time(side) >= time(main)) ? side : main;
       return {
-        files: main?.files || [],
+        files,
         labels: newer?.labels || main?.labels || {},
         tripList: newer?.tripList || main?.tripList || [],
         savedAt: newer?.savedAt || main?.savedAt,
@@ -132,9 +151,25 @@
     // Full snapshot including imported files (after import or clearing files).
     saveAll(profileId, snapshot) {
       const at = new Date().toISOString();
-      const full = structuredClone({ ...snapshot, savedAt: at });
+      const files = snapshot.files || [];
+      const keys = files.map((file) => fileKey(profileId, file));
+      const head = structuredClone({ labels: snapshot.labels, tripList: snapshot.tripList, savedAt: at, fileKeys: keys });
       const small = structuredClone({ labels: snapshot.labels, tripList: snapshot.tripList, savedAt: at });
-      return queue(() => transact("readwrite", (store) => { store.put(full, profileId); store.put(small, stateKey(profileId)); }));
+      return queue(async () => {
+        const { previous } = await transact("readonly", (store, out) => {
+          store.get(profileId).onsuccess = (e) => { out.previous = e.target.result; };
+        });
+        const had = new Set(Array.isArray(previous?.fileKeys) ? previous.fileKeys : []);
+        const keep = new Set(keys);
+        // Only new exports are written; unchanged exports are already stored.
+        // Everything lands in one transaction, so a failure saves nothing.
+        return transact("readwrite", (store) => {
+          files.forEach((file, i) => { if (!had.has(keys[i])) store.put(structuredClone(file), keys[i]); });
+          for (const key of had) if (!keep.has(key)) store.delete(key);
+          store.put(head, profileId);
+          store.put(small, stateKey(profileId));
+        });
+      });
     },
     // Labels, comments and work list only.
     saveState(profileId, snapshot) {
@@ -144,7 +179,15 @@
     // Backwards compatible alias used by older tests/tools.
     save(profileId, snapshot) { return this.saveAll(profileId, snapshot); },
     clear(profileId) {
-      return queue(() => transact("readwrite", (store) => { store.delete(profileId); store.delete(stateKey(profileId)); store.delete(dailyKey(profileId)); }));
+      return queue(async () => {
+        const { previous } = await transact("readonly", (store, out) => {
+          store.get(profileId).onsuccess = (e) => { out.previous = e.target.result; };
+        });
+        return transact("readwrite", (store) => {
+          for (const key of Array.isArray(previous?.fileKeys) ? previous.fileKeys : []) store.delete(key);
+          store.delete(profileId); store.delete(stateKey(profileId)); store.delete(dailyKey(profileId));
+        });
+      });
     },
   };
 }(typeof window !== "undefined" ? window : globalThis));

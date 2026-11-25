@@ -180,6 +180,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     for (const [w, h] of [[1100, 1440], [390, 844]]) {
       await page.setViewportSize({ width: w, height: h });
       await page.waitForTimeout(300);
+      if (w <= 760) await page.evaluate(() => window.LeakField?.setTab("list"));
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, `No horizontal scroll at ${w}×${h}`);
       if (w <= 760) assert.ok((await page.locator('#sortMenu > summary').boundingBox()).width >= 180, 'Selected sort remains readable on a phone');
       await page.locator('#sortMenu > summary').click();

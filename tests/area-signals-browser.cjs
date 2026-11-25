@@ -73,6 +73,7 @@ const Evidence = require('../server/ai-evidence');
     assert.notEqual(await page.evaluate(()=>state.visible[0].category),'seasonal');
     assert.match(await page.locator('#rows').textContent(),/Möjlig säsong/);
     await page.setViewportSize({width:390,height:844});
+    await page.evaluate(()=>window.LeakField?.setTab(state.view));
     await page.locator('#selectionBar [data-sort="change"]').click();
     assert.equal(await page.locator('#sortLabel').textContent(),'Förändring %');
     await page.locator('#selectionBar [data-sort="value"]').click();

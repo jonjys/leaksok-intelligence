@@ -214,8 +214,9 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
 
     // Phone: cards, list picker, no horizontal page overflow.
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => window.LeakField?.setTab("list"));
     await page.locator("#listSelect").selectOption("suspect");
-    assert.equal(await page.locator('#listSelect option').count(), 4);
+    assert.equal(await page.locator('#listSelect option').count(), 6);
     const mobileMore = page.locator('#rail .rail-more');
     await mobileMore.locator('summary').click();
     await mobileMore.locator('[data-list="confirmed"]').click();
@@ -285,6 +286,7 @@ const { buildDailyExports, toCsv } = require("./fixtures/synthetic-exports.js");
     assert.equal((await meter(interestId)).category, 'suspect_auto', 'Absent header does not erase enriched duplicate metadata');
     await page.reload({ waitUntil: 'load' });
     await kit.unlock(page, null, '1234');
+    await page.waitForFunction((id) => state.byId.has(id), interestId);
     assert.equal((await meter(interestId)).category, 'suspect_auto', 'Enriched metadata survives reload');
     assert.equal(await page.evaluate((id) => state.byId.get(id).history.readings, interestId), 4);
     assert.equal(await page.evaluate(() => state.files.length), countBeforeRank);
