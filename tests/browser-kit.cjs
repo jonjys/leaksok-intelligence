@@ -34,8 +34,11 @@ function startServer(port = 4173, handlers = {}) {
     }
     const file = path.resolve(root, '.' + (clean === '/' ? '/index.html' : decodeURIComponent(clean)));
     if (!file.startsWith(root + path.sep)) { res.writeHead(403).end(); return; }
-    try { res.writeHead(200, { 'Content-Type': mime[path.extname(file)] || 'text/plain' }); res.end(fs.readFileSync(file)); }
-    catch { res.writeHead(404).end(); }
+    // Read before writing the header: a missing file (e.g. an API route
+    // without a test handler) is a 404, not a crash of the test server.
+    let body;
+    try { body = fs.readFileSync(file); } catch { res.writeHead(404).end(); return; }
+    res.writeHead(200, { 'Content-Type': mime[path.extname(file)] || 'text/plain' }); res.end(body);
   });
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server)));
 }

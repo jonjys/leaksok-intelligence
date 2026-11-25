@@ -6,18 +6,52 @@
    Older profiles with `files` inside `<profile>` still load and are converted
    on the next save. Key `<profile>::state` holds only { labels, tripList,
    savedAt } so manual decisions and comments are saved without rewriting the
-   history. On load the newer labels/tripList win. */
+   history. On load the newer labels/tripList win.
+
+   An export's key is name|date|rows|revision. Two exports that share all four
+   (the same day's file exported again with other readings, or a backup copy
+   with other metadata) are told apart by a hash of their rows, so neither
+   can overwrite the other. Every history save reads the previous head and
+   writes in ONE read/write transaction: IndexedDB runs those one at a time,
+   so another tab cannot delete an export between the read and the write. */
 (function exposeLeakStorage(root) {
   const DB_NAME = "leaksok-intelligence";
   const STORE_NAME = "profiles";
   const VERSION = 1;
   const stateKey = (profileId) => `${profileId}::state`;
   const dailyKey = (profileId) => `${profileId}::daily-ai`;
-  const fileKey = (profileId, file) => {
+  const baseKey = (profileId, file) => {
     const at = file?.exportDate instanceof Date ? file.exportDate.toISOString() : String(file?.exportDate ?? "");
     // revision ökar när en redan importerad export kompletteras med nya fält.
     return `${profileId}::file::${file?.name ?? ""}|${at}|${Array.isArray(file?.rows) ? file.rows.length : 0}|r${file?.revision || 0}`;
   };
+  // cyrb53 over the rows. Only computed for exports whose base key is shared.
+  function contentHash(file) {
+    const text = JSON.stringify(file?.rows ?? null) || "";
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (let i = 0; i < text.length; i++) {
+      const c = text.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 2654435761);
+      h2 = Math.imul(h2 ^ c, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+  }
+  // One distinct key per export, in the order of `files`.
+  function fileKeys(profileId, files) {
+    const base = files.map((file) => baseKey(profileId, file));
+    const shared = new Map();
+    for (const key of base) shared.set(key, (shared.get(key) || 0) + 1);
+    const used = new Set();
+    return base.map((key, i) => {
+      const wanted = shared.get(key) > 1 ? `${key}|h${contentHash(files[i])}` : key;
+      let next = wanted;
+      for (let n = 2; used.has(next); n++) next = `${wanted}#${n}`;
+      used.add(next);
+      return next;
+    });
+  }
 
   function openDatabase() {
     return new Promise((resolve, reject) => {
@@ -35,16 +69,21 @@
   }
 
   // One transaction per call: either every put succeeds or none is reported saved.
+  // `work` may call fail(error) from a request callback to abort the whole call.
   async function transact(mode, work) {
     const database = await openDatabase();
     return new Promise((resolve, reject) => {
       let transaction;
       const results = {};
+      const fail = (error) => {
+        results.error = error;
+        try { transaction.abort(); } catch { /* already finished */ }
+      };
       try {
         transaction = database.transaction(STORE_NAME, mode);
-        work(transaction.objectStore(STORE_NAME), results);
+        work(transaction.objectStore(STORE_NAME), results, fail);
         transaction.oncomplete = () => { database.close(); resolve(results); };
-        transaction.onabort = () => { database.close(); reject(transaction.error || new Error("Lagringen avbröts")); };
+        transaction.onabort = () => { database.close(); reject(results.error || transaction.error || new Error("Lagringen avbröts")); };
         transaction.onerror = () => { /* onabort follows */ };
       } catch (error) {
         database.close();
@@ -123,6 +162,8 @@
     clearImportSource(profileId) {
       return queue(() => transact("readwrite", (store) => store.delete(`${profileId}::import-source`)));
     },
+    // Never refuses to open a profile: decisions and the work list must stay
+    // reachable even if some stored exports are gone. `missing` counts them.
     async load(profileId) {
       await writes.catch(() => {});
       const { main, side } = await transact("readonly", (store, out) => {
@@ -130,19 +171,21 @@
         store.get(stateKey(profileId)).onsuccess = (e) => { out.side = e.target.result; };
       });
       if (!main && !side) return null;
-      let files = main?.files || [];
+      let files = main?.files || [], missing = 0;
       if (Array.isArray(main?.fileKeys) && main.fileKeys.length) {
+        // A head saved by an earlier version could list the same key twice.
+        const keys = [...new Set(main.fileKeys)];
         const { stored } = await transact("readonly", (store, out) => {
-          out.stored = new Array(main.fileKeys.length);
-          main.fileKeys.forEach((key, i) => { store.get(key).onsuccess = (e) => { out.stored[i] = e.target.result; }; });
+          out.stored = new Array(keys.length);
+          keys.forEach((key, i) => { store.get(key).onsuccess = (e) => { out.stored[i] = e.target.result; }; });
         });
-        const missing = stored.filter((file) => !file).length;
-        if (missing) throw new Error(`${missing} sparade exporter saknas i den lokala lagringen. Importera dem igen eller återställ en säkerhetskopia.`);
-        files = stored;
+        missing = stored.filter((file) => !file).length;
+        files = stored.filter(Boolean);
       }
       const newer = side && (!main || time(side) >= time(main)) ? side : main;
       return {
         files,
+        missing,
         labels: newer?.labels || main?.labels || {},
         tripList: newer?.tripList || main?.tripList || [],
         savedAt: newer?.savedAt || main?.savedAt,
@@ -152,24 +195,27 @@
     saveAll(profileId, snapshot) {
       const at = new Date().toISOString();
       const files = snapshot.files || [];
-      const keys = files.map((file) => fileKey(profileId, file));
+      const keys = fileKeys(profileId, files);
       const head = structuredClone({ labels: snapshot.labels, tripList: snapshot.tripList, savedAt: at, fileKeys: keys });
       const small = structuredClone({ labels: snapshot.labels, tripList: snapshot.tripList, savedAt: at });
-      return queue(async () => {
-        const { previous } = await transact("readonly", (store, out) => {
-          store.get(profileId).onsuccess = (e) => { out.previous = e.target.result; };
-        });
-        const had = new Set(Array.isArray(previous?.fileKeys) ? previous.fileKeys : []);
-        const keep = new Set(keys);
-        // Only new exports are written; unchanged exports are already stored.
-        // Everything lands in one transaction, so a failure saves nothing.
-        return transact("readwrite", (store) => {
-          files.forEach((file, i) => { if (!had.has(keys[i])) store.put(structuredClone(file), keys[i]); });
-          for (const key of had) if (!keep.has(key)) store.delete(key);
-          store.put(head, profileId);
-          store.put(small, stateKey(profileId));
-        });
-      });
+      return queue(() => transact("readwrite", (store, out, fail) => {
+        // Read the previous head inside the write transaction. Only exports
+        // that are not stored yet are written; a key that is already listed
+        // holds exactly this content, because the key includes its revision
+        // and, when needed, a hash of its rows.
+        store.get(profileId).onsuccess = (e) => {
+          try {
+            const previous = e.target.result;
+            const had = new Set(Array.isArray(previous?.fileKeys) ? previous.fileKeys : []);
+            const keep = new Set(keys);
+            files.forEach((file, i) => { if (!had.has(keys[i])) store.put(structuredClone(file), keys[i]); });
+            for (const key of had) if (!keep.has(key)) store.delete(key);
+            store.put(head, profileId);
+            store.put(small, stateKey(profileId));
+            out.written = files.filter((file, i) => !had.has(keys[i])).length;
+          } catch (error) { fail(error); }
+        };
+      }));
     },
     // Labels, comments and work list only.
     saveState(profileId, snapshot) {
@@ -179,16 +225,16 @@
     // Backwards compatible alias used by older tests/tools.
     save(profileId, snapshot) { return this.saveAll(profileId, snapshot); },
     clear(profileId) {
-      return queue(async () => {
-        const { previous } = await transact("readonly", (store, out) => {
-          store.get(profileId).onsuccess = (e) => { out.previous = e.target.result; };
-        });
-        return transact("readwrite", (store) => {
+      return queue(() => transact("readwrite", (store) => {
+        store.get(profileId).onsuccess = (e) => {
+          const previous = e.target.result;
           for (const key of Array.isArray(previous?.fileKeys) ? previous.fileKeys : []) store.delete(key);
           store.delete(profileId); store.delete(stateKey(profileId)); store.delete(dailyKey(profileId));
-        });
-      });
+        };
+      }));
     },
+    // Exposed for tests.
+    fileKeys,
   };
 }(typeof window !== "undefined" ? window : globalThis));
 

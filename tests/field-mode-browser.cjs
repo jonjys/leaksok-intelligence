@@ -15,6 +15,21 @@ const {buildDailyExports,toCsv}=require('./fixtures/synthetic-exports');
     await page.waitForFunction(()=>state.meters.length===600&&document.querySelector('.today-card'));
     assert.equal(await page.evaluate(()=>LeakField.tab),'today');
     assert.equal(await page.evaluate(()=>document.body.classList.contains('field-mode')),true);
+    // Importen svarar på telefonen: status och sparning syns på Idag.
+    assert.ok(await page.locator('#importStatus').isVisible(),'Importstatus syns på Idag');
+    assert.match(await page.locator('#importStatus').textContent(),/Sparat på denna enhet/);
+    assert.equal(await page.locator('.today-ai').count(),0,'Ingen AI-panel när servern saknar AI');
+    // Nytt 14 dagar: bara verkliga ökningar med en start, aldrig stabil nivå.
+    const freshKinds=await page.evaluate(()=>state.meters.filter(m=>LeakApp.inList(m,'fresh')).map(m=>`${m.finding.type}/${m.finding.direction}`));
+    assert.ok(freshKinds.length>0,'Fixturen ger nya signaler');
+    for(const kind of freshKinds)assert.match(kind,/^(level_shift|new_signal|trend)\/up$/);
+    // Visa alla-knapparna pekar på listan de räknar.
+    for(const more of await page.locator('.today-more').all()){
+      const target=await more.getAttribute('data-target'),text=await more.textContent();
+      assert.match(text,target==='dispatch'?/Åk ut/:/Nytt 14 dagar/);
+      const total=await page.evaluate(t=>state.meters.filter(m=>LeakApp.inList(m,t)).length,target);
+      if(target==='fresh')assert.match(text,new RegExp(`Visa alla ${total} `));
+    }
     const first=await page.locator('.today-card').first().boundingBox();
     assert.ok(first.y<844-120,'Första mätarkortet syns utan att scrolla');
     for(const hidden of ['#brief','.toolbar','.workspace','.top-actions'])assert.equal(await page.locator(hidden).isVisible(),false,`${hidden} döljs på Idag`);
@@ -33,6 +48,23 @@ const {buildDailyExports,toCsv}=require('./fixtures/synthetic-exports');
     await page.locator('#fieldMore [data-more="worklist-map"]').click();
     await page.waitForFunction(()=>LeakField.tab==='map'&&state.list==='worklist'&&state.view==='map');
     assert.equal(await page.locator('#map').isVisible(),true);
+    // Arbetslistans dialog → Visa på karta: kartan visas, inte Idag.
+    await page.locator('#fieldNav [data-tab="today"]').click();
+    await page.locator('#fieldNav [data-tab="more"]').click();
+    await page.locator('#fieldMore [data-more="worklist"]').click();
+    await page.locator('#worklistDialog [data-act="map"]').click();
+    await page.waitForFunction(()=>LeakField.tab==='map'&&state.view==='map');
+    assert.equal(await page.locator('#today').isVisible(),false,'Idag ligger inte kvar över kartan');
+    assert.ok((await page.locator('#map').boundingBox()).height>200,'Kartan syns');
+    // Lista: ett listval behåller listan, fliken och vyn stämmer.
+    await page.locator('#fieldNav [data-tab="list"]').click();
+    await page.locator('#listSelect').selectOption('suspect');
+    assert.deepEqual(await page.evaluate(()=>[LeakField.tab,state.view,state.list]),['list','list','suspect']);
+    assert.ok(await page.locator('#rows tr.row').first().isVisible());
+    // En mätare vald ur listan visas på kartan, och grafen hamnar under kartan.
+    await page.locator('#rows tr.row').first().locator('.addr').click();
+    await page.waitForFunction(()=>LeakField.tab==='map'&&state.view==='map'&&state.focusId);
+    await page.waitForFunction(()=>{const c=document.querySelector('#focusChart').getBoundingClientRect(),m=document.querySelector('#map').getBoundingClientRect();return m.height>100&&c.top>=m.bottom-5;});
     // Nytt-blocket öppnar listan Nytt 14 dagar.
     await page.locator('#fieldNav [data-tab="today"]').click();
     await page.locator('.blk.amber').click();
