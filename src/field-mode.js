@@ -193,24 +193,28 @@
     } else if (ai.phase === "ranked") {
       const r = ai.report;
       const strip = `<div class="today-ai-strip"><span><b>${num(r.examined)}</b> genomgångna</span><span><b>${num(r.selected)}</b> hos Claude</span><span><b>${num(ai.traceable)}</b> med belägg</span></div>`;
+      const note = ai.changed ? `<p class="today-ai-note">Gjord före dina senaste beslut eller nya kartpositioner. Dina beslut gäller; ordningen är Claudes från i morse.</p>` : "";
       html = head(`AI-ordning · export ${r.exportDate}`, ranks.size ? `${num(Math.min(ranks.size, MAX_CARDS))} i AI-ordning nedan` : "Ingen av AI-fallen är kvar i listorna",
         clip(ai.summary, 220),
-        `${ai.actionable.length ? button("ai-add", `Lägg ${ai.actionable.length} första i listan`, "dark") : ""}${button("ai-open", "Hela planen")}`, strip);
+        `${ai.actionable.length ? button("ai-add", `Lägg ${ai.actionable.length} första i listan`, "dark") : ""}${button("ai-open", "Hela planen")}`, strip + note);
     } else if (ai.phase === "clear") {
       html = head(`AI · export ${ai.report.exportDate}`, "Inget behövde AI i dag", "Regelmotorn hittade inga aktuella kontrollförslag, så inget AI-anrop gjordes.");
     } else if (ai.phase === "stale") {
-      html = head("AI · äldre underlag", "Dagens AI-plan gäller ett tidigare underlag", "Exporten har kompletterats efter att planen skapades. Ordningen nedan är regelmotorns; planen finns kvar att läsa. En plan per dag, nästa skapas efter morgondagens import.",
+      html = head("AI · tidigare export", "Dagens AI-plan gjordes på en tidigare export", "Ordningen nedan är regelmotorns. Planen finns kvar att läsa. En plan per dag; nästa skapas efter morgondagens import.",
         button("ai-open", "Visa sparad plan"));
     } else if (ai.phase === "failed") {
       html = head("AI · avbröts", "Granskningen slutfördes inte", clip(ai.message || "Försök igen när du har täckning.", 160),
-        button("ai-run", "Försök igen", "dark"));
+        ai.exportIsToday ? button("ai-run", "Försök igen", "dark") : "");
     } else if (ai.auto && ai.exportIsToday) {
       html = head("AI · automatisk", "Claude startar strax", "Den automatiska granskningen körs när appen är öppen efter dagens import.", button("ai-run", "Kör nu", "dark"));
     } else if (ai.auto) {
-      html = head("AI · automatisk", "Väntar på dagens export", "Granskningen startar automatiskt när dagens export är importerad.", button("ai-run", "Granska den här exporten"));
+      // Ingen knapp här: dagens enda plan sparas till dagens export.
+      html = head("AI · automatisk", "Väntar på dagens export", "Granskningen startar automatiskt när dagens export är importerad.");
     } else {
-      html = head("AI · Claude", "Låt AI räkna fram dagens ordning", "AI är aktiverat men startar bara när du ber om det. Slå på automatiskt så granskas varje ny dags export direkt efter import.",
-        `${button("ai-auto", "Automatiskt varje dag", "dark")}${button("ai-run", "Granska nu")}`);
+      html = head("AI · Claude", "Låt AI räkna fram dagens ordning", ai.exportIsToday
+        ? "AI är aktiverat men startar bara när du ber om det. Slå på automatiskt så granskas varje ny dags export direkt efter import."
+        : "AI är aktiverat men startar bara när du ber om det. Slå på automatiskt så granskas dagens export direkt när den är importerad.",
+        `${button("ai-auto", "Automatiskt varje dag", "dark")}${ai.exportIsToday ? button("ai-run", "Granska nu") : ""}`);
     }
     return { html, ranks, ai };
   }

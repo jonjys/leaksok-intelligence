@@ -72,7 +72,11 @@ const responseFor = input => ({
     await page.waitForFunction(() => LeakAI.status()?.phase === 'ranked', null, { timeout: 30000 });
     assert.equal(provider.length, 1, 'En automatisk granskning');
     assert.equal(provider[0].mode, 'daily');
-    assert.doesNotMatch(JSON.stringify(wire), /VÄGEN|GATAN|9000000\d/, 'Inga adresser eller serienummer till AI');
+    // Inga mätar-id, serienummer eller adresser i det som skickas.
+    const identities = await page.evaluate(() => state.meters.flatMap(m => [m.id, m.serial, m.address]).filter(v => v && String(v).length >= 6));
+    const sent = JSON.stringify(wire);
+    assert.ok(identities.length >= 42);
+    for (const value of identities) assert.equal(sent.includes(String(value)), false, `${value} skickades inte`);
     await page.locator('#aiDialog [data-close]').first().click();
 
     // 3. Claudes ordning styr Idag; AI-text visas som text.
@@ -101,12 +105,39 @@ const responseFor = input => ({
     fs.mkdirSync('test-results', { recursive: true });
     await page.screenshot({ path: 'test-results/field-ai-390.png', fullPage: true });
 
-    // 5. Nästa öppning: planen finns kvar, inget nytt betalt anrop.
+    // 5. Ett fältbeslut ändrar underlaget men inte vilken export som granskades:
+    //    AI-ordningen ligger kvar, den dolda mätaren försvinner ur korten.
+    const second = status.ranking[1].id, third = status.ranking[2].id;
+    const keyBefore = await page.evaluate(() => state.reviewKey);
+    await page.evaluate(id => LeakApp.setHidden([id], true), second);
+    await page.waitForFunction(id => !document.querySelector(`.today-card[data-meter="${id}"]`), second);
+    await page.evaluate(id => LeakApp.applyDecision([id], 'watch'), third);
+    await page.waitForFunction(key => state.reviewKey !== key, keyBefore);
+    assert.equal(await page.evaluate(() => LeakAI.status().phase), 'ranked');
+    assert.equal(await page.locator('.today-card[data-meter]').first().getAttribute('data-meter'), status.ranking[0].id);
+    assert.match(await page.locator('.today-ai').textContent(), /Gjord före dina senaste beslut/);
+    assert.match(await page.locator('.today-card[data-meter]').nth(1).locator('.tag.t-ai').textContent(), /AI #3/);
+
+    // 6. Nästa öppning: planen finns kvar och inget nytt betalt anrop görs,
+    //    inte heller när den automatiska kontrollen har hunnit köra.
     await page.reload();
     await kit.unlock(page, null);
     await page.waitForSelector('.today-ai[data-ai="ranked"]');
+    await page.waitForTimeout(2500);
     assert.equal(provider.length, 1, 'Ingen ny granskning efter omladdning');
+    assert.equal(wire.length, 1);
     assert.equal(await page.locator('.today-card[data-meter]').first().getAttribute('data-meter'), status.ranking[0].id);
+
+    // 7. Nästa dag före dagens import: ingen knapp förbrukar dagens plan på
+    //    gårdagens export, och runNow öppnar dialogen i stället för att anropa.
+    await page.clock.setFixedTime(new Date('2026-11-10T06:00:00Z'));
+    await page.evaluate(() => LeakApp.render());
+    await page.waitForSelector('.today-ai[data-ai="ranked"]');
+    assert.equal(await page.evaluate(() => LeakAI.status().exportIsToday), false);
+    await page.evaluate(() => LeakAI.runNow());
+    await page.waitForSelector('#aiDialog[open]');
+    await page.waitForTimeout(800);
+    assert.equal(provider.length, 1, 'runNow på gårdagens export gör inget anrop');
     assert.deepEqual(errors, []);
     console.log('Field AI PASS: activation from Idag, automatic daily review, AI order drives cards, AI text escaped, worklist from AI, plan kept after reload.');
   } finally { await browser.close(); server.close(); }

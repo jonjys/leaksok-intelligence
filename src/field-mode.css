@@ -70,6 +70,7 @@
   .today-ai-strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 8px; }
   .today-ai-strip span { background: #ffffff26; border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 800; }
   .today-ai-strip b { font-size: 14px; }
+  .today-ai .today-ai-note { margin-top: 8px; font-size: 13px; color: #D7E2FF; }
   .today-ai-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .today-ai-actions button { flex: 1 1 auto; min-height: 46px; border: 0; border-radius: 12px; background: #fff; color: var(--f-blue); font-weight: 900; font-size: 14px; padding: 6px 12px; }
   .today-ai-actions button.dark { background: var(--f-ink); color: #fff; }

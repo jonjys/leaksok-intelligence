@@ -463,8 +463,13 @@
     const report = mine ? journal.report : null;
     const running = operation?.kind === 'daily' || disposition === 'running';
     const current = Boolean(report && report.exportKey === exportKey(s));
+    // Ordningen gäller exporten den gjordes för. Ett beslut eller en ny
+    // kartposition ändrar underlaget men inte vilken export som granskades,
+    // så ordningen ligger kvar på Idag (dialogen visar fortfarande att
+    // underlaget har ändrats).
+    const sameExport = Boolean(report && report.exportDate && report.exportDate === dayString(s.latestExport));
     let ranking = [], actionable = [];
-    if (current && report.result) {
+    if (sameExport && report.result) {
       const links = new Map(report.links), review = report.result.review;
       const cases = new Map(review.cases.map(c => [c.caseId, c]));
       ranking = review.order.map((caseId, i) => {
@@ -475,22 +480,26 @@
       }).filter(Boolean);
       actionable = ReviewPlan.actionable(review, links, s.byId, s.labels);
     }
-    const failed = mine && !current && journal.attempt?.day === ReviewPlan.dayKey() && journal.attempt.status === 'failed';
-    const phase = running ? 'running' : current ? (report.result ? 'ranked' : 'clear')
+    const failed = mine && !sameExport && journal.attempt?.day === ReviewPlan.dayKey() && journal.attempt.status === 'failed';
+    const phase = running ? 'running' : sameExport ? (report.result ? 'ranked' : 'clear')
       : disposition === 'done' ? 'stale' : disposition === 'retry' || failed ? 'failed' : 'idle';
     return {
       configured: config ? Boolean(config.configured) : null, authenticated: Boolean(config?.authenticated),
-      auto: mine && journal.auto === true, phase, exportIsToday: dayString(s.latestExport) === ReviewPlan.dayKey(),
+      auto: mine && journal.auto === true, phase, changed: sameExport && !current,
+      exportIsToday: dayString(s.latestExport) === ReviewPlan.dayKey(),
       examined: s.meters.length,
       report: report ? { examined: report.examined, selected: report.selected, exportDate: report.exportDate } : null,
-      summary: current && report.result ? report.result.review.summary || '' : '',
+      summary: sameExport && report.result ? report.result.review.summary || '' : '',
       ranking, traceable: ranking.filter(r => r.traceable).length, actionable,
       message: mine ? journal.attempt?.message || '' : '',
     };
   }
-  // Uttryckligt val från fältläget: kör dagens granskning nu (högst en plan per dag).
+  // Uttryckligt val från fältläget: kör dagens granskning nu (högst en plan per
+  // dag). Bara på dagens export: dagens enda plan får inte gå åt till gårdagens
+  // underlag. Annars öppnas dialogen, där valet görs med full förklaring.
   function runNow() {
-    if (!config?.authenticated) { openDaily(); return Promise.resolve(); }
+    const s = workspace();
+    if (!config?.authenticated || !s || dayString(s.latestExport) !== ReviewPlan.dayKey()) { openDaily(); return Promise.resolve(); }
     return runDaily(true);
   }
   async function enableAuto() {

@@ -40,13 +40,14 @@
     { key: "hidden", label: "Dolda", test: () => true, more: true },
   ];
   const LIST = Object.fromEntries(LISTS.map((l) => [l.key, l]));
-  // När började ökningen? Nivåskifte: skiftdagen. Ny signal: den förhöjda
-  // avläsningen. Gradvis ökning: där trenden börjar. Stabil nivå, tillfällig
-  // topp och en enda avläsning har ingen start; en mätare som bara lyfts av
-  // Kamstrups rang eller en kod är alltså inte "ny" för att historiken är kort.
+  // När började ökningen? Bara den ökning motorn godkände (upFinding) räknas:
+  // en ökning inom mätarens eget mönster eller under Kamstrups långa snitt har
+  // ingen start här. Nivåskifte: skiftdagen. Ny signal: den förhöjda
+  // avläsningen. Gradvis ökning: där trenden börjar. En mätare som bara lyfts
+  // av Kamstrups rang eller en kod är alltså inte "ny" för att historiken är kort.
   function onsetOf(m) {
-    const f = m.finding || {};
-    if (f.direction !== "up") return null;
+    const f = m.upFinding;
+    if (!f) return null;
     const at = f.type === "level_shift" ? f.onset?.at : f.type === "new_signal" ? f.now?.from : f.type === "trend" ? f.ref?.to : null;
     return at instanceof Date && !Number.isNaN(+at) ? at : null;
   }

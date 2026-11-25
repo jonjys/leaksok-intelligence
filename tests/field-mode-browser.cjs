@@ -19,10 +19,12 @@ const {buildDailyExports,toCsv}=require('./fixtures/synthetic-exports');
     assert.ok(await page.locator('#importStatus').isVisible(),'Importstatus syns på Idag');
     assert.match(await page.locator('#importStatus').textContent(),/Sparat på denna enhet/);
     assert.equal(await page.locator('.today-ai').count(),0,'Ingen AI-panel när servern saknar AI');
-    // Nytt 14 dagar: bara verkliga ökningar med en start, aldrig stabil nivå.
-    const freshKinds=await page.evaluate(()=>state.meters.filter(m=>LeakApp.inList(m,'fresh')).map(m=>`${m.finding.type}/${m.finding.direction}`));
+    // Nytt 14 dagar: bara ökningar som motorn godkände (upFinding), aldrig
+    // stabil nivå eller en ökning motorn avfärdade.
+    const freshKinds=await page.evaluate(()=>state.meters.filter(m=>LeakApp.inList(m,'fresh')).map(m=>m.upFinding?`${m.upFinding.type}/${m.upFinding.direction}`:'none'));
     assert.ok(freshKinds.length>0,'Fixturen ger nya signaler');
     for(const kind of freshKinds)assert.match(kind,/^(level_shift|new_signal|trend)\/up$/);
+    assert.equal(await page.evaluate(()=>state.meters.filter(m=>!m.upFinding&&LeakApp.isFresh(m)).length),0);
     // Visa alla-knapparna pekar på listan de räknar.
     for(const more of await page.locator('.today-more').all()){
       const target=await more.getAttribute('data-target'),text=await more.textContent();
