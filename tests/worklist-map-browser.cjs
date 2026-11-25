@@ -25,6 +25,12 @@ const {buildDailyExports,toCsv}=require('./fixtures/synthetic-exports');
       await page.locator('#worklistDialog [data-act="map"]').click();
       await page.waitForFunction(()=>state.list==='worklist'&&state.view==='map');
       assert.equal(await page.locator('#worklistDialog').evaluate(d=>d.open),false);
+      if(viewport.width<=760){
+        // Telefonen: fliken följer med till Karta och kartan syns, inte Idag.
+        assert.equal(await page.evaluate(()=>LeakField.tab),'map');
+        assert.equal(await page.locator('#today').isVisible(),false);
+        assert.ok((await page.locator('#map').boundingBox())?.height>200,'Kartan syns på telefonen');
+      }
       const rows=await page.locator('#rows tr.row').evaluateAll(trs=>trs.map(tr=>tr.dataset.id));
       assert.deepEqual([...rows].sort(),[...picked].sort(),'Listan visar exakt arbetslistan');
       assert.match(await page.locator('#focusTitle').textContent(),/Karta · Arbetslista/);

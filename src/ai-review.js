@@ -245,6 +245,7 @@
   }
   function updateControls() {
     refreshBadge();
+    root.LeakField?.render?.();
     if (!active || !dialog.open) return;
     const daily = active.kind === 'daily', s = workspace();
     const disposition = daily && s ? dailyDisposition(s) : 'start';
@@ -378,6 +379,8 @@
     autoTimer = setTimeout(async () => {
       const s = workspace(); if (!s || s.importing || document.hidden) return;
       try {
+        // Fältlägets AI-panel behöver veta om AI finns och är aktiverat.
+        await getConfig().catch(() => null);
         if (!await loadJournal(s)) return;
         refreshContext();
         if (journal.auto) await runDaily(false);
@@ -450,6 +453,63 @@
     catch { /* import history has already been cleared */ }
     refreshBadge();
   }
-  root.LeakAI = { open, openDaily, packet, lock, onWorkspace, clearDaily, refreshBadge, refreshContext };
+  // Dagens plan i en form som fältläget kan visa: fas, AI-ordning och vad som
+  // kan läggas i arbetslistan. Läser bara; startar inget anrop.
+  function status() {
+    const s = workspace();
+    if (!s) return null;
+    const mine = owner === s.profileId;
+    const disposition = mine ? dailyDisposition(s) : 'start';
+    const report = mine ? journal.report : null;
+    const running = operation?.kind === 'daily' || disposition === 'running';
+    const current = Boolean(report && report.exportKey === exportKey(s));
+    // Ordningen gäller exporten den gjordes för. Ett beslut eller en ny
+    // kartposition ändrar underlaget men inte vilken export som granskades,
+    // så ordningen ligger kvar på Idag (dialogen visar fortfarande att
+    // underlaget har ändrats).
+    const sameExport = Boolean(report && report.exportDate && report.exportDate === dayString(s.latestExport));
+    let ranking = [], actionable = [];
+    if (sameExport && report.result) {
+      const links = new Map(report.links), review = report.result.review;
+      const cases = new Map(review.cases.map(c => [c.caseId, c]));
+      ranking = review.order.map((caseId, i) => {
+        const item = cases.get(caseId), local = links.get(caseId);
+        if (!item || !local || !s.byId.has(local.id)) return null;
+        return { id: local.id, rank: i + 1, summary: item.summary, nextCheck: item.nextChecks?.[0] || '',
+          traceable: !item.untraceable && (item.evidenceIds?.length || 0) > 0 };
+      }).filter(Boolean);
+      actionable = ReviewPlan.actionable(review, links, s.byId, s.labels);
+    }
+    const failed = mine && !sameExport && journal.attempt?.day === ReviewPlan.dayKey() && journal.attempt.status === 'failed';
+    const phase = running ? 'running' : sameExport ? (report.result ? 'ranked' : 'clear')
+      : disposition === 'done' ? 'stale' : disposition === 'retry' || failed ? 'failed' : 'idle';
+    return {
+      configured: config ? Boolean(config.configured) : null, authenticated: Boolean(config?.authenticated),
+      auto: mine && journal.auto === true, phase, changed: sameExport && !current,
+      exportIsToday: dayString(s.latestExport) === ReviewPlan.dayKey(),
+      examined: s.meters.length,
+      report: report ? { examined: report.examined, selected: report.selected, exportDate: report.exportDate } : null,
+      summary: sameExport && report.result ? report.result.review.summary || '' : '',
+      ranking, traceable: ranking.filter(r => r.traceable).length, actionable,
+      message: mine ? journal.attempt?.message || '' : '',
+    };
+  }
+  // Uttryckligt val från fältläget: kör dagens granskning nu (högst en plan per
+  // dag). Bara på dagens export: dagens enda plan får inte gå åt till gårdagens
+  // underlag. Annars öppnas dialogen, där valet görs med full förklaring.
+  function runNow() {
+    const s = workspace();
+    if (!config?.authenticated || !s || dayString(s.latestExport) !== ReviewPlan.dayKey()) { openDaily(); return Promise.resolve(); }
+    return runDaily(true);
+  }
+  async function enableAuto() {
+    const s = workspace(); if (!s) return;
+    if (!config?.authenticated) { openDaily(); return; }
+    const generation = epoch;
+    try { adopt(s.profileId, generation, await root.LeakStorage.setDailyAuto(s.profileId, true)); }
+    catch (error) { if (active?.kind === 'daily') active.message = error.message; }
+    updateControls(); onWorkspace();
+  }
+  root.LeakAI = { open, openDaily, packet, lock, onWorkspace, clearDaily, refreshBadge, refreshContext, status, runNow, enableAuto };
 }(window));
 

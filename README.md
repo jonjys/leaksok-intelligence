@@ -15,11 +15,17 @@ Mätarpanelen visar senaste brusvärde, förändring sedan föregående avläsni
 
 ## Fältläge på telefon
 
-På skärmar under 761 px startar LeakSök i fältläge. **Idag** visar hur många som är värda att lyssna på, tre block (Åk ut, Nytt 14 dagar och mätare i arbetslistan) och kort för Åk ut, områdessignaler och nya ökningar, med stort värde, ökning, minigraf och knapparna Kör hit, + Lista, Graf och Karta. Bottenmenyn har Idag, Karta, Lista och Mer. Under Mer finns import, arbetslista, arbetslistan på karta, AI-granskning, säkerhetskopia och lås. Listan **Nytt 14 dagar** visar Misstänk och Åk ut vars signal började de senaste 14 dagarna. Datorvyn är oförändrad.
+På skärmar under 761 px startar LeakSök i fältläge. **Idag** visar hur många som är värda att lyssna på, tre block (Åk ut, Nytt 14 dagar och mätare i arbetslistan) och kort för Åk ut, områdessignaler och nya ökningar, med stort värde, ökning, minigraf och knapparna Kör hit, + Lista, Graf och Karta. Bottenmenyn har Idag, Karta, Lista och Mer. Under Mer finns import, arbetslista, arbetslistan på karta, AI-granskning, säkerhetskopia och lås. Listan **Nytt 14 dagar** visar Misstänk och Åk ut vars ökning började de senaste 14 dagarna: ett nivåskifte räknas från skiftdagen, en ny signal från den förhöjda avläsningen och en gradvis ökning från där trenden börjar. En stabil nivå, en tillfällig topp eller en mätare som bara lyfts av Kamstrups rang är inte ny. Datorvyn är oförändrad.
+
+Importstatus, importlogg och lagringsfel syns överst på alla flikar, så en import på telefonen alltid svarar. Fliken följer appen: **Visa på karta** i arbetslistan, **Visa mätare** i AI-planen och en mätare vald i listan öppnar fliken Karta. Ett listval under fliken Lista behåller listan; på datorn öppnar ett listval kartan som förut. Knapparna **Visa alla** under korten öppnar den lista de räknar (Åk ut eller Nytt 14 dagar).
+
+**AI på Idag.** När AI finns på servern visar Idag en AI-panel. Utan aktivering erbjuder den **Aktivera AI**; automatisk granskning är förvald i aktiveringen. Efter dagens import går regelmotorn igenom alla mätare lokalt och Claude räknar fram kontrollordningen för kortlistan. Korten på Idag visas då i Claudes ordning med märket **AI #n** och Claudes första kontroll (**Börja här**). Ett fall utan spårbara belägg står som **Verifiera först**. **Lägg N första i listan** lägger bara fall med belägg i arbetslistan. Planen sparas lokalt och visas igen vid nästa öppning utan nytt anrop. Samma kostnadsgränser gäller som i dialogen: högst en plan per dag och arbetsyta, och automatiken körs bara när den är vald.
 
 ## Lokal lagring
 
 Varje importerad export sparas som en egen post i webbläsarens IndexedDB, och profilens huvudpost innehåller bara beslut, arbetslista och en lista över exporterna. Ett års dagliga exporter (cirka 180 filer, 500 000 rader) blir runt 155 MB och får inte plats i en enda post: Chrome tar högst cirka 133 MB per värde. Vid ny import skrivs bara nya exporter. Äldre profiler med alla exporter i en post läses som förut och delas upp vid nästa sparning.
+
+En exports nyckel är namn, datum, antal rader och revision. Om två exporter delar alla fyra, till exempel samma dags fil som exporterats igen med nya avläsningar, skiljs de åt med ett avtryck av raderna så att ingen skriver över den andra. Varje sparning läser föregående huvudpost och skriver i samma transaktion, så två flikar kan inte lämna en hänvisning till en export som den andra fliken just tagit bort. Saknas ändå en sparad export öppnas profilen med beslut och arbetslista, och appen säger hur många exporter som behöver importeras igen.
 
 ## Automatisk mappimport
 

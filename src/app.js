@@ -40,11 +40,15 @@
     { key: "hidden", label: "Dolda", test: () => true, more: true },
   ];
   const LIST = Object.fromEntries(LISTS.map((l) => [l.key, l]));
-  // När började signalen? Nivåskifte: skiftdagen. Ny signal: första förhöjda
-  // avläsningen. Gradvis ökning: slutet av referensperioden.
+  // När började ökningen? Bara den ökning motorn godkände (upFinding) räknas:
+  // en ökning inom mätarens eget mönster eller under Kamstrups långa snitt har
+  // ingen start här. Nivåskifte: skiftdagen. Ny signal: den förhöjda
+  // avläsningen. Gradvis ökning: där trenden börjar. En mätare som bara lyfts
+  // av Kamstrups rang eller en kod är alltså inte "ny" för att historiken är kort.
   function onsetOf(m) {
-    const f = m.finding || {};
-    const at = f.onset?.at || (f.type === "trend" ? f.ref?.to : f.now?.from);
+    const f = m.upFinding;
+    if (!f) return null;
+    const at = f.type === "level_shift" ? f.onset?.at : f.type === "new_signal" ? f.now?.from : f.type === "trend" ? f.ref?.to : null;
     return at instanceof Date && !Number.isNaN(+at) ? at : null;
   }
   const FRESH_DAYS = 14;
@@ -176,6 +180,7 @@
     if (!els.profileDialog.open) els.profileDialog.showModal();
   }
   els.profileDialog.addEventListener("cancel", (e) => e.preventDefault());
+  let missingOnLoad = 0;
   els.profileForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const name = els.profileName.value.trim();
@@ -194,6 +199,7 @@
       els.profileStatus.textContent = "Öppnar historik…";
       const snapshot = await LeakStorage.load(state.profileId);
       if (snapshot) {
+        missingOnLoad = snapshot.missing || 0;
         state.files = hydrateFiles(snapshot.files);
         state.historyDirty = false;
         state.tripList = Array.isArray(snapshot.tripList) ? snapshot.tripList : [];
@@ -214,6 +220,13 @@
     }
     reanalyze(true);
     if (state.files.length) setImportStatus(`${state.files.length} exporter i historiken · ${state.meters.length.toLocaleString("sv-SE")} mätare.`);
+    if (missingOnLoad) {
+      // Profilen öppnas ändå: beslut och arbetslista ska aldrig låsas ute.
+      const text = `${missingOnLoad} sparade exporter saknades på enheten och kunde inte läsas. Importera dem igen eller återställ en säkerhetskopia.`;
+      setImportStatus(`${state.files.length} exporter i historiken · ${text}`);
+      toast(text);
+      missingOnLoad = 0;
+    }
     window.LeakAI?.onWorkspace();
     await folderImport.open(state.profileId);
   });
@@ -905,6 +918,8 @@
     if (scroll && window.matchMedia("(max-width: 760px)").matches) {
       els.focus.scrollIntoView({ behavior: "smooth", block: "start" });
     }
+    // Fältläget: en vald mätare visas på kartan, så fliken Karta följer med.
+    if (id) window.LeakField?.show(state.view);
   }
 
   function openChart(id) {
@@ -1155,7 +1170,7 @@
     getComment: (id) => state.labels[id]?.comment ?? state.labels[id]?.note ?? "",
     setComment: (id, text) => { setComment(id, text); },
     persist: () => persist(), onChange: () => render(), notify: (t) => toast(t),
-    onShowMap: () => setList("worklist"),
+    onShowMap: () => setList("worklist", null, "map"),
   });
   function addToWorklist(ids) {
     const { added, already } = worklist.add(ids);
@@ -1325,18 +1340,23 @@
   $("rail").addEventListener("change", (e) => { if (e.target.id === "listSelect") setList(e.target.value); });
   els.rail.addEventListener("pointerleave", () => els.rail.classList.remove("is-dismissed"));
 
-  function setList(key, lane = null) {
+  // Datorn visar listan bredvid kartan, så ett listval öppnar kartan. I
+  // fältläget på telefon är Lista och Karta egna flikar: där behålls vyn om
+  // inget annat begärs.
+  function setList(key, lane = null, view = null) {
     if (!LIST[key]) return;
     clearTimeout(focusTimer);
     state.list = key;
     state.fieldLane = key === "dispatch" ? lane : null;
-    state.view = "map";
+    const fieldMode = Boolean(window.LeakField) && document.body.classList.contains("field-mode");
+    state.view = view === "list" || view === "map" ? view : fieldMode ? state.view : "map";
     try { localStorage.setItem(VIEW_KEY, state.view); } catch { /* optional */ }
     state.page = 1;
     if (!state.marked.has(state.focusId) || !state.byId.has(state.focusId)) state.focusId = "";
     focusRequest++;
     lastMapKey = "";
     render();
+    if (view) window.LeakField?.show(state.view);
   }
 
   // Window resize: keep selection and scroll; redraw only the row graphs when their

@@ -3,27 +3,42 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 
-// Minimal in-memory IndexedDB with explicit transaction completion.
+// Minimal in-memory IndexedDB with explicit transaction completion. Like a
+// browser, read/write transactions run one at a time: a later one's requests
+// see what an earlier one committed. Read-only ones read committed data.
 function fakeIndexedDB({ failNext = false } = {}) {
   const data = new Map();
   const control = { failNext, pending: [] };
+  let writer = Promise.resolve();
   const db = {
     close() {},
-    transaction() {
-      const staged = [];
+    transaction(_store, mode = "readonly") {
+      const staged = [], waiting = [];
+      let started = false, aborted = false;
+      const request = (fn) => { if (started) queueMicrotask(fn); else waiting.push(fn); };
       const tx = {
+        abort() { aborted = true; },
         objectStore: () => ({
           put(value, key) { staged.push(["put", key, value]); return {}; },
           delete(key) { staged.push(["delete", key]); return {}; },
-          get(key) { const req = {}; queueMicrotask(() => req.onsuccess?.({ target: { result: data.get(key) } })); return req; },
+          get(key) { const req = {}; request(() => req.onsuccess?.({ target: { result: data.get(key) } })); return req; },
+          count(key) { const req = {}; request(() => req.onsuccess?.({ target: { result: data.has(key) ? 1 : 0 } })); return req; },
         }),
       };
-      control.pending.push(() => {
-        if (control.failNext) { control.failNext = false; tx.error = new Error("quota"); tx.onabort(); return; }
-        for (const [op, key, value] of staged) op === "put" ? data.set(key, value) : data.delete(key);
-        tx.oncomplete();
+      const start = () => new Promise((finished) => {
+        started = true;
+        waiting.splice(0).forEach((fn) => queueMicrotask(fn));
+        control.pending.push(() => {
+          if (aborted || control.failNext) {
+            if (!aborted) { control.failNext = false; tx.error = new Error("quota"); }
+            tx.onabort(); finished(); return;
+          }
+          for (const [op, key, value] of staged) op === "put" ? data.set(key, value) : data.delete(key);
+          tx.oncomplete(); finished();
+        });
+        setTimeout(() => control.pending.shift()?.(), 0);
       });
-      setTimeout(() => control.pending.shift()?.(), 0);
+      if (mode === "readwrite") writer = writer.then(start); else queueMicrotask(start);
       return tx;
     },
   };
@@ -126,13 +141,12 @@ test("misslyckad historiksparning lämnar förra versionen orörd", async () => 
   const fake = fakeIndexedDB(), storage = load(fake);
   await storage.saveAll("p", { files: [{ name: "a.xlsx", rows: [1] }], labels: {}, tripList: [] });
   const before = new Map(fake.data);
-  const reads = fake.control;
-  // Läsningen går igenom, skrivningen avbryts.
-  const failWrite = () => { reads.failNext = true; };
+  // Läsning och skrivning är samma transaktion; avbryts den sparas ingenting.
+  fake.control.failNext = true;
   const save = storage.saveAll("p", { files: [{ name: "a.xlsx", rows: [1] }, { name: "b.xlsx", rows: [2] }], labels: {}, tripList: [] });
-  await new Promise((r) => setTimeout(r, 2)); failWrite();
   await assert.rejects(save, /quota/);
   assert.deepEqual([...fake.data.keys()].sort(), [...before.keys()].sort());
+  assert.deepEqual(fake.data.get("p"), before.get("p"));
 });
 
 test("rensning tar bort alla sparade exporter för profilen", async () => {
@@ -152,4 +166,103 @@ test("en kompletterad export (ny revision) skrivs om", async () => {
   const loaded = await load(fake).load("p");
   assert.equal(loaded.files[0].rows[0].interestRank, 2);
   assert.equal([...fake.data.keys()].filter((k) => k.includes("::file::")).length, 1, "Gamla revisionen raderas");
+});
+
+// Samma dags export, exporterad igen med andra avläsningar: samma namn, datum
+// och antal rader. Appen behåller båda; ingen av dem får skriva över den andra.
+const morning = { name: "Leaksok 2026-11-01.xlsx", exportDate: new Date("2026-11-01T00:00:00Z"), rows: [{ id: "a", current: 10 }, { id: "b", current: 20 }] };
+const afternoon = { ...morning, rows: [{ id: "a", current: 55 }, { id: "b", current: 21 }] };
+const readings = (files) => [...files].map((f) => f.rows.map((r) => r.current).join("/")).sort();
+
+test("två exporter med samma namn, datum och storlek överlever båda en omladdning", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  await storage.saveAll("p", { files: [morning], labels: {}, tripList: [] });
+  await storage.saveAll("p", { files: [morning, afternoon], labels: {}, tripList: [] });
+  const keys = fake.data.get("p").fileKeys;
+  assert.equal(new Set(keys).size, 2, "Två olika nycklar");
+  assert.deepEqual(readings((await load(fake).load("p")).files), ["10/20", "55/21"]);
+  // Båda nya i samma sparning.
+  const fresh = fakeIndexedDB(), other = load(fresh);
+  await other.saveAll("p", { files: [morning, afternoon], labels: {}, tripList: [] });
+  assert.deepEqual(readings((await load(fresh).load("p")).files), ["10/20", "55/21"]);
+  // Samma innehåll ger samma nyckel: en omladdning skriver inte om något.
+  const reloaded = await load(fresh).load("p");
+  const puts = [], set = fresh.data.set.bind(fresh.data);
+  fresh.data.set = (key, value) => { puts.push(key); return set(key, value); };
+  await other.saveAll("p", { files: reloaded.files, labels: {}, tripList: [] });
+  assert.equal(puts.filter((k) => k.includes("::file::")).length, 0);
+});
+
+test("en export utan namnkrock behåller sin nyckel och skrivs inte om", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  assert.deepEqual([...storage.fileKeys("p", [morning])], ["p::file::Leaksok 2026-11-01.xlsx|2026-11-01T00:00:00.000Z|2|r0"]);
+  const [a, b] = storage.fileKeys("p", [morning, afternoon]);
+  assert.notEqual(a, b);
+  const [c, d] = storage.fileKeys("p", [morning, morning]);
+  assert.notEqual(c, d, "Även identiska exporter får var sin nyckel");
+});
+
+test("två flikar som sparar samtidigt lämnar aldrig en hänvisning till en raderad export", async () => {
+  const fake = fakeIndexedDB(), tabA = load(fake), tabB = load(fake);
+  const x = { name: "x.xlsx", exportDate: "2026-11-01", rows: [{ id: "a", interestRank: null }] };
+  const y = { name: "y.xlsx", exportDate: "2026-11-02", rows: [{ id: "a", interestRank: null }] };
+  await tabA.saveAll("p", { files: [x], labels: {}, tripList: [] });
+  // A kompletterar x (ny revision), B lägger till y med gamla x i minnet.
+  await Promise.all([
+    tabA.saveAll("p", { files: [{ ...x, rows: [{ id: "a", interestRank: 2 }], revision: 1 }], labels: {}, tripList: [] }),
+    tabB.saveAll("p", { files: [x, y], labels: {}, tripList: [] }),
+  ]);
+  for (const key of fake.data.get("p").fileKeys) assert.ok(fake.data.has(key), `${key} finns`);
+  const loaded = await load(fake).load("p");
+  assert.equal(loaded.missing, 0);
+  assert.equal(loaded.files.length, fake.data.get("p").fileKeys.length);
+});
+
+test("saknade exporter låser inte ute profilen; beslut och arbetslista öppnas", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  await storage.saveAll("p", { files: [morning, { ...morning, name: "b.xlsx" }], labels: { a: { type: "leak" } }, tripList: [{ id: "a" }] });
+  fake.data.delete(fake.data.get("p").fileKeys[1]);
+  const loaded = await load(fake).load("p");
+  assert.equal(loaded.missing, 1);
+  assert.equal(loaded.files.length, 1);
+  assert.equal(loaded.labels.a.type, "leak");
+  assert.equal(loaded.tripList.length, 1);
+});
+
+test("en huvudpost från förra versionen med samma nyckel två gånger repareras vid laddning", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  const key = storage.fileKeys("p", [morning])[0];
+  fake.data.set(key, morning);
+  fake.data.set("p", { labels: {}, tripList: [], savedAt: "2026-11-25T10:00:00Z", fileKeys: [key, key] });
+  const loaded = await storage.load("p");
+  assert.equal(loaded.files.length, 1);
+  assert.equal(loaded.missing, 0);
+});
+
+test("en saknad export som importeras igen sparas och finns efter omladdning", async () => {
+  const fake = fakeIndexedDB(), storage = load(fake);
+  const b = { ...morning, name: "b.xlsx" };
+  await storage.saveAll("p", { files: [morning, b], labels: {}, tripList: [] });
+  const lost = fake.data.get("p").fileKeys[1];
+  fake.data.delete(lost);
+  const opened = await load(fake).load("p");
+  assert.equal(opened.missing, 1);
+  // Användaren importerar b igen: samma nyckel som huvudposten redan listar.
+  await storage.saveAll("p", { files: [...opened.files, b], labels: {}, tripList: [] });
+  assert.ok(fake.data.has(lost), "Den återimporterade exporten skrevs");
+  const reloaded = await load(fake).load("p");
+  assert.equal(reloaded.missing, 0);
+  assert.equal(reloaded.files.length, 2);
+});
+
+test("laddning under en annan fliks sparning ser antingen före eller efter, aldrig en saknad export", async () => {
+  const fake = fakeIndexedDB(), tabA = load(fake), tabB = load(fake);
+  const x = { name: "x.xlsx", exportDate: "2026-11-01", rows: [{ id: "a", interestRank: null }] };
+  await tabA.saveAll("p", { files: [x], labels: {}, tripList: [] });
+  const [opened] = await Promise.all([
+    tabA.load("p"),
+    tabB.saveAll("p", { files: [{ ...x, rows: [{ id: "a", interestRank: 2 }], revision: 1 }], labels: {}, tripList: [] }),
+  ]);
+  assert.equal(opened.missing, 0);
+  assert.equal(opened.files.length, 1);
 });
