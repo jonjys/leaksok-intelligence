@@ -193,7 +193,9 @@
     } else if (ai.phase === "ranked") {
       const r = ai.report;
       const strip = `<div class="today-ai-strip"><span><b>${num(r.examined)}</b> genomgångna</span><span><b>${num(r.selected)}</b> hos Claude</span><span><b>${num(ai.traceable)}</b> med belägg</span></div>`;
-      const note = ai.changed ? `<p class="today-ai-note">Gjord före dina senaste beslut eller nya kartpositioner. Dina beslut gäller; ordningen är Claudes från i morse.</p>` : "";
+      const made = Date.parse(r.createdAt || "");
+      const when = Number.isFinite(made) ? ` från ${stampFmt.format(new Date(made))}` : "";
+      const note = ai.changed ? `<p class="today-ai-note">Gjord före dina senaste beslut eller nya kartpositioner. Dina beslut gäller; ordningen är Claudes${esc(when)}.</p>` : "";
       html = head(`AI-ordning · export ${r.exportDate}`, ranks.size ? `${num(Math.min(ranks.size, MAX_CARDS))} i AI-ordning nedan` : "Ingen av AI-fallen är kvar i listorna",
         clip(ai.summary, 220),
         `${ai.actionable.length ? button("ai-add", `Lägg ${ai.actionable.length} första i listan`, "dark") : ""}${button("ai-open", "Hela planen")}`, strip + note);
